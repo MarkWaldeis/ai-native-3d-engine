@@ -13,6 +13,9 @@ headless render → PNG screenshot back to the agent.
 
 *`cargo run -- --demo docs/demo.png` — real wgpu headless output.*
 
+> 📐 Original design doc (German, by Gemini): [docs/masterplan.md](docs/masterplan.md) —
+> the multi-agent architecture this workspace was built from.
+
 ## Workspace layout
 
 ```
