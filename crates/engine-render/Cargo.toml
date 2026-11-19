@@ -1,0 +1,15 @@
+[package]
+name = "engine-render"
+version = "0.1.0"
+edition = "2021"
+description = "wgpu headless renderer with base64 PNG framebuffer capture"
+
+[dependencies]
+shared = { path = "../../shared" }
+engine-geo = { path = "../engine-geo" }
+wgpu = "25"
+pollster = "0.4"
+bytemuck = "1"
+image = { version = "0.25", default-features = false, features = ["png"] }
+base64 = "0.22"
+anyhow = "1"

@@ -1,0 +1,26 @@
+[package]
+name = "ai-engine"
+version = "0.1.0"
+edition = "2021"
+description = "AI-native 3D game engine prototype (v0.1 vertical slice)"
+
+[workspace]
+members = [
+    "shared",
+    "crates/engine-core",
+    "crates/engine-render",
+    "crates/engine-mcp",
+    "crates/engine-geo",
+    "crates/asset-pipeline",
+    "crates/engine-tests",
+]
+
+[dependencies]
+shared = { path = "shared" }
+engine-core = { path = "crates/engine-core" }
+engine-render = { path = "crates/engine-render" }
+engine-mcp = { path = "crates/engine-mcp" }
+engine-geo = { path = "crates/engine-geo" }
+asset-pipeline = { path = "crates/asset-pipeline" }
+serde_json = "1"
+anyhow = "1"

@@ -1,0 +1,9 @@
+[package]
+name = "engine-mcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP stdio server: newline-delimited JSON-RPC framing + tool dispatch"
+
+[dependencies]
+shared = { path = "../../shared" }
+serde_json = "1"

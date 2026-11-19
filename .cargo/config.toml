@@ -1,0 +1,9 @@
+# Windows-GNU toolchain fix:
+# - Linking must use rust's self-contained gcc (knows where libgcc_eh.a etc. live).
+# - windows-sys/libloading build scripts still need a real `dlltool` + `as`
+#   on PATH (rust's bundled dlltool can't spawn an assembler).
+#   -> Put a MinGW bin dir (e.g. C:\Users\Mark Waldeis\tools\w64devkit\w64devkit\bin)
+#      on PATH before building.
+
+[target.x86_64-pc-windows-gnu]
+linker = "C:\\Users\\Mark Waldeis\\.rustup\\toolchains\\stable-x86_64-pc-windows-gnu\\lib\\rustlib\\x86_64-pc-windows-gnu\\bin\\self-contained\\x86_64-w64-mingw32-gcc.exe"

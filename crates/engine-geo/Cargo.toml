@@ -1,0 +1,8 @@
+[package]
+name = "engine-geo"
+version = "0.1.0"
+edition = "2021"
+description = "Procedural mesh generators and CSG-lite shapes"
+
+[dependencies]
+shared = { path = "../../shared" }
