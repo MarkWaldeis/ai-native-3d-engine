@@ -50,8 +50,12 @@ crates/
 | `set_camera` | position / target / fov |
 | `get_screenshot` | headless render → base64 PNG (`content[].type = "image"`) |
 | `save_scene` / `load_scene` | persist scene to/from `.json` |
+| `get_revision` | current world revision (concurrency token) |
+| `rollback` | restore scene to an earlier revision |
 | `list_assets` | list files in `assets/` |
 | `run_blender_script` | headless Blender → generated GLB assets land in `assets/` |
+
+Every mutating tool accepts an optional `expected_revision` integer.
 
 ## Quickstart
 
@@ -78,6 +82,13 @@ Example session (one JSON object per line):
 - **Plain-JSON scene**: `shared::scene::Scene` is the single source of truth,
   serializable, diffable, and loadable — a world state agents can read and
   reason about directly.
+- **Deterministic conflict resolution**: mutations are serialized by the
+  single-threaded stdio loop (line order = canonical order). On top of that,
+  `expected_revision` adds optimistic concurrency — when two agents read the
+  same revision and both mutate, the first wins and the second gets a
+  `revision conflict` error and must re-read. Every mutation records a
+  per-revision `Scene` snapshot (ring of 64), so `rollback` restores any
+  recent state while the revision counter stays monotonic.
 - **Deterministic + fast**: spawn→state round-trip < 100 ms (asserted in tests);
   world `revision` counter acts as a render dirty-flag.
 - **Headless rendering**: wgpu renders off-screen with no window — works on a

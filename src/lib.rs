@@ -117,8 +117,24 @@ fn id_of(args: &Value) -> Result<u64, String> {
         .ok_or_else(|| "missing integer arg 'id'".to_string())
 }
 
+fn expected_rev(args: &Value) -> Option<u64> {
+    args.get("expected_revision").and_then(|v| v.as_u64())
+}
+
+impl Engine {
+    /// Route a mutation through the optimistic-concurrency gate when the
+    /// caller supplied `expected_revision`, otherwise apply directly.
+    fn apply_cmd(&mut self, cmd: Command, expected: Option<u64>) -> anyhow::Result<Value> {
+        match expected {
+            Some(rev) => self.world.apply_expected(rev, cmd),
+            None => self.world.apply(cmd),
+        }
+    }
+}
+
 impl ToolHandler for Engine {
     fn handle(&mut self, name: &str, args: &Value) -> Result<Value, String> {
+        let expected = expected_rev(args);
         let r = (|| -> anyhow::Result<Value> {
             match name {
                 "get_scene_state" => Ok(text_result(
@@ -137,12 +153,12 @@ impl ToolHandler for Engine {
                         .and_then(|n| n.as_str())
                         .unwrap_or("entity")
                         .to_string();
-                    let v = self.world.apply(Command::SpawnPrimitive {
+                    let v = self.apply_cmd(Command::SpawnPrimitive {
                         name,
                         kind,
                         transform: t,
                         color,
-                    })?;
+                    }, expected)?;
                     Ok(text_result(v.to_string()))
                 }
                 "set_transform" => {
@@ -158,19 +174,19 @@ impl ToolHandler for Engine {
                         scale: arr3(args.get("scale"), cur.scale),
                     };
                     Ok(text_result(
-                        self.world.apply(Command::SetTransform { id, transform: t })?.to_string(),
+                        self.apply_cmd(Command::SetTransform { id, transform: t }, expected)?.to_string(),
                     ))
                 }
                 "set_color" => {
                     let id = id_of(args).map_err(anyhow::Error::msg)?;
                     let color = arr4(args.get("color"), [0.8; 4]);
                     Ok(text_result(
-                        self.world.apply(Command::SetColor { id, color })?.to_string(),
+                        self.apply_cmd(Command::SetColor { id, color }, expected)?.to_string(),
                     ))
                 }
                 "remove_entity" => {
                     let id = id_of(args).map_err(anyhow::Error::msg)?;
-                    Ok(text_result(self.world.apply(Command::Remove { id })?.to_string()))
+                    Ok(text_result(self.apply_cmd(Command::Remove { id }, expected)?.to_string()))
                 }
                 "set_camera" => {
                     let c = self.world.scene.camera;
@@ -180,7 +196,7 @@ impl ToolHandler for Engine {
                         fov_deg: num(args.get("fov_deg"), c.fov_deg),
                     };
                     Ok(text_result(
-                        self.world.apply(Command::SetCamera { camera: cam })?.to_string(),
+                        self.apply_cmd(Command::SetCamera { camera: cam }, expected)?.to_string(),
                     ))
                 }
                 "get_screenshot" => {
@@ -203,7 +219,17 @@ impl ToolHandler for Engine {
                 "load_scene" => {
                     let p = args.get("path").and_then(|p| p.as_str()).unwrap_or("scene.json");
                     Ok(text_result(
-                        self.world.apply(Command::LoadScene { path: p.into() })?.to_string(),
+                        self.apply_cmd(Command::LoadScene { path: p.into() }, expected)?.to_string(),
+                    ))
+                }
+                "get_revision" => Ok(text_result(self.world.revision.to_string())),
+                "rollback" => {
+                    let rev = args
+                        .get("revision")
+                        .and_then(|v| v.as_u64())
+                        .ok_or_else(|| anyhow::Error::msg("missing integer arg 'revision'"))?;
+                    Ok(text_result(
+                        self.apply_cmd(Command::Rollback { revision: rev }, expected)?.to_string(),
                     ))
                 }
                 "list_assets" => Ok(text_result(self.pipeline.list_assets().join("\n"))),

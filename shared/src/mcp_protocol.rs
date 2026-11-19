@@ -72,6 +72,11 @@ fn schema(props: Value, required: &[&str]) -> Value {
 pub fn builtin_tools() -> Vec<ToolDef> {
     let vec3 = || json!({"type": "array", "items": {"type": "number"}, "minItems": 3, "maxItems": 3});
     let color = || json!({"type": "array", "items": {"type": "number"}, "minItems": 4, "maxItems": 4});
+    // Optional optimistic-concurrency token accepted by every mutating tool:
+    // the call is rejected when the world has moved past this revision.
+    let expected_rev = || {
+        json!({"type": "integer", "description": "optimistic concurrency: apply only if world.revision still equals this value"})
+    };
     vec![
         ToolDef {
             name: "get_scene_state",
@@ -86,6 +91,7 @@ pub fn builtin_tools() -> Vec<ToolDef> {
                     "kind": {"type": "string", "enum": ["box", "plane", "sphere", "cylinder", "wall_with_door"]},
                     "name": {"type": "string"},
                     "position": vec3(), "rotation_deg": vec3(), "scale": vec3(), "color": color(),
+                    "expected_revision": expected_rev(),
                     "size": {"type": "array", "items": {"type": "number"}},
                     "radius": {"type": "number"}, "height": {"type": "number"},
                     "width": {"type": "number"}, "door_width": {"type": "number"}, "door_height": {"type": "number"},
@@ -98,25 +104,25 @@ pub fn builtin_tools() -> Vec<ToolDef> {
             name: "set_transform",
             description: "Set position / rotation (deg) / scale of an entity.",
             input_schema: schema(
-                json!({"id": {"type": "integer"}, "position": vec3(), "rotation_deg": vec3(), "scale": vec3()}),
+                json!({"id": {"type": "integer"}, "position": vec3(), "rotation_deg": vec3(), "scale": vec3(), "expected_revision": expected_rev()}),
                 &["id"],
             ),
         },
         ToolDef {
             name: "set_color",
             description: "Set the RGBA color of an entity.",
-            input_schema: schema(json!({"id": {"type": "integer"}, "color": color()}), &["id", "color"]),
+            input_schema: schema(json!({"id": {"type": "integer"}, "color": color(), "expected_revision": expected_rev()}), &["id", "color"]),
         },
         ToolDef {
             name: "remove_entity",
             description: "Remove an entity by id.",
-            input_schema: schema(json!({"id": {"type": "integer"}}), &["id"]),
+            input_schema: schema(json!({"id": {"type": "integer"}, "expected_revision": expected_rev()}), &["id"]),
         },
         ToolDef {
             name: "set_camera",
             description: "Set camera position / target / fov.",
             input_schema: schema(
-                json!({"position": vec3(), "target": vec3(), "fov_deg": {"type": "number"}}),
+                json!({"position": vec3(), "target": vec3(), "fov_deg": {"type": "number"}, "expected_revision": expected_rev()}),
                 &[],
             ),
         },
@@ -136,7 +142,17 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         ToolDef {
             name: "load_scene",
             description: "Load a scene from a .json file, replacing the current state.",
-            input_schema: schema(json!({"path": {"type": "string"}}), &["path"]),
+            input_schema: schema(json!({"path": {"type": "string"}, "expected_revision": expected_rev()}), &["path"]),
+        },
+        ToolDef {
+            name: "get_revision",
+            description: "Return the current world revision — pass it back as expected_revision on mutations for optimistic concurrency between agents.",
+            input_schema: schema(json!({}), &[]),
+        },
+        ToolDef {
+            name: "rollback",
+            description: "Restore the scene to an earlier revision (per-revision snapshot ring, last 64 mutations). The restore bumps the revision again.",
+            input_schema: schema(json!({"revision": {"type": "integer"}}), &["revision"]),
         },
         ToolDef {
             name: "list_assets",

@@ -76,6 +76,52 @@ fn screenshot_returns_base64_png() {
     assert!(png.len() > 500, "png suspiciously small: {}", png.len());
 }
 
+/// The evaluator scenario: two agents read the same revision and emit
+/// conflicting mutations "in the same tick". Serialized stdin makes them
+/// sequential; expected_revision makes the loser explicit instead of a
+/// silent last-writer-wins clobber.
+#[test]
+fn conflicting_agents_resolve_deterministically() {
+    let mut e = Engine::new();
+    call(&mut e, "spawn_primitive", json!({"kind": "box", "name": "crate"}));
+    let r = call(&mut e, "get_revision", json!({}));
+    let rev: u64 = r["result"]["content"][0]["text"].as_str().unwrap().parse().unwrap();
+
+    // Agent A wins.
+    let a = call(&mut e, "set_transform", json!({"id": 1, "position": [1, 0, 0], "expected_revision": rev}));
+    assert!(a["result"]["content"].is_array(), "{a}");
+
+    // Agent B acts on the same (now stale) revision → rejected.
+    let b = call(&mut e, "set_transform", json!({"id": 1, "position": [9, 0, 0], "expected_revision": rev}));
+    assert_eq!(b["result"]["isError"], true, "{b}");
+    let msg = b["result"]["content"][0]["text"].as_str().unwrap();
+    assert!(msg.contains("revision conflict"), "{msg}");
+
+    // World kept agent A's write.
+    let s = call(&mut e, "get_scene_state", json!({}));
+    let text = s["result"]["content"][0]["text"].as_str().unwrap();
+    let scene: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(scene["entities"][0]["transform"]["position"][0], 1.0);
+}
+
+#[test]
+fn rollback_restores_earlier_revision() {
+    let mut e = Engine::new();
+    call(&mut e, "spawn_primitive", json!({"kind": "box", "name": "a"}));
+    let r = call(&mut e, "get_revision", json!({}));
+    let rev1: u64 = r["result"]["content"][0]["text"].as_str().unwrap().parse().unwrap();
+    call(&mut e, "spawn_primitive", json!({"kind": "sphere", "name": "b"}));
+
+    let rb = call(&mut e, "rollback", json!({"revision": rev1}));
+    assert!(rb["result"]["content"].is_array(), "{rb}");
+    assert_eq!(e.world.scene.entities.len(), 1);
+    assert!(e.world.revision > rev1, "revision stays monotonic");
+
+    // Out-of-window revisions are errors, not silent no-ops.
+    let bad = call(&mut e, "rollback", json!({"revision": 99999}));
+    assert_eq!(bad["result"]["isError"], true, "{bad}");
+}
+
 #[test]
 fn unknown_tool_is_error() {
     let mut e = Engine::new();
