@@ -156,6 +156,22 @@ pub fn builtin_tools() -> Vec<ToolDef> {
             input_schema: schema(json!({"revision": {"type": "integer"}}), &["revision"]),
         },
         ToolDef {
+            name: "apply_batch",
+            description: "Apply several mutating commands atomically in one call — the engine's 'tick'. Commands execute in array order; on error the batch stops (earlier commands stay applied). Each entry: {\"tool\": \"<name>\", \"arguments\": {...}}.",
+            input_schema: schema(
+                json!({
+                    "commands": {
+                        "type": "array",
+                        "items": {"type": "object", "properties": {
+                            "tool": {"type": "string"},
+                            "arguments": {"type": "object"}
+                        }, "required": ["tool"]},
+                    }
+                }),
+                &["commands"],
+            ),
+        },
+        ToolDef {
             name: "list_assets",
             description: "List files in the assets/ directory.",
             input_schema: schema(json!({}), &[]),

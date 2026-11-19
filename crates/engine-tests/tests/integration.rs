@@ -156,6 +156,34 @@ fn spawn_gltf_asset() {
     assert!(png.len() > 500, "png suspiciously small: {}", png.len());
 }
 
+/// apply_batch = the engine's "tick": several commands atomically in one
+/// JSON-RPC call, executed in array order.
+#[test]
+fn batch_applies_commands_atomically() {
+    let mut e = Engine::new();
+    let rev_before = e.world.revision;
+    let r = call(&mut e, "apply_batch", json!({"commands": [
+        {"tool": "spawn_primitive", "arguments": {"kind": "box", "name": "a"}},
+        {"tool": "spawn_primitive", "arguments": {"kind": "sphere", "name": "b"}},
+        {"tool": "set_transform", "arguments": {"id": 2, "position": [3, 0, 0]}},
+    ]}));
+    assert!(r["result"]["content"].is_array(), "{r}");
+    assert_eq!(e.world.scene.entities.len(), 2);
+    assert_eq!(e.world.entity(2).unwrap().transform.position[0], 3.0);
+    assert!(e.world.revision > rev_before);
+
+    // A failing entry stops the batch deterministically, earlier wins stay.
+    let bad = call(&mut e, "apply_batch", json!({"commands": [
+        {"tool": "spawn_primitive", "arguments": {"kind": "box", "name": "c"}},
+        {"tool": "set_transform", "arguments": {"id": 999, "position": [0, 0, 0]}},
+        {"tool": "spawn_primitive", "arguments": {"kind": "box", "name": "d"}},
+    ]}));
+    assert_eq!(bad["result"]["isError"], true, "{bad}");
+    assert_eq!(bad["result"]["applied"], 1);
+    assert_eq!(e.world.scene.entities.len(), 3, "entity c stayed, d never ran");
+    assert!(e.world.scene.entities.iter().all(|e| e.name != "d"));
+}
+
 #[test]
 fn unknown_tool_is_error() {
     let mut e = Engine::new();

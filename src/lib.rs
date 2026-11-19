@@ -5,7 +5,7 @@ use asset_pipeline::AssetPipeline;
 use engine_core::{Command, World};
 use engine_mcp::ToolHandler;
 use engine_render::Renderer;
-use serde_json::Value;
+use serde_json::{json, Value};
 use shared::mcp_protocol::{image_result, text_result};
 use shared::scene::{Camera, PrimitiveKind, Transform};
 use std::path::{Path, PathBuf};
@@ -237,6 +237,31 @@ impl ToolHandler for Engine {
                     Ok(text_result(
                         self.apply_cmd(Command::LoadScene { path: p.into() }, expected)?.to_string(),
                     ))
+                }
+                "apply_batch" => {
+                    let cmds = args
+                        .get("commands")
+                        .and_then(|c| c.as_array())
+                        .ok_or_else(|| anyhow::Error::msg("missing array arg 'commands'"))?;
+                    let mut results = Vec::with_capacity(cmds.len());
+                    for c in cmds {
+                        let tool = c.get("tool").and_then(|t| t.as_str()).unwrap_or("");
+                        if tool == "apply_batch" {
+                            anyhow::bail!("nested apply_batch is not allowed");
+                        }
+                        let sub_args = c.get("arguments").cloned().unwrap_or(json!({}));
+                        match self.handle(tool, &sub_args) {
+                            Ok(v) => results.push(v),
+                            Err(e) => {
+                                return Ok(json!({
+                                    "content": [{"type": "text", "text": format!("batch stopped at command {} ({tool}): {e}", results.len())}],
+                                    "isError": true,
+                                    "applied": results.len(),
+                                }));
+                            }
+                        }
+                    }
+                    Ok(json!({"content": [{"type": "text", "text": serde_json::to_string(&results)?}]}))
                 }
                 "get_revision" => Ok(text_result(self.world.revision.to_string())),
                 "rollback" => {
