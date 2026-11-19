@@ -3,6 +3,9 @@ name = "ai-engine"
 version = "0.1.0"
 edition = "2021"
 description = "AI-native 3D game engine prototype (v0.1 vertical slice)"
+license = "MIT"
+repository = "https://github.com/MarkWaldeis/ai-native-3d-engine"
+keywords = ["game-engine", "mcp", "wgpu", "ecs", "ai"]
 
 [workspace]
 members = [
