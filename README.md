@@ -1,5 +1,7 @@
 # ai-native-3d-engine
 
+[![CI](https://github.com/MarkWaldeis/ai-native-3d-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/MarkWaldeis/ai-native-3d-engine/actions/workflows/ci.yml)
+
 An AI-native 3D game engine prototype written in Rust. The engine runs as an
 **MCP stdio server**: AI agents (Claude Code, Devin, Poke, …) connect over
 newline-delimited JSON-RPC and drive the engine through typed tools — spawn

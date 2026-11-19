@@ -29,9 +29,18 @@ Danach: `cargo build` / `cargo build --release` / `cargo test --workspace`.
 
 ## Tools (MCP)
 
-`get_scene_state, spawn_primitive (box|plane|sphere|cylinder|wall_with_door),
+`get_scene_state, spawn_primitive (box|plane|sphere|cylinder|wall_with_door|gltf),
 set_transform, set_color, remove_entity, set_camera, get_screenshot (base64 PNG),
-save_scene, load_scene, list_assets, run_blender_script`
+save_scene, load_scene, get_revision, rollback, list_assets, run_blender_script`
+
+- Mutations-Tools akzeptieren optional `expected_revision` (optimistic
+  concurrency, CAS in `World::apply_expected`) — Konflikt → `revision conflict`.
+- `rollback {revision}` restauriert Szenenstand aus dem Snapshot-Ring (64).
+- `spawn_primitive kind:"gltf" path:"x.glb"` lädt GLBs (relativ → `assets/`).
+  Beim Blender-Export: `--factory-startup`-Szene enthält Default-Cube/Light/Cam
+  — vor dem Export `select_all` + `delete` ausführen, sonst landet der Cube
+  mit im GLB (siehe assets/suzanne.glb-Gen-Skript).
+- `ai-engine --demo out.png [scene.json]` rendert auch gespeicherte Szenen.
 
 Blender: `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe` —
 wird mit `--factory-startup` gestartet (siehe agent-memory `blender-52-headless`:
