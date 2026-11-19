@@ -6,3 +6,5 @@ description = "Procedural mesh generators and CSG-lite shapes"
 
 [dependencies]
 shared = { path = "../../shared" }
+gltf = "1"
+anyhow = "1"

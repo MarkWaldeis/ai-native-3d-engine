@@ -74,7 +74,7 @@ fn num(v: Option<&Value>, default: f32) -> f32 {
     v.and_then(|v| v.as_f64()).unwrap_or(default as f64) as f32
 }
 
-fn primitive_kind(args: &Value) -> Result<PrimitiveKind, String> {
+fn primitive_kind(args: &Value, assets_dir: &Path) -> Result<PrimitiveKind, String> {
     let kind = args.get("kind").and_then(|k| k.as_str()).unwrap_or("box");
     let k = match kind {
         "box" => {
@@ -106,6 +106,22 @@ fn primitive_kind(args: &Value) -> Result<PrimitiveKind, String> {
             door_width: num(args.get("door_width"), 1.0),
             door_height: num(args.get("door_height"), 2.1),
         },
+        "gltf" => {
+            let p = args
+                .get("path")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "gltf kind needs string arg 'path'".to_string())?;
+            let p = Path::new(p);
+            // Relative paths resolve against assets/ so agents can write
+            // just the file name.
+            let full = if p.is_absolute() { p.to_path_buf() } else { assets_dir.join(p) };
+            if !full.exists() {
+                return Err(format!("asset not found: {}", full.display()));
+            }
+            PrimitiveKind::Gltf {
+                path: full.to_string_lossy().replace('\\', "/"),
+            }
+        }
         other => return Err(format!("unknown primitive kind: {other}")),
     };
     Ok(k)
@@ -141,7 +157,7 @@ impl ToolHandler for Engine {
                     serde_json::to_string_pretty(&self.world.scene)?,
                 )),
                 "spawn_primitive" => {
-                    let kind = primitive_kind(args).map_err(anyhow::Error::msg)?;
+                    let kind = primitive_kind(args, &self.assets_dir).map_err(anyhow::Error::msg)?;
                     let t = Transform {
                         position: arr3(args.get("position"), [0.0; 3]),
                         rotation_deg: arr3(args.get("rotation_deg"), [0.0; 3]),

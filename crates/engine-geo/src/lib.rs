@@ -21,6 +21,126 @@ pub fn generate(kind: &PrimitiveKind) -> MeshData {
             door_width,
             door_height,
         } => wall_with_door(*width, *height, *door_width, *door_height),
+        // GLB assets are loaded via `load_gltf` (fallible IO), not generated.
+        PrimitiveKind::Gltf { .. } => MeshData::new(),
+    }
+}
+
+/// Load a `.glb`/`.gltf` file into a single fused `MeshData`: all primitives of
+/// all nodes, with node transforms baked into vertex positions. Normals get
+/// the same matrix (fine for rotation/uniform-scale node transforms — typical
+/// Blender exports). Missing normals/uvs fall back to up/[0,0].
+pub fn load_gltf(path: &std::path::Path) -> anyhow::Result<MeshData> {
+    use anyhow::{bail, Context};
+    let (doc, buffers, _images) =
+        gltf::import(path).with_context(|| format!("gltf import {}", path.display()))?;
+
+    let scene = doc
+        .default_scene()
+        .or_else(|| doc.scenes().next())
+        .context("gltf has no scene")?;
+
+    let mut out = MeshData::new();
+    for node in scene.nodes() {
+        walk_node(&node, Mat4::IDENTITY, &buffers, &mut out);
+    }
+    if out.vertices.is_empty() {
+        bail!("gltf {} contains no mesh geometry", path.display());
+    }
+    Ok(out)
+}
+
+/// Minimal 4x4 for baking node transforms (column-major, glTF convention).
+#[derive(Clone, Copy)]
+struct Mat4([[f32; 4]; 4]);
+
+impl Mat4 {
+    const IDENTITY: Self = Mat4([
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]);
+
+    fn from_gltf(m: [[f32; 4]; 4]) -> Self {
+        Mat4(m)
+    }
+
+    fn mul(self, o: Mat4) -> Mat4 {
+        let mut r = [[0.0; 4]; 4];
+        for (c, oc) in r.iter_mut().enumerate() {
+            for (ri, e) in oc.iter_mut().enumerate() {
+                *e = (0..4).map(|k| self.0[k][ri] * o.0[c][k]).sum();
+            }
+        }
+        Mat4(r)
+    }
+
+    fn xform_point(&self, p: [f32; 3]) -> [f32; 3] {
+        let (x, y, z) = (p[0], p[1], p[2]);
+        [
+            self.0[0][0] * x + self.0[1][0] * y + self.0[2][0] * z + self.0[3][0],
+            self.0[0][1] * x + self.0[1][1] * y + self.0[2][1] * z + self.0[3][1],
+            self.0[0][2] * x + self.0[1][2] * y + self.0[2][2] * z + self.0[3][2],
+        ]
+    }
+
+    fn xform_dir(&self, p: [f32; 3]) -> [f32; 3] {
+        let (x, y, z) = (p[0], p[1], p[2]);
+        [
+            self.0[0][0] * x + self.0[1][0] * y + self.0[2][0] * z,
+            self.0[0][1] * x + self.0[1][1] * y + self.0[2][1] * z,
+            self.0[0][2] * x + self.0[1][2] * y + self.0[2][2] * z,
+        ]
+    }
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let l = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if l > 1e-8 {
+        [v[0] / l, v[1] / l, v[2] / l]
+    } else {
+        [0.0, 1.0, 0.0]
+    }
+}
+
+fn walk_node(node: &gltf::Node, parent: Mat4, buffers: &[gltf::buffer::Data], out: &mut MeshData) {
+    let world = parent.mul(Mat4::from_gltf(node.transform().matrix()));
+    if let Some(mesh) = node.mesh() {
+        for prim in mesh.primitives() {
+            let reader = prim.reader(|buf| buffers.get(buf.index()).map(|d| &d.0[..]));
+            let positions: Vec<[f32; 3]> = match reader.read_positions() {
+                Some(it) => it.collect(),
+                None => continue,
+            };
+            let normals: Vec<[f32; 3]> = reader
+                .read_normals()
+                .map(|it| it.collect())
+                .unwrap_or_else(|| vec![[0.0, 1.0, 0.0]; positions.len()]);
+            let uvs: Vec<[f32; 2]> = reader
+                .read_tex_coords(0)
+                .map(|t| t.into_f32().collect())
+                .unwrap_or_else(|| vec![[0.0, 0.0]; positions.len()]);
+            let indices: Vec<u32> = match reader.read_indices() {
+                Some(it) => it.into_u32().collect(),
+                None => (0..positions.len() as u32).collect(),
+            };
+            if !matches!(prim.mode(), gltf::mesh::Mode::Triangles) {
+                continue;
+            }
+            let base = out.vertices.len() as u32;
+            for i in 0..positions.len() {
+                out.vertices.push(Vertex::new(
+                    world.xform_point(positions[i]),
+                    normalize(world.xform_dir(normals[i])),
+                    uvs[i],
+                ));
+            }
+            out.indices.extend(indices.iter().map(|i| i + base));
+        }
+    }
+    for child in node.children() {
+        walk_node(&child, world, buffers, out);
     }
 }
 

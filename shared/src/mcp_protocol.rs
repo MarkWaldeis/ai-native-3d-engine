@@ -85,13 +85,14 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "spawn_primitive",
-            description: "Spawn a procedural mesh entity (box, plane, sphere, cylinder, wall_with_door).",
+            description: "Spawn a mesh entity: procedural (box, plane, sphere, cylinder, wall_with_door) or a GLB asset from assets/ (kind=gltf, path).",
             input_schema: schema(
                 json!({
-                    "kind": {"type": "string", "enum": ["box", "plane", "sphere", "cylinder", "wall_with_door"]},
+                    "kind": {"type": "string", "enum": ["box", "plane", "sphere", "cylinder", "wall_with_door", "gltf"]},
                     "name": {"type": "string"},
                     "position": vec3(), "rotation_deg": vec3(), "scale": vec3(), "color": color(),
                     "expected_revision": expected_rev(),
+                    "path": {"type": "string", "description": "GLB file path for kind=gltf (relative resolves to assets/)"},
                     "size": {"type": "array", "items": {"type": "number"}},
                     "radius": {"type": "number"}, "height": {"type": "number"},
                     "width": {"type": "number"}, "door_width": {"type": "number"}, "door_height": {"type": "number"},

@@ -9,9 +9,11 @@ scripts — instead of a human clicking in a viewport.
 v0.1 is a working vertical slice: full MCP round-trip → world state → wgpu
 headless render → PNG screenshot back to the agent.
 
-![headless render of the mock scene](docs/demo.png)
+![headless render: plane + Blender-exported GLB + sphere](docs/gltf_demo.png)
 
-*`cargo run -- --demo docs/demo.png` — real wgpu headless output.*
+*`cargo run -- --demo docs/gltf_demo.png docs/demo_scene.json` — real wgpu headless
+output: procedural floor, a Blender-exported `suzanne.glb` loaded through the
+`gltf` spawn path, and a sphere.*
 
 > 📐 Original design doc (German, by Gemini): [docs/masterplan.md](docs/masterplan.md) —
 > the multi-agent architecture this workspace was built from.
@@ -43,7 +45,7 @@ crates/
 | Tool | Purpose |
 |---|---|
 | `get_scene_state` | entire scene as JSON (entities, transforms, camera) |
-| `spawn_primitive` | box / plane / sphere / cylinder / wall_with_door with transform + RGBA |
+| `spawn_primitive` | box / plane / sphere / cylinder / wall_with_door **or `kind:"gltf"` + `path`** (GLB from `assets/`) with transform + RGBA |
 | `set_transform` | position / rotation (deg) / scale by entity id |
 | `set_color` | RGBA by entity id |
 | `remove_entity` | delete by id |
@@ -61,9 +63,10 @@ Every mutating tool accepts an optional `expected_revision` integer.
 
 ```bash
 cargo build --workspace
-cargo test --workspace          # 12 tests incl. real GPU screenshot round-trip
-cargo run -- --demo out.png     # render the mock scene once, write PNG
-cargo run                       # MCP stdio server (logs → stderr, protocol → stdout)
+cargo test --workspace                              # 17 tests incl. real GPU + GLB round-trips
+cargo run -- --demo out.png                         # render the mock scene → PNG
+cargo run -- --demo out.png docs/demo_scene.json    # render a saved scene → PNG
+cargo run                                           # MCP stdio server (logs → stderr, protocol → stdout)
 ```
 
 Example session (one JSON object per line):
@@ -93,6 +96,10 @@ Example session (one JSON object per line):
   world `revision` counter acts as a render dirty-flag.
 - **Headless rendering**: wgpu renders off-screen with no window — works on a
   headless agent box; screenshot path is exercised by a real GPU test.
+- **glTF/GLB loading**: `kind:"gltf"` spawns entities from `.glb` files —
+  `engine-geo::load_gltf` fuses all node meshes with baked transforms.
+  `assets/suzanne.glb` (exported headless from Blender 5.2) is committed as a
+  fixture; `docs/demo_scene.json` shows the format.
 - **Asset pipeline hook**: agents can ship a Blender Python script through MCP
   (`run_blender_script`) to turn generated art into GLB assets in `assets/`.
 - **Graceful degradation**: MCP world-editing tools work with no GPU; only
@@ -100,7 +107,8 @@ Example session (one JSON object per line):
 
 ## Roadmap
 
-- [ ] glTF/GLB mesh import (`load_asset` tool → `assets/*.glb` → GPU)
+- [x] deterministic conflict resolution (`expected_revision` CAS + rollback)
+- [x] glTF/GLB mesh import (`spawn_primitive kind:"gltf"` → `assets/*.glb` → GPU)
 - [ ] windowed mode + interactive camera (winit)
 - [ ] richer primitive/CSG set (real boolean ops in `engine-geo`)
 - [ ] multi-agent session support (named worlds / command queue per agent)

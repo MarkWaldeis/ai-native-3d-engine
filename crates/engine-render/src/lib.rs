@@ -272,7 +272,18 @@ impl Renderer {
         self.cached_revision = revision;
         self.meshes.clear();
         for e in &scene.entities {
-            let mesh = engine_geo::generate(&e.mesh);
+            let mesh = match &e.mesh {
+                shared::scene::PrimitiveKind::Gltf { path } => {
+                    match engine_geo::load_gltf(std::path::Path::new(path)) {
+                        Ok(m) => m,
+                        Err(err) => {
+                            eprintln!("[render] gltf load failed ({path}): {err:#}");
+                            continue;
+                        }
+                    }
+                }
+                other => engine_geo::generate(other),
+            };
             if mesh.vertices.is_empty() || mesh.indices.is_empty() {
                 continue;
             }

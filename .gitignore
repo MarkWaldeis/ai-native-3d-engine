@@ -2,4 +2,6 @@
 *.png
 !docs/*.png
 scene.json
-assets/
+assets/*
+!assets/suzanne.glb
+!assets/hello_blender.py

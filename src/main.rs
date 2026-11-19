@@ -1,7 +1,8 @@
 //! ai-engine entry point.
 //!
-//!   ai-engine                 → MCP stdio server (newline-delimited JSON-RPC)
-//!   ai-engine --demo out.png  → render the mock scene once, write PNG, exit
+//!   ai-engine                            → MCP stdio server (newline-delimited JSON-RPC)
+//!   ai-engine --demo out.png [scene.json] → render a scene once (mock scene
+//!                                           when no file is given), write PNG, exit
 //!
 //! Logs go to stderr — stdout is reserved for protocol frames.
 
@@ -13,13 +14,10 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
 
     if args.iter().any(|a| a == "--demo") {
-        let out = args
-            .iter()
-            .position(|a| a == "--demo")
-            .and_then(|i| args.get(i + 1))
-            .cloned()
-            .unwrap_or_else(|| "demo.png".into());
-        std::process::exit(match demo(&out) {
+        let pos = args.iter().position(|a| a == "--demo").unwrap();
+        let out = args.get(pos + 1).cloned().unwrap_or_else(|| "demo.png".into());
+        let scene = args.get(pos + 2).cloned();
+        std::process::exit(match demo(&out, scene.as_deref()) {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("demo failed: {e:#}");
@@ -51,10 +49,14 @@ fn main() {
     }
 }
 
-fn demo(out_path: &str) -> anyhow::Result<()> {
+fn demo(out_path: &str, scene_path: Option<&str>) -> anyhow::Result<()> {
     use shared::scene::Scene;
     let mut engine = Engine::new();
-    engine.world.scene = shared::mocks::mock_scene();
+    if let Some(p) = scene_path {
+        engine.world.load(std::path::Path::new(p))?;
+    } else {
+        engine.world.scene = shared::mocks::mock_scene();
+    }
     let scene: Scene = engine.world.scene.clone();
     let mut renderer = engine_render::Renderer::new()?;
     let png = renderer.screenshot_png(&scene, engine.world.revision, 960, 540)?;

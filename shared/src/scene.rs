@@ -54,6 +54,9 @@ pub enum PrimitiveKind {
         door_width: f32,
         door_height: f32,
     },
+    /// Mesh loaded from a glTF/GLB asset file (produced by the Blender
+    /// pipeline). `path` is absolute or relative to the process CWD.
+    Gltf { path: String },
 }
 
 impl Default for PrimitiveKind {

@@ -122,6 +122,40 @@ fn rollback_restores_earlier_revision() {
     assert_eq!(bad["result"]["isError"], true, "{bad}");
 }
 
+/// GLB asset path: spawn_primitive kind=gltf loads assets/suzanne.glb
+/// (Blender export committed to the repo) and renders it.
+#[test]
+fn spawn_gltf_asset() {
+    let mut e = Engine::new();
+    let glb = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/suzanne.glb");
+    assert!(glb.exists(), "missing fixture {}", glb.display());
+    let r = call(&mut e, "spawn_primitive", json!({
+        "kind": "gltf",
+        "path": glb.to_string_lossy(),
+        "name": "monkey",
+        "position": [0, 1.2, 0],
+    }));
+    assert!(r["result"]["content"].is_array(), "{r}");
+    assert!(matches!(
+        e.world.scene.entities[0].mesh,
+        shared::scene::PrimitiveKind::Gltf { .. }
+    ));
+
+    // Missing files are a clean error, not a silent empty mesh.
+    let bad = call(&mut e, "spawn_primitive", json!({"kind": "gltf", "path": "nope.glb"}));
+    assert_eq!(bad["result"]["isError"], true, "{bad}");
+
+    // And the loaded mesh really rasterizes when a GPU is present.
+    let s = call(&mut e, "get_screenshot", json!({"width": 320, "height": 240}));
+    if s["result"]["isError"].as_bool() == Some(true) {
+        eprintln!("SKIP: no renderer: {s}");
+        return;
+    }
+    let b64 = s["result"]["content"][0]["data"].as_str().unwrap();
+    let png = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, b64).unwrap();
+    assert!(png.len() > 500, "png suspiciously small: {}", png.len());
+}
+
 #[test]
 fn unknown_tool_is_error() {
     let mut e = Engine::new();
