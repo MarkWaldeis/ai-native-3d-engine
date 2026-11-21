@@ -18,6 +18,29 @@ pub(crate) struct Storage {
     journal: std::sync::Mutex<journal::Cache>,
 }
 
+impl Drop for Storage {
+    fn drop(&mut self) {
+        let _ = self._writer.unlock();
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
+    #[test]
+    fn drop_releases_writer_even_with_an_outliving_duplicate_descriptor() {
+        let root=std::env::temp_dir().join(format!("storage-drop-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let storage=super::Storage::open(&root).unwrap();
+        let duplicate=storage._writer.try_clone().unwrap();
+        assert!(super::Storage::open(&root).is_err());
+        drop(storage);
+        let next=super::Storage::open(&root).unwrap();
+        drop(next);
+        drop(duplicate);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
 fn metadata_dir(root: &Path) -> Result<PathBuf> {
     let dir = project_path(root, Path::new(".ai-engine"))?;
     std::fs::create_dir_all(&dir)?;
