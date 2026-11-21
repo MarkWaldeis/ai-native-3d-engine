@@ -7,6 +7,7 @@ import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
+import { travelSpeedInput } from './fps_core.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
@@ -16,6 +17,7 @@ const modal = $('modal');
 const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
+const travelSpeed = travelSpeedInput(location.search);
 let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
@@ -239,7 +241,7 @@ function localMovement() {
 }
 
 function controls() {
-  if (fps) return fps.inputs(localMovement(), actionInput.sample());
+  if (fps) return { ...fps.inputs(localMovement(), actionInput.sample()), travel_speed: travelSpeed };
   const move = movement();
   const pressed = actionInput.sample();
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
