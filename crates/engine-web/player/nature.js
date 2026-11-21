@@ -58,7 +58,9 @@ export class NatureVisuals {
     this.ray.ray.origin.set(x,10000,z);
     const hit=this.ray.intersectObjects(this.grounds || [],true)[0];
     if(!hit) return 0;
-    return hit.face?.normal.clone().transformDirection(hit.object.matrixWorld).y >= 0.7 ? hit.point.y : NaN;
+    const matrix=hit.object.matrixWorld.clone();
+    if(hit.instanceId!==undefined&&hit.object.isInstancedMesh){const instance=new T.Matrix4();hit.object.getMatrixAt(hit.instanceId,instance);matrix.multiply(instance);}
+    return hit.face?.normal.clone().transformDirection(matrix).y >= 0.7 ? hit.point.y : NaN;
   }
   setHeightSampler(sample) {
     if(typeof sample!=='function') throw new TypeError('Height sampler must be a function');
