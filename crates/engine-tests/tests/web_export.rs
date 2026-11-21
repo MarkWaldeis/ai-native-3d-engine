@@ -79,6 +79,8 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "index.html",
         "favicon.svg",
         "player.js",
+        "hud-layout.js",
+        "hud-renderer.js",
         "input.js",
         "input-settings.js",
         "nature.js",
