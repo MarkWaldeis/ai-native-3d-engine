@@ -121,6 +121,7 @@ export function localLightSettings(authored) {
     range: bounded(value.range, 8, 0.25, MAX_LOCAL_LIGHT_RANGE),
     offset,
     ...(type === 'spot' ? {
+      castShadow: value.cast_shadow === true,
       axis: direction(value.direction, [0, 0, -1]),
       angle: angle * Math.PI / 180,
       penumbra: 1 - bounded(value.inner_angle, angle * 0.65, 0, angle * 0.999) / angle,

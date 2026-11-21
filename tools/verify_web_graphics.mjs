@@ -246,6 +246,53 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(spot.turned[1] > spot.turned[0] + 40 && spot.error === 0, JSON.stringify(spot));
     console.log('PASS spotlights: rendered soft cone edge follows an emitter rotation');
 
+    const spotShadow = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {LocalLights} = await import('./local-lights.js');
+      const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(-4, 4, 4, -4, 0.1, 20);
+      camera.position.set(0, 8, 0.001);
+      camera.lookAt(0, 0, 0);
+      camera.updateMatrixWorld();
+      const material = new THREE.MeshStandardMaterial({color:0xbbbbbb, roughness:1});
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), material);
+      floor.rotation.x = -Math.PI / 2;
+      floor.receiveShadow = true;
+      const box = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2, 1.3), material);
+      box.position.y = 1;
+      box.castShadow = true;
+      scene.add(floor, box, new THREE.AmbientLight(0xffffff, 0.2));
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.setSize(128, 128, false);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const lights = new LocalLights(scene), gl = renderer.getContext(), pixel = new Uint8Array(4);
+      lights.register({id:1, transform:{position:[0,4,3], scale:[1,1,1], rotation_deg:[0,0,0]},
+        props:{ai_light:{ type:'spot', direction:[0,-4,-3], intensity:90, range:10,
+          outer_angle:40, inner_angle:32, cast_shadow:true }}});
+      const sample = level => {
+        lights.update(new THREE.Vector3(), level);
+        renderer.render(scene, camera);
+        return [0, 2].map(x => {
+          const p = new THREE.Vector3(x,0,-1.4).project(camera);
+          gl.readPixels(Math.floor((p.x + 1) * 64), Math.floor((p.y + 1) * 64), 1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+          return pixel[0];
+        });
+      };
+      try {
+        const lit = sample(1), shadow = sample(2), downgraded = sample(1);
+        return {lit, shadow, downgraded, error:gl.getError()};
+      } finally {
+        lights.reset(); material.dispose(); floor.geometry.dispose(); box.geometry.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(spotShadow.lit[0] > spotShadow.shadow[0] + 35, JSON.stringify(spotShadow));
+    assert.ok(Math.abs(spotShadow.lit[1] - spotShadow.shadow[1]) < 3, JSON.stringify(spotShadow));
+    assert.deepEqual(spotShadow.downgraded, spotShadow.lit);
+    assert.equal(spotShadow.error, 0);
+    console.log('PASS spotlight shadows: Ultra occludes the cone behind a caster; downgrade keeps the light');
+
     const shadows = await page.evaluate(async () => {
       const THREE = await import('three');
       const {GameEffects} = await import('./effects.js');

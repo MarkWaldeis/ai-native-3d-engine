@@ -71,8 +71,8 @@ Set `ai_graphics.shadow_extent` (8–160 m, default 24 m) for a wider or tighter
 sun shadow volume. Wider coverage trades away detail at the same quality tier.
 For decorative primitives and GLBs, set `props.ai_sun_shadow` to an object or
 JSON string with `cast: false` or `receive: false` to skip the corresponding
-sun shadow work. Both default to true; this does not change contact occlusion
-or the player's ground marker.
+shadow work from the sun or a spotlight. Both default to true; this does not
+change contact occlusion or the player's ground marker.
 If HDR targets aren't supported, the player uses direct rendering and
 standard lighting without HDR bloom. ACES is the default tone mapper. Set
 `tone_mapping: "agx"` inside `ai_graphics` to apply a softer highlight rolloff
@@ -117,8 +117,8 @@ with `props.ai_light` (object or JSON string) in an enhanced scene:
 
 Intensity is measured in candela (0–1000); zero disables the light. Range is
 in metres (0.25–64). The optional offset is in the entity's local coordinates.
-Lights follow moving entities and illuminate PBR surfaces, but do not cast
-shadows. The web player renders the closest 2, 4 or 8 point lights for low,
+Lights follow moving entities and illuminate PBR surfaces. Point lights do
+not cast shadows. The web player renders the closest 2, 4 or 8 point lights for low,
 balanced or ultra. Streamed worlds select around the player rather than the distant
 follow camera, so nearby fixtures stay lit without increasing the GPU budget.
 
@@ -128,6 +128,9 @@ It defaults to local −Z; set `direction` to aim along a different local vector
 `outer_angle` sets the cone half-angle in degrees (1–89, default 35).
 `inner_angle` is the half-angle before the soft edge begins (defaults to 65%
 of the outer angle). The separate spotlight budget is 1, 2 or 4 by tier.
+Set `cast_shadow: true` to allow a spotlight to cast shadows on Ultra.
+Only the closest eligible spotlight already in the budget gets a 1024-pixel
+shadow map. This keeps the extra scene render bounded even with many fixtures.
 
 ```json
 {"ai_light": {"type": "spot", "direction": [0, -1, 0], "intensity": 30, "range": 7, "inner_angle": 12, "outer_angle": 25}}
