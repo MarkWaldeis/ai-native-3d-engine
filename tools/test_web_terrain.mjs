@@ -59,6 +59,23 @@ test('scenes without terrain need no renderer, WASM calls or browser globals', a
   assert.equal(await createTerrain(null,[{props:{}}],null,null,null,null),null);
 });
 
+test('terrain micro-relief is off by default, bounded and shares a shader across enabled strengths', async t => {
+  const strengths = [undefined, -1, '0.5', 0.5, 2];
+  const {world} = await terrainFixture(t, {size:[2,2],entities:strengths.map(ai_terrain_detail => ({
+    props:{ai_terrain:'terrain.json',ai_terrain_detail},
+  }))});
+  const keys = world.children.map(({material}) => material.customProgramCacheKey());
+  assert.equal(new Set(keys.slice(0,3)).size,1);
+  assert.equal(keys[3],keys[4]);
+  assert.notEqual(keys[0],keys[3]);
+  for (const [index,mesh] of world.children.entries()) {
+    const shader = {uniforms:{},vertexShader:'#include <begin_vertex>',fragmentShader:'#include <color_fragment>\n#include <normal_fragment_maps>'};
+    mesh.material.onBeforeCompile(shader);
+    assert.equal(shader.uniforms.terrainRelief?.value, [undefined,undefined,undefined,0.5,1][index]);
+    assert.equal(shader.fragmentShader.includes('dFdx(relief)'),index >= 3);
+  }
+});
+
 test('odd tile widths keep exact LOD edge samples and finite skirt positions',async t=>{
   for(const samples of [129,130]) await t.test(`${samples} samples`,async t=>{
     const {api,world,errors}=await terrainFixture(t,{size:[100.1,100.1],tile:100.1,samples});
