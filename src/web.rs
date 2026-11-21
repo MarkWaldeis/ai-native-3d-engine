@@ -251,7 +251,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
                 *path=json!(assets[&original]);
             }
         }
-        if let Some(original) = entity.props.get("ai_viewmodel").and_then(Value::as_str).map(str::to_owned) {
+        if let Some(original) = entity.props.get("ai_viewmodel").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned) {
             if !assets.contains_key(&original) {
                 let file = [root.join(&original), root.join("assets").join(&original)]
                     .into_iter()
