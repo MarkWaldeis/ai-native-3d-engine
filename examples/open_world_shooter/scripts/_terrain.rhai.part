@@ -67,3 +67,17 @@ fn fx(ctx, kind, pos, dir) {
 fn line_of_sight(ctx, a, b, target_id) {
     ctx.line_of_sight(a, b, target_id)
 }
+
+fn blast(ctx, p) {
+    fx(ctx,"explosion",p,[0.0,1.0,0.0]);
+    for id in ctx.find_by_tag("blast_prop") {
+        if id == ctx.id() { continue; }
+        let q=ctx.entity_position(id);
+        let dx=q[0]-p[0]; let dy=q[1]-p[1]+0.75; let dz=q[2]-p[2];
+        let d=sqrt(dx*dx+dy*dy+dz*dz);
+        if d > 0.01 && d < 14.0 {
+            let strength=120.0*(1.0-d/14.0)/d;
+            ctx.apply_impulse(id,[dx*strength,dy*strength,dz*strength]);
+        }
+    }
+}
