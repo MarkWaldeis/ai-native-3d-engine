@@ -59,10 +59,16 @@ export class OverlayNavigation {
   }
   keydown(event) {
     this.sync();
-    if (!this.scope || this.capture()) return;
+    const held = this.keys.has(event.code);
+    if (this.scope) this.keys.add(event.code);
+    if (this.capture()) return;
+    if (!this.scope) {
+      if (held) { event.preventDefault(); event.stopImmediatePropagation(); }
+      return;
+    }
     const command = menuKey(event.code, event.shiftKey);
     if (!command) return;
-    event.preventDefault(); event.stopImmediatePropagation(); this.keys.add(event.code);
+    event.preventDefault(); event.stopImmediatePropagation();
     if (!event.repeat || command === 'next' || command === 'previous') this.command(command);
   }
   poll(pads, now) {

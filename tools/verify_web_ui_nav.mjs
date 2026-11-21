@@ -44,8 +44,8 @@ try {
     await page.waitForFunction(() => !document.getElementById('start').disabled, null, { polling: 50 });
     await page.evaluate(async () => {
       const { WebGame } = await import('./pkg/engine_web.js'), tick = WebGame.prototype.tick;
-      window.tickCalls = 0;
-      WebGame.prototype.tick = function (inputs) { tickCalls++; window.lastInputs = JSON.parse(inputs); const result = tick.call(this, inputs); window.snapshot = JSON.parse(result); return result; };
+      window.tickCalls = 0; window.tickInputs = [];
+      WebGame.prototype.tick = function (inputs) { tickCalls++; window.lastInputs = JSON.parse(inputs); tickInputs.push(lastInputs); const result = tick.call(this, inputs); window.snapshot = JSON.parse(result); return result; };
       advanceFrames(2);
     });
     const advance = (n = 1) => page.evaluate(n => advanceFrames(n), n);
@@ -62,6 +62,19 @@ try {
     await setButton(0, true); await advance(10);
     assert.ok(await page.locator('#modal').isHidden()); assert.equal(await page.evaluate(() => tickCalls), 0, 'held selection cannot leak into gameplay');
     await setButton(0, false); await advance(3); assert.equal(await page.evaluate(() => lastInputs.action), 0);
+    for (const key of ['Space', 'Enter']) {
+      await press(9); await page.locator('#menu-settings').click();
+      await page.locator('[data-action="action"]').click(); await page.keyboard.press(key);
+      await press(1); await page.locator('#start').focus();
+      const ticks = await page.evaluate(() => tickCalls);
+      await page.keyboard.down(key); await page.keyboard.down(key); await advance(10);
+      assert.equal(await page.evaluate(() => tickCalls), ticks, `${key} selection holds the simulation until release`);
+      await page.keyboard.up(key); await advance(3);
+      assert.ok(await page.evaluate(ticks => tickInputs.slice(ticks).every(input => input.action === 0), ticks), `${key} repeat cannot buffer a gameplay action on release`);
+      await page.keyboard.press(key); await advance();
+      assert.equal(await page.evaluate(() => lastInputs.action), 1, `${key} works as gameplay input after release`);
+      await advance(2);
+    }
     await page.locator('#input-settings').click(); await advance(); await focus('input-close');
     await press(13); await focus('input-haptics'); await press(1); await focus('start'); await press(0);
     await press(9); await focus('start');

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { focusStep, menuKey, menuPad, MenuNavigation } from '../crates/engine-web/player/ui-nav.js';
+import { OverlayNavigation } from '../crates/engine-web/player/ui-navigation.js';
+import { ActionLatch } from '../crates/engine-web/player/controls.js';
 
 const pad = () => ({ connected: true, mapping: 'standard', axes: [0, 0], buttons: Array.from({ length: 17 }, () => ({ value: 0 })) });
 test('focus order wraps, including missing focus and empty overlays', () => {
@@ -29,4 +31,35 @@ test('capture receives buttons and axes without navigation or deferred activatio
   assert.deepEqual(nav.sample([p], 102), ['pause']);
   assert.equal(menuPad([null, { ...p, mapping: '' }]).connected, false);
   assert.equal(menuPad().held, false); assert.equal(menuPad(null).connected, false);
+});
+
+test('menu keys and their repeats cannot queue gameplay actions before release', () => {
+  for (const code of ['Space', 'Enter', 'KeyW']) {
+    const navigation = Object.assign(Object.create(OverlayNavigation.prototype), {
+      scope: {}, keys: new Set(), sync() {}, capture: () => false,
+      command() { this.scope = null; },
+    });
+    const action = new ActionLatch();
+    const keydown = repeat => {
+      let stopped = false;
+      navigation.keydown({ code, repeat, preventDefault() {}, stopImmediatePropagation() { stopped = true; } });
+      if (!stopped && !navigation.scope) action.press(code);
+      return stopped;
+    };
+    assert.equal(keydown(false), code !== 'KeyW', `${code} starts in the menu`);
+    assert.equal(action.sample(), 0);
+    navigation.scope = null;
+    assert.equal(keydown(true), true, `${code} repeats stay suppressed after the menu closes`);
+    navigation.keys.delete(code); action.release(code);
+    assert.equal(action.sample(), 0, `${code} release has no queued gameplay action`);
+    assert.equal(keydown(false), false, `${code} can reach gameplay after release`);
+    assert.equal(action.sample(), 1);
+  }
+});
+
+test('remap capture retains precedence over keyboard suppression', () => {
+  const navigation = Object.assign(Object.create(OverlayNavigation.prototype), {
+    scope: {}, keys: new Set(['Enter']), sync() {}, capture: () => true,
+  });
+  navigation.keydown({ code: 'Enter', repeat: true, preventDefault() { assert.fail('capture owns the key'); } });
 });
