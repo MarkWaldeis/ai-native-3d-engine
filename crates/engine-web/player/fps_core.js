@@ -8,6 +8,10 @@ export function travelSpeedInput(search) {
   return Number.isFinite(value) && value > 0 ? value : 1;
 }
 
+export function defeated(state) {
+  return typeof state.lost === 'boolean' ? state.lost : Number(state.health) <= 0;
+}
+
 function parse(value) {
   if (typeof value !== 'string') return value;
   try { return JSON.parse(value); } catch { return null; }
