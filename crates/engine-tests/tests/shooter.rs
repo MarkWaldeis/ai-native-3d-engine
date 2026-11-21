@@ -19,7 +19,7 @@ fn floor() -> Value {
 }
 
 fn input(tick: u64, action: &str, value: f64) -> Input {
-    Input { tick, action: action.into(), value }
+    Input { entity: None, tick, action: action.into(), value }
 }
 
 #[test]
