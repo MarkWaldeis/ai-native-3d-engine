@@ -1,6 +1,6 @@
 import { materialMapSettings, materialSettings } from './graphics-settings.js';
 
-const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true, impostor_views:1, hlod:true, hlod_distance:1600, hlod_cluster:4, hlod_min_radius:1.5};
+const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true, impostor_views:1, occlusion:true, occlusion_margin:2, hlod:true, hlod_distance:1600, hlod_cluster:4, hlod_min_radius:1.5};
 
 export function worldConfig(entities) {
   const authored = entities.find(e => e.tags?.includes('player'))?.props?.ai_world;
@@ -12,6 +12,8 @@ export function worldConfig(entities) {
   if (!Number.isFinite(config.hlod_distance) || config.hlod && config.hlod_distance <= config.draw_distance) throw new RangeError('Invalid ai_world.hlod_distance');
   if (!Number.isInteger(config.hlod_cluster) || config.hlod_cluster < 1) throw new RangeError('Invalid ai_world.hlod_cluster');
   if (!Number.isFinite(config.hlod_min_radius) || config.hlod_min_radius < 0) throw new RangeError('Invalid ai_world.hlod_min_radius');
+  if (typeof config.occlusion !== 'boolean') throw new RangeError('Invalid ai_world.occlusion');
+  if (!Number.isFinite(config.occlusion_margin) || config.occlusion_margin < 0) throw new RangeError('Invalid ai_world.occlusion_margin');
   if (config.impostor_views !== 1 && config.impostor_views !== 4) throw new RangeError('Invalid ai_world.impostor_views (use 1 or 4)');
   if (config.camera_distance !== undefined && (!(config.camera_distance > 0) || !Number.isFinite(config.camera_distance))) throw new RangeError('Invalid ai_world.camera_distance');
   for (const key of ['chunk_size','stream_radius','draw_distance','hysteresis','sim_radius','sim_hysteresis']) if (!(config[key] > 0) || !Number.isFinite(config[key])) throw new RangeError(`Invalid ai_world.${key}`);

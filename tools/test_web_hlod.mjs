@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
+import {readFile} from 'node:fs/promises';
+
+test('player shares the terrain occluder with chunk and HLOD rendering',async()=>{
+  const source=await readFile(new URL('../crates/engine-web/player/player.js',import.meta.url),'utf8');
+  assert.match(source,/streaming\?\.setOcclusion\(occluder\)/);
+  assert.match(source,/streaming\?\.setHlodOcclusion\(occluder\)/);
+});
 
 registerHooks({resolve(specifier,context,nextResolve) {
   return nextResolve(specifier==='three' ? new URL('../crates/engine-web/player/vendor/three.module.js',import.meta.url).href : specifier,context);

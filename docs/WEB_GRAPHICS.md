@@ -19,6 +19,15 @@ Cluster daher zeitversetzt erscheinen. `hlod:false` lässt den alten Pfad unver�
 Terrain-Occlusion kann unabhängig über `StreamingWorld.setHlodOcclusion(occluder)`
 mit `occluded(key,eye,box)` angebunden werden.
 
+Terrain-Verdeckung: `ai_world.occlusion` aktiviert standardmäßig gemeinsame
+Höhenfeldproben für Chunk-Gruppen und Terrain-Kacheln (auch ohne Chunk-Streaming).
+`occlusion_margin` (2 m) toleriert Höhenfehler; nahe Boxen und Kameras unter dem
+Terrain bleiben sichtbar. Neun obere Boxpunkte müssen verdeckt sein, bevor nach
+zwei Tests ausgeblendet wird. Das Round-Robin-Budget beträgt 96 Tests/Frame.
+Dies ist eine abgetastete Näherung, kein GPU-Depth-Test; bei stark überhängenden
+Objekten oder ungenauen Höhenfeldern lässt sie sich mit `occlusion:false` abschalten.
+`?stats=1` und Browser-Benchmarks zeigen verdeckte Chunks/Kacheln und Tests/Frame.
+
 Exports are self-contained WebGL 2 sites. Existing scenes keep the legacy look.
 Enable the enhanced renderer with an `ai_graphics` object (or JSON string) in
 `props` of the entity tagged `player`. An empty object enables the defaults.
