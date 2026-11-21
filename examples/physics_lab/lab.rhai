@@ -29,7 +29,10 @@ fn on_tick(ctx, dt) {
         return;
     }
     let p = ctx.entity_position(target);
-    let hit = ctx.raycast([p[0], p[1] + 0.75, p[2] - 4.0], [0.0, 0.0, 1.0], 5.0);
+    let hit = ctx.raycast(#{
+        origin: [p[0], p[1] + 0.75, p[2] - 4.0], direction: [0.0, 0.0, 1.0], distance: 5.0,
+        filter: #{ exclude: ctx.find_by_name("Lab controller") }
+    });
     if hit.hit && hit.id == target {
         ctx.state_set("Hitbox", hit.hitbox);
         ctx.state_set("Health", ctx.damage(hit, 60.0, [0.0, 0.8, 1.5]));
