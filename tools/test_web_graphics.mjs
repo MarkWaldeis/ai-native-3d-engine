@@ -20,6 +20,8 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(config.quality, 2);
   assert.equal(config.exposure, 4);
   assert.equal(config.bloomStrength, 0);
+  assert.equal(config.hdrAntialias, true);
+  assert.equal(graphicsConfig({hdr_antialias:false}, 'ultra').hdrAntialias, false);
   assert.equal(config.sky, '#4d88cb');
   assert.equal(config.horizon, '#abcdef');
   assert.deepEqual(config.sunDirection, [0, 0.8, 0.6]);

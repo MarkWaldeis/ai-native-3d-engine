@@ -45,11 +45,33 @@ export async function verifyGraphics(browser, base, errors, shots) {
         gl.readPixels(Math.round(size * 0.574), size / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         return { red: pixels[0], hdr: !!pipeline.sceneTarget, calls: renderer.info.render.calls };
       }
+      function edgeCoverage(filter, level) {
+        pipeline.edgeAA = filter;
+        pipeline.resize(level, 192, 192, 1);
+        pipeline.render(scene, camera);
+        const image = new Uint8Array(192 * 192 * 4);
+        gl.readPixels(0, 0, 192, 192, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        let intermediate = 0;
+        const center = image[(96 * 192 + 96) * 4];
+        for (let i = 0; i < image.length; i += 4) {
+          if (image[i] > 8 && image[i] < center - 8) intermediate++;
+        }
+        return { intermediate, center };
+      }
       try {
         const high = sample(2, 192, 6), low = sample(0, 192, 6), dim = sample(1, 128, 0.1);
+        const panel = scene.children[0];
+        panel.rotation.z = 0.41;
+        panel.scale.setScalar(5);
+        material.emissive.setHex(0xffffff);
+        material.emissiveIntensity = 0.7;
+        const sharp = edgeCoverage(false, 2), smoothed = edgeCoverage(true, 2), balanced = edgeCoverage(true, 1);
+        panel.rotation.z = 0;
+        panel.scale.setScalar(1);
+        material.emissive.setHex(0xff4200);
         pipeline.release(); pipeline.supported = false;
         const unsupported = sample(2, 192, 6);
-        return { high, low, dim, unsupported, glError: gl.getError() };
+        return { high, low, dim, sharp, smoothed, balanced, unsupported, glError: gl.getError() };
       } finally {
         pipeline.release(); geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
       }
@@ -59,6 +81,9 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(result.low.red, 0, 'no halo outside the geometry when rendering directly');
     assert.ok(result.dim.hdr && result.dim.red <= 1, 'dim objects should not bloom');
     assert.deepEqual(result.unsupported, result.low, 'no float attachment should fall back to direct rendering');
+    assert.ok(result.smoothed.intermediate > result.sharp.intermediate + 100, JSON.stringify(result));
+    assert.equal(result.smoothed.center, result.sharp.center, 'edge filtering leaves the uniform interior unchanged');
+    assert.deepEqual(result.balanced, result.sharp, 'the balanced tier does not run edge filtering');
     console.log('PASS graphics: exported presets, linear HDR bloom threshold, resize and direct-render fallback');
 
     const studio = `${base}/material_studio`;

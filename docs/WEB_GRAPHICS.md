@@ -54,6 +54,9 @@ Without a preset, the enhanced renderer starts at ultra on desktop or balanced
 on touch, then steps down when performance is consistently low.
 Ultra uses a 2048-pixel sun shadow map and half-resolution bloom; balanced uses
 1024 and quarter-resolution bloom. Low uses 512 and renders directly.
+Ultra also smooths high-contrast edges in the final HDR pass without an
+additional full-resolution target. Set `hdr_antialias: false` in `ai_graphics`
+to disable this filter; it is not used on lower tiers or in direct rendering.
 If HDR targets aren't supported, the player uses direct rendering and
 standard lighting without HDR bloom. ACES tone mapping outputs to sRGB.
 

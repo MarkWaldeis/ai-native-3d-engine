@@ -46,10 +46,39 @@ const blur = /* glsl */`
 const composite = /* glsl */`
   uniform sampler2D image;
   uniform sampler2D bloom;
+  uniform vec2 texel;
   uniform float strength;
   varying vec2 vUv;
+  #ifdef EDGE_AA
+  float perceptualLuma(vec3 color) {
+    float luma = dot(max(color, 0.0), vec3(0.2126, 0.7152, 0.0722));
+    return sqrt(luma / (1.0 + luma));
+  }
+  vec3 smoothEdges(vec3 center) {
+    float sw = perceptualLuma(texture2D(image, vUv + texel * vec2(-1, -1)).rgb);
+    float se = perceptualLuma(texture2D(image, vUv + texel * vec2( 1, -1)).rgb);
+    float nw = perceptualLuma(texture2D(image, vUv + texel * vec2(-1,  1)).rgb);
+    float ne = perceptualLuma(texture2D(image, vUv + texel * vec2( 1,  1)).rgb);
+    float lum = perceptualLuma(center);
+    float lo = min(lum, min(min(sw, se), min(nw, ne)));
+    float hi = max(lum, max(max(sw, se), max(nw, ne)));
+    if (hi - lo < max(0.04, 0.12 * hi)) return center;
+    // Filter along the luminance edge, not across the interiors it separates.
+    vec2 edge = vec2(sw + se - nw - ne, se + ne - sw - nw);
+    float noiseFloor = max(0.02, (sw + se + nw + ne) * 0.03125);
+    edge = clamp(edge / (min(abs(edge.x), abs(edge.y)) + noiseFloor), -4.0, 4.0) * texel;
+    vec3 a = 0.5 * (texture2D(image, vUv - edge / 6.0).rgb + texture2D(image, vUv + edge / 6.0).rgb);
+    vec3 b = 0.5 * a + 0.25 * (texture2D(image, vUv - edge * 0.5).rgb + texture2D(image, vUv + edge * 0.5).rgb);
+    float luma = perceptualLuma(b);
+    return luma < lo || luma > hi ? a : b;
+  }
+  #endif
   void main() {
-    gl_FragColor = vec4(texture2D(image, vUv).rgb + texture2D(bloom, vUv).rgb * strength, 1.0);
+    vec3 color = texture2D(image, vUv).rgb;
+    #ifdef EDGE_AA
+    color = smoothEdges(color);
+    #endif
+    gl_FragColor = vec4(color + texture2D(bloom, vUv).rgb * strength, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
   }
@@ -72,6 +101,7 @@ export class HDRPipeline {
     this.supported = renderer.extensions.has('EXT_color_buffer_float');
     this.strength = config.bloomStrength;
     this.threshold = config.bloomThreshold;
+    this.edgeAA = config.hdrAntialias !== false;
     this.size = new THREE.Vector2();
   }
 
@@ -87,6 +117,11 @@ export class HDRPipeline {
     const w = Math.max(1, this.size.x), h = Math.max(1, this.size.y);
     this.sceneTarget.setSize(w, h);
     this.prefilter.uniforms.texel.value.set(1 / w, 1 / h);
+    const edgeAA = this.edgeAA && level === 2;
+    if (edgeAA !== ('EDGE_AA' in this.composite.defines)) {
+      this.composite.defines = edgeAA ? { EDGE_AA: 1 } : {};
+      this.composite.needsUpdate = true;
+    }
     const bw = Math.max(1, Math.ceil(w * settings.bloomScale)), bh = Math.max(1, Math.ceil(h * settings.bloomScale));
     this.bright.setSize(bw, bh); this.scratch.setSize(bw, bh);
   }
@@ -111,7 +146,8 @@ export class HDRPipeline {
     });
     this.blur = pass(blur, { image: {value: null}, stepSize: {value: new THREE.Vector2()} });
     this.composite = pass(composite, {
-      image: {value: this.sceneTarget.texture}, bloom: {value: this.bright.texture}, strength: {value: this.strength},
+      image: {value: this.sceneTarget.texture}, bloom: {value: this.bright.texture},
+      strength: {value: this.strength}, texel: this.prefilter.uniforms.texel,
     }, true);
     this.quadScene = new THREE.Scene(); this.camera = new THREE.Camera();
     const geometry = new THREE.BufferGeometry();
