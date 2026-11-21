@@ -14,6 +14,37 @@ use std::{
 };
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
+
+fn check_net_serve_project_order(project_first: bool) {
+    let project=Project::new();
+    let port=port();
+    let addr=format!("127.0.0.1:{port}");
+    let mut args=vec!["--net-serve","scene.json","--addr",&addr,
+        "--allow-origin","https://game.example","--allow-origin","http://second.example:8000"];
+    if project_first {args.splice(0..0,["--project",project.0.to_str().unwrap()]);}
+    else {args.extend(["--project",project.0.to_str().unwrap()]);}
+    let child=Command::new(env!("CARGO_BIN_EXE_ai-engine")).args(args)
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::inherit()).spawn().unwrap();
+    let mut server=Server{child,port};
+    let start=Instant::now();
+    loop {
+        assert!(server.child.try_wait().unwrap().is_none(),"network server exited: project_first={project_first}");
+        if TcpStream::connect(("127.0.0.1",port)).is_ok() {break;}
+        assert!(start.elapsed()<Duration::from_secs(30),"network server did not listen");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn net_serve_accepts_project_before_mode_and_repeatable_origins() {
+    check_net_serve_project_order(true);
+}
+
+#[test]
+fn net_serve_accepts_project_after_mode_and_repeatable_origins() {
+    check_net_serve_project_order(false);
+}
+
 struct Project(PathBuf);
 impl Project {
     fn new() -> Self {

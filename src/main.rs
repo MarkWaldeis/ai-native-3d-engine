@@ -12,30 +12,6 @@ use std::io::{BufRead, Write};
 
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("--net-serve") {
-        let result = (|| -> anyhow::Result<()> {
-            let scene_path=args.get(2).ok_or_else(|| anyhow::anyhow!("usage: ai-engine --net-serve <scene.json> [--addr 127.0.0.1:7790]"))?;
-            let mut addr="127.0.0.1:7790".to_owned();
-            let mut allow_origins=vec![];
-            let mut flags=args[3..].iter();
-            while let Some(flag)=flags.next() {
-                let value=flags.next().ok_or_else(||anyhow::anyhow!("{flag} requires a value"))?;
-                match flag.as_str() {
-                    "--addr" => addr=value.clone(),
-                    "--allow-origin" => allow_origins.push(value.clone()),
-                    _ => anyhow::bail!("unknown net-serve option {flag}"),
-                }
-            }
-            let root=std::env::current_dir()?.canonicalize()?;
-            let path=engine_core::project_path(&root,std::path::Path::new(scene_path))?;
-            let scene=serde_json::from_str(&std::fs::read_to_string(path)?)?;
-            engine_core::validate_scene_paths(&scene,&root)?;
-            std::thread::spawn(move || engine_net::websocket::serve_with_origins(scene,engine_net::SimSource::ProjectRoot(root),&addr,allow_origins))
-                .join().map_err(|_| anyhow::anyhow!("network server thread panicked"))?
-        })();
-        if let Err(error)=result { eprintln!("network server failed: {error:#}"); std::process::exit(1); }
-        return;
-    }
     if args.get(1).map(String::as_str) == Some("init") {
         let result = (|| -> anyhow::Result<Value> {
             let dir = args.get(2).ok_or_else(|| anyhow::anyhow!("usage: ai-engine init <dir> [--template coin_game|sky_garden|empty]"))?;
@@ -59,6 +35,31 @@ fn main() {
         args.drain(pos..pos+2);
         Ok::<_, anyhow::Error>(path)
     }).transpose().unwrap_or_else(|error| { eprintln!("project failed: {error:#}"); std::process::exit(1); });
+
+    if args.get(1).map(String::as_str) == Some("--net-serve") {
+        let result = (|| -> anyhow::Result<()> {
+            let scene_path=args.get(2).ok_or_else(|| anyhow::anyhow!("usage: ai-engine [--project <dir>] --net-serve <scene.json> [--addr 127.0.0.1:7790] [--allow-origin <origin>]..."))?;
+            let mut addr="127.0.0.1:7790".to_owned();
+            let mut allow_origins=vec![];
+            let mut flags=args[3..].iter();
+            while let Some(flag)=flags.next() {
+                let value=flags.next().ok_or_else(||anyhow::anyhow!("{flag} requires a value"))?;
+                match flag.as_str() {
+                    "--addr" => addr=value.clone(),
+                    "--allow-origin" => allow_origins.push(value.clone()),
+                    _ => anyhow::bail!("unknown net-serve option {flag}"),
+                }
+            }
+            let root=std::env::current_dir()?.canonicalize()?;
+            let path=engine_core::project_path(&root,std::path::Path::new(scene_path))?;
+            let scene=serde_json::from_str(&std::fs::read_to_string(path)?)?;
+            engine_core::validate_scene_paths(&scene,&root)?;
+            std::thread::spawn(move || engine_net::websocket::serve_with_origins(scene,engine_net::SimSource::ProjectRoot(root),&addr,allow_origins))
+                .join().map_err(|_| anyhow::anyhow!("network server thread panicked"))?
+        })();
+        if let Err(error)=result { eprintln!("network server failed: {error:#}"); std::process::exit(1); }
+        return;
+    }
 
     if let Some(pos) = args.iter().position(|a| a == "--export-web") {
         let result = (|| -> anyhow::Result<()> {
