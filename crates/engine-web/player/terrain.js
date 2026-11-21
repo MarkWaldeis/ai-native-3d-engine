@@ -1,3 +1,5 @@
+import { terrainSurface } from './surfaces.js';
+
 // Transport, residency and rendering only. Simulation remains in WebGame.
 export function decodeHeights(bytes, magic, dims, range) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -73,15 +75,6 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       visualsTarget = visuals; visualsSetter = visuals.setHeightSampler;
     }
   }
-  const textureBytes = new Uint8Array(64 * 64 * 4);
-  let seed = 7331;
-  for (let i = 0; i < textureBytes.length; i += 4) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    textureBytes.fill(100 + (seed >>> 25), i, i + 3); textureBytes[i + 3] = 255;
-  }
-  const detail = new THREE.DataTexture(textureBytes, 64, 64);
-  detail.wrapS = detail.wrapT = THREE.RepeatWrapping; detail.magFilter = THREE.LinearFilter;
-  detail.minFilter = THREE.LinearMipmapLinearFilter; detail.generateMipmaps = true; detail.needsUpdate = true;
   for (const entity of terrainEntities) {
     const path = entity.props.ai_terrain;
     if (!maps.has(path)) {
@@ -94,21 +87,10 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     }
     const map = maps.get(path), c = map.manifest.config;
     const material = new THREE.MeshStandardMaterial({roughness: 0.96});
-    material.onBeforeCompile = shader => {
-      shader.uniforms.terrainDetail = {value: detail};
-      shader.uniforms.terrainRange = {value: new THREE.Vector2(...map.manifest.height_range.map(h=>h+(entity.transform?.position?.[1] || 0)))};
-      shader.vertexShader = 'varying vec3 vTerrainWorld; varying vec3 vTerrainNormal;\n' + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvTerrainWorld = (modelMatrix * vec4(position, 1.0)).xyz; vTerrainNormal = normalize(mat3(modelMatrix) * normal);');
-      shader.fragmentShader = 'uniform sampler2D terrainDetail; uniform vec2 terrainRange; varying vec3 vTerrainWorld; varying vec3 vTerrainNormal;\n' + shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-        float elevation = (vTerrainWorld.y - terrainRange.x) / max(1.0, terrainRange.y-terrainRange.x);
-        float slope = 1.0 - abs(normalize(vTerrainNormal).y);
-        vec3 ground = mix(vec3(0.53,0.43,0.24),vec3(0.19,0.34,0.105),smoothstep(0.03,0.18,elevation));
-        ground = mix(ground,vec3(0.30,0.22,0.13),smoothstep(0.04,0.22,slope)*0.8);
-        ground = mix(ground,vec3(0.40,0.41,0.39),max(smoothstep(0.18,0.48,slope),smoothstep(0.72,0.95,elevation)));
-        float grain = texture2D(terrainDetail,vTerrainWorld.xz*0.16).r*0.55 + texture2D(terrainDetail,vTerrainWorld.xz*0.013).r*0.45;
-        diffuseColor.rgb = ground * (0.65 + grain*0.7);`);
-    };
+    const graphics=entities.find(e=>e.tags?.includes('player'))?.props?.ai_graphics;
+    let authored=graphics;
+    if(typeof authored==='string') {try {authored=JSON.parse(authored);} catch {authored=null;}}
+    terrainSurface(THREE,material,Number.isFinite(authored?.water?.level)?authored.water.level:0.6);
     const offset = entity.transform?.position || [0, 0, 0];
     for (let z = 0; z < map.manifest.grid[1]; z++) for (let x = 0; x < map.manifest.grid[0]; x++) {
       const chunk = {map, x, z, offset, material, visible: entity.visible !== false, mesh: null, stride: null};
