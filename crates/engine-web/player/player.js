@@ -6,7 +6,7 @@ import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
 import { GpuTimer } from './gpu-timer.js';
 import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
-import { StreamingWorld, WebAssets } from './world.js';
+import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { createTerrain } from './terrain.js';
@@ -88,7 +88,7 @@ function fail(error) {
 }
 
 function mesh(geometry, entity) {
-  const result = new THREE.Mesh(geometry, primitiveMaterial(entity));
+  const result = new THREE.Mesh(geometry, primitiveMaterial(entity, assets));
   return Object.assign(result, sunShadowSettings(entity.props?.ai_sun_shadow));
 }
 
@@ -147,19 +147,6 @@ function createObject(entity) {
     }));
     shadow.renderOrder = 2; shadow.visible = false; world.add(shadow); shadows.set(entity.id, shadow);
   }
-}
-
-function disposeObject(object) {
-  object.removeFromParent();
-  object.traverse(child => {
-    if (child.userData.sharedAsset) return;
-    child.geometry?.dispose();
-    for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
-      if (!mat) continue;
-      for (const value of Object.values(mat)) if (value?.isTexture && !value.userData.shared) value.dispose();
-      mat.dispose();
-    }
-  });
 }
 
 function apply(result) {
@@ -517,12 +504,6 @@ async function boot() {
   });
   const context = $('game').getContext('webgl2', { antialias: true, alpha: false });
   if (!context) throw new Error('WebGL 2 ist nicht verfügbar. Bitte Safari oder Chrome aktualisieren.');
-  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true });
-  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.info.autoReset = false;
-  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
-  world = new THREE.Scene();
   [[source, scripts]] = await Promise.all([
     Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json')]).then(result => { mark('sceneFetched'); return result; }),
     init().then(result => { mark('wasmInitialized'); return result; }),
@@ -532,9 +513,17 @@ async function boot() {
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   const preset = new URLSearchParams(location.search).get('quality');
-  effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
-  await effects.prepareEnvironment();
+  const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
+  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });
+  renderer.domElement.dataset.depth = renderer.capabilities.logarithmicDepthBuffer ? 'logarithmic' : 'standard';
+  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.info.autoReset = false;
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
+  world = new THREE.Scene();
+  effects = new GameEffects(renderer, world, ui.sky_color, graphics);
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
+  await Promise.all([effects.prepareEnvironment(), assets.preloadMaterialMaps(source.entities)]);
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config,assets);
