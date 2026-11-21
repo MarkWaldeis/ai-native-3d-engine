@@ -13,7 +13,7 @@ const { LocalLights } = await import('../crates/engine-web/player/local-lights.j
 const { primitiveMaterial, textureAnisotropy, tuneAssetTextures } = await import('../crates/engine-web/player/materials.js');
 const { environmentLighting, rotatePanorama, skyTexture } = await import('../crates/engine-web/player/sky.js');
 const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
-const { batchKey } = await import('../crates/engine-web/player/streaming.js');
+const { batchKey, canInstance } = await import('../crates/engine-web/player/streaming.js');
 
 test('the first-person renderer links against the shared web asset loader', async () => {
   const { FirstPerson } = await import('../crates/engine-web/player/fps.js');
@@ -76,8 +76,8 @@ test('moving the sun camera does not move shadows by fractions of a texel', () =
   }
 });
 
-test('primitive transmission uses physical shading only when enabled, and splits batches by optics', () => {
-  const box = ai_material => ({kind:'box', size:[1,1,1], color:[1,1,1,1], props:{ai_material}});
+test('primitive transmission uses physical shading and preserves optical scale without instancing', () => {
+  const box = ai_material => ({kind:'box', size:[1,1,1], color:[1,1,1,1], transform:{scale:[2,1,0.5]}, props:{ai_material}});
   const glass = box('{"transmission":2,"ior":3,"thickness":90,"attenuation_color":"#00FF99","attenuation_distance":0}');
   const material = primitiveMaterial(glass);
   assert.equal(material.isMeshPhysicalMaterial, true);
@@ -91,7 +91,8 @@ test('primitive transmission uses physical shading only when enabled, and splits
   assert.equal(clear.attenuationDistance, Infinity);
   assert.equal(clear.thickness, 0.25);
   assert.equal(primitiveMaterial(box({transmission:0, ior:2})).isMeshPhysicalMaterial, undefined);
-  assert.notEqual(batchKey(glass), batchKey(box({transmission:1, ior:2, thickness:1})));
+  assert.equal(canInstance(glass),false);
+  assert.equal(canInstance(box({transmission:0})),true);
   material.dispose(); clear.dispose();
 });
 

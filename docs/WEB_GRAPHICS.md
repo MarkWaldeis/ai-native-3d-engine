@@ -112,8 +112,10 @@ re-upload textures. Nearest-filtered, low and legacy assets keep their sampling.
 For clear glass, use a white entity color, low roughness and metalness 0.
 Glass defaults to IOR 1.5 and thickness 0.25 m; omit attenuation distance
 for no absorption. Transmission samples the opaque scene, adds an offscreen
-render pass when visible, and cannot refract other glass surfaces. To avoid
-an ordinary opaque shadow, set `ai_sun_shadow.cast` to `false` on the glass.
+render pass when visible, and cannot refract other glass surfaces.
+Streamed glass primitives use individual draws so entity scaling affects
+optical thickness. To avoid an ordinary opaque shadow, set
+`ai_sun_shadow.cast` to `false` on the glass.
 
 To light nearby surfaces (rather than just glow), give an entity a point light
 with `props.ai_light` (object or JSON string) in an enhanced scene:

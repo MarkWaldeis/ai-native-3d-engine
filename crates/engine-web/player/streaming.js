@@ -31,7 +31,10 @@ export function isStatic(e) {
 
 export function canInstance(e) {
   const scale = e.transform?.scale || [1,1,1];
-  return !e.animator && isStatic(e) && scale[0]*scale[1]*scale[2] > 0 && ['box','plane','sphere','cylinder','gltf'].includes(e.kind);
+  if (e.animator || !isStatic(e) || !(scale[0]*scale[1]*scale[2] > 0)) return false;
+  // The transmission shader derives optical thickness from modelMatrix, not instanceMatrix.
+  return e.kind === 'gltf' || (['box','plane','sphere','cylinder'].includes(e.kind)
+    && !materialSettings(e.props?.ai_material).transmission);
 }
 
 export function selectLOD(distance, previous, config) {
