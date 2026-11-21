@@ -117,6 +117,30 @@ fn clamp(value, lo, hi) {
     min(hi, max(lo, value))
 }
 
+fn shot_scale(distance) {
+    1.0-clamp((distance-20.0)/40.0,0.0,1.0)*(2.0/3.0)
+}
+
+fn firing_slot(ctx,group,tick) {
+    let key="_shooters_"+group;
+    let slots=ctx.state_get(key);
+    if slots == () { slots=[]; }
+    let active=[];
+    let owns=false;
+    for slot in slots {
+        if slot.expires > tick && ctx.health_of(slot.id) > 0.0 {
+            if slot.id == ctx.id() { slot.expires=tick+90; owns=true; }
+            active.push(slot);
+        }
+    }
+    if !owns && active.len < 3 {
+        active.push(#{id:ctx.id(),expires:tick+90});
+        owns=true;
+    }
+    ctx.state_set(key,active);
+    owns
+}
+
 fn on_start(ctx) {
     let home=ctx.position(); let cover=(); let best=45.0*45.0;
     for id in ctx.find_by_tag("cover") {
@@ -201,8 +225,9 @@ fn on_tick(ctx,dt) {
     ctx.set_position(p);
     m.cooldown-=dt;
     if m.mode != "patrol" && m.cooldown <= 0.0 && m.sight && d < 130.0 {
-        if line_of_sight(ctx,[p[0],p[1]+1.5,p[2]],chest,ctx.find_by_name("player")) {
-            if rnd(tick*97+ctx.id()) < clamp(0.8-d/160.0,0.12,0.7) { ctx.damage(ctx.player_id(),7.0); }
+        if line_of_sight(ctx,[p[0],p[1]+1.5,p[2]],chest,ctx.find_by_name("player")) && firing_slot(ctx,m.group,tick) {
+            let scale=shot_scale(d);
+            if rnd(tick*97+ctx.id()) < 0.7*scale { ctx.damage(ctx.player_id(),7.0*scale); }
             fx(ctx,"muzzle",eye,[dx,0.0,dz]); fx(ctx,"tracer",eye,[chest[0]-eye[0],chest[1]-eye[1],chest[2]-eye[2]]);
         }
         m.cooldown=0.7+rnd(tick+ctx.id()*31)*0.6;

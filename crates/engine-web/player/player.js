@@ -8,11 +8,13 @@ import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
+import { travelSpeedInput } from './fps_core.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
+import { HudLayout } from './hud-renderer.js';
 import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
 import { InputSettings } from './input-settings.js';
 
@@ -21,6 +23,7 @@ const modal = $('modal');
 const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
+const travelSpeed = travelSpeedInput(location.search);
 const input = new InputSystem(), inputEdges = new InputEdges();
 let inputSettings, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
 const touchMode = () => document.body.classList.contains('touch-input');
@@ -48,9 +51,9 @@ const objects = new Map();
 const ragdolls = new Map();
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
-let terrain, occluder;
+let terrain, occluder, hudLayout;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0,assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -142,6 +145,22 @@ function createObject(entity) {
     }
     case 'gltf': {
       object = new THREE.Group();
+      if(streaming) {
+        const container=object;
+        group.userData.streamedGltf=(gltf,parts)=>{
+          animations.remove(entity.id);
+          container.traverse(child=>{if(child.isSkinnedMesh) child.skeleton.dispose();});
+          container.clear();
+          if(gltf) {
+            const model=cloneSkinned(gltf.scene,gltf.animations), flags=sunShadowSettings(entity.props?.ai_sun_shadow);
+            model.traverse(child=>{child.userData.sharedAsset=true;if(child.isMesh) Object.assign(child,flags);});
+            container.add(model); animations.add(entity,model,model.animations);
+          } else for(const part of parts) {
+            const placeholder=new THREE.Mesh(part.geometry,part.material); placeholder.userData.sharedAsset=true; container.add(placeholder);
+          }
+        };
+        break;
+      }
       const task = assets.load(entity.path).then(gltf => {
         const model = cloneSkinned(gltf.scene,gltf.animations), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
         model.traverse(child => { if (child.isMesh) Object.assign(child, flags); });
@@ -204,6 +223,7 @@ function applyRagdolls(states = []) {
 }
 
 function apply(result) {
+  hudLayout?.update(result);
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
     const object = objects.get(id);
@@ -253,7 +273,7 @@ function apply(result) {
     if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
     $('state').replaceChildren(...fragments);
   }
-  $('logs').textContent = [...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
+  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -282,7 +302,7 @@ function localMovement() {
 }
 
 function controls() {
-  if (fps) return fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions);
+  if (fps) return { ...fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions), travel_speed: travelSpeed };
   const move = movement();
   const pressed = actionInput.sample();
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
@@ -357,6 +377,7 @@ async function restart(save = null) {
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   animations.clear();
+  hudLayout?.reset(source.entities);
   applyRagdolls();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
@@ -506,6 +527,7 @@ window.addEventListener('resize', () => { resetInput(); if (renderer && camera) 
 
 function frame(now) {
   requestAnimationFrame(frame);
+  hudLayout?.frame(now);
   if (!renderer || !ready) return;
   try {
     const rawElapsed = (now - previous) / 1000;
@@ -569,12 +591,13 @@ function frame(now) {
     Object.assign(stats,streaming?.hlod?.stats() || {hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0});
     stats.occludedChunks=streaming?.occludedChunks || 0; stats.occlusionTests=occluder?.tests || 0;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
+    Object.assign(stats,streaming?.assetStream.stats() || {assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0});
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
-      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · assets ${stats.assetsQueued} queued/${stats.assetsLoading} loading/${stats.assetsLoaded} ready · ${stats.assetMB.toFixed(1)} MB · uploads ${stats.textureUploadsPending} · evictions ${stats.assetEvictions} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
@@ -620,6 +643,7 @@ async function boot() {
   const props = source.entities.find(e => e.tags?.includes('player'))?.props;
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
+  hudLayout = new HudLayout(props?.ai_hud, source.entities);
   const title = ui.title || (source.entities.some(e => e.tags?.includes('coin')) ? 'Münzenpfad' : source.name || 'Web-Spiel');
   inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp);
   const preset = new URLSearchParams(location.search).get('quality');

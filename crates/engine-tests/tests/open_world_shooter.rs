@@ -16,6 +16,96 @@ fn read(path: &str) -> Value {
     serde_json::from_str(&std::fs::read_to_string(root().join(path)).unwrap()).unwrap()
 }
 
+fn input(tick: u64, action: &str, value: f64) -> Input {
+    Input { entity: None, tick, action: action.into(), value }
+}
+
+fn checkpoint_simulation(fixture: &str) -> Simulation {
+    let mut scene: Scene = serde_json::from_value(read(fixture)).unwrap();
+    scene.entities.retain(|e| e.name != "guard");
+    if let Some(commander) = scene.entities.iter_mut().find(|e| e.name == "commander") {
+        commander.script = None;
+    }
+    let source = std::fs::read_to_string(root().join("examples/open_world_shooter/scripts/player.rhai")).unwrap();
+    let source = format!("{}\n{}", source.replace("fn on_tick(ctx,dt)", "fn player_tick(ctx,dt)"), r#"
+fn on_tick(ctx,dt) {
+    if ctx.input("test_fatal") > 0.5 {
+        let p=ctx.position();
+        ctx.set_position([p[0]+20.0,p[1],p[2]]);
+        ctx.set_velocity([12.0,7.0,6.0]);
+        ctx.state_set("ammo",0);
+        ctx.state_set("ammo_reserve",ctx.input("test_reserve").to_int());
+        ctx.state_set("_reload",1.0);
+        ctx.state_set("_fire_cd",2.0);
+        ctx.damage(ctx.id(),1000.0);
+    }
+    if ctx.input("test_destroy_tower") > 0.5 {
+        let tower=ctx.find_by_name("radio-tower");
+        if tower >= 0 { ctx.damage(tower,1000.0); }
+    }
+    player_tick(ctx,dt);
+    ctx.state_set("_test_checkpoint",ctx.memo("checkpoint"));
+}
+"#);
+    scene.entities.iter_mut().find(|e| e.name == "player").unwrap().script = Some(Script::Inline { source });
+    Simulation::new(scene, &root()).unwrap()
+}
+
+fn player_position(simulation: &Simulation) -> [f32; 3] {
+    simulation.scene().entities.iter().find(|e| e.name == "player").unwrap().transform.position
+}
+
+fn assert_player_at(simulation: &Simulation, position: [f32; 3]) {
+    let actual = player_position(simulation);
+    for axis in 0..3 {
+        assert!((actual[axis]-position[axis]).abs() < 0.15, "{actual:?} != {position:?}");
+    }
+    assert!(!simulation.failed, "{}", simulation.state());
+}
+
+fn checkpoint_death(simulation: &mut Simulation, reserve: f64) {
+    let tick = simulation.tick;
+    simulation.step(2, &[
+        input(tick, "test_fatal", 1.0),
+        input(tick, "test_reserve", reserve),
+        input(tick+1, "test_fatal", 0.0),
+    ]).unwrap();
+}
+
+fn soldier_volley_simulation(placements: &[([f32; 3], &str)]) -> Simulation {
+    let mut scene: Scene = serde_json::from_value(read("examples/open_world_shooter/tests/damage.json")).unwrap();
+    let guard = scene.entities.iter().find(|e| e.name == "guard").unwrap().clone();
+    scene.entities.retain(|e| e.name != "guard");
+    let player_source = std::fs::read_to_string(root().join("examples/open_world_shooter/scripts/player.rhai")).unwrap();
+    scene.entities.iter_mut().find(|e| e.name == "player").unwrap().script = Some(Script::Inline {
+        source: format!("{}\nfn on_tick(ctx,dt) {{ ctx.set_health(10000.0); player_tick(ctx,dt); }}",
+            player_source.replace("fn on_tick(ctx,dt)", "fn player_tick(ctx,dt)")),
+    });
+    let soldier_source = std::fs::read_to_string(root().join("examples/open_world_shooter/scripts/soldier.rhai")).unwrap();
+    let source = format!("{}\n{}", soldier_source.replace("fn on_tick(ctx,dt)", "fn soldier_tick(ctx,dt)"), r#"
+fn on_tick(ctx,dt) {
+    if ctx.input("hold_first") > 0.5 && ctx.id() < 103 { return; }
+    if ctx.input("test_kill_first") > 0.5 && ctx.id() == 100 { ctx.damage(ctx.id(),1000.0); }
+    if ctx.health() > 0.0 {
+        let m=ctx.memo("ai");
+        m.mode="alert"; m.sight=true; m.cooldown=0.0;
+        ctx.set_memo("ai",m);
+    }
+    soldier_tick(ctx,dt);
+}
+"#);
+    for (i, (position, group)) in placements.iter().enumerate() {
+        let mut soldier = guard.clone();
+        soldier.id = 100+i as u64;
+        soldier.name = format!("guard-{i}");
+        soldier.transform.position = *position;
+        soldier.tags = vec!["enemy".into(), "soldier".into(), format!("grp_{group}")];
+        soldier.script = Some(Script::Inline { source: source.clone() });
+        scene.entities.push(soldier);
+    }
+    Simulation::new(scene, &root()).unwrap()
+}
+
 fn validate(scene: &str, validation: &str) -> Value {
     let mut engine = Engine::new();
     engine.assets_dir = root().join("assets");
@@ -188,6 +278,157 @@ fn shooter_enemy_fire_damages_the_player() {
 }
 
 #[test]
+fn shooter_soldier_damage_and_accuracy_fall_with_distance() {
+    let mut hits = Vec::new();
+    for (distance, minimum, maximum) in [(15.0, 7.0, 7.0), (40.0, 4.6, 5.0), (80.0, 7.0/3.0, 7.0/3.0)] {
+        let mut simulation = soldier_volley_simulation(&[([-2700.0, 30.0, -2700.0-distance], "town")]);
+        simulation.step(30, &[]).unwrap();
+        let output = simulation.take_events();
+        let damage: Vec<_> = output["events"].as_array().unwrap().iter()
+            .filter(|e| e["type"] == "damage" && e["target"] == 1)
+            .map(|e| e["amount"].as_f64().unwrap()).collect();
+        assert!(!damage.is_empty(), "distance={distance}: {output}");
+        assert!(damage.iter().all(|&d| d >= minimum-1e-6 && d <= maximum+1e-6), "distance={distance}: {damage:?}");
+        hits.push(damage.len());
+        assert!(!simulation.failed);
+    }
+    assert!(hits[0] > hits[1] && hits[1] > hits[2], "{hits:?}");
+    println!("Soldier falloff: hits at 15/40/80m={hits:?}; damage=7/~4.7/2.33");
+}
+
+#[test]
+fn shooter_soldier_groups_limit_shooters_and_reassign_vacant_slots() {
+    let mut placements: Vec<_> = (0..6).map(|i| ([-2725.0+i as f32*10.0, 30.0, -2735.0], "town")).collect();
+    placements.push(([-2700.0, 30.0, -2665.0], "patrol"));
+    let mut simulation = soldier_volley_simulation(&placements);
+    let mut town_fired = 0;
+    let mut patrol_fired = 0;
+    for tick in 0..120 {
+        let inputs = match tick {
+            12 => vec![input(tick, "test_kill_first", 1.0)],
+            13 => vec![input(tick, "test_kill_first", 0.0)],
+            14 => vec![input(tick, "hold_first", 1.0)],
+            _ => vec![],
+        };
+        simulation.step(1, &inputs).unwrap();
+        let output = simulation.take_events();
+        let flashes: Vec<_> = output["fx"].as_array().unwrap().iter().filter(|e| e["kind"] == "muzzle").collect();
+        let town = flashes.iter().filter(|e| e["pos"][2].as_f64().unwrap() < -2700.0).count();
+        let patrol = flashes.len()-town;
+        assert!(town <= 3 && patrol <= 1, "tick={tick}: {output}");
+        town_fired += town;
+        patrol_fired += patrol;
+        let state = simulation.state_summary()["state"].clone();
+        let slots = state["_shooters_town"].as_array().unwrap();
+        assert_eq!(slots.len(), 3, "tick={tick}: {state}");
+        if tick == 0 {
+            assert_eq!(slots.iter().map(|s| s["id"].as_u64().unwrap()).collect::<Vec<_>>(), [100, 101, 102]);
+        }
+        if tick == 12 { assert!(!slots.iter().any(|s| s["id"] == 100)); }
+    }
+    let state = simulation.state_summary()["state"].clone();
+    let owners: Vec<_> = state["_shooters_town"].as_array().unwrap().iter().map(|s| s["id"].as_u64().unwrap()).collect();
+    assert!(owners.iter().all(|id| [103, 104, 105].contains(id)), "{owners:?}");
+    assert_eq!(state["_shooters_patrol"].as_array().unwrap().len(), 1);
+    assert_eq!(state["_shooters_patrol"][0]["id"], 106);
+    assert!(town_fired > 0 && patrol_fired > 0);
+    assert!(!simulation.failed);
+}
+
+#[test]
+fn shooter_death_before_first_checkpoint_returns_to_echo() {
+    let mut simulation = checkpoint_simulation("examples/open_world_shooter/tests/damage.json");
+    let spawn = player_position(&simulation);
+    assert_eq!(simulation.state_summary()["state"]["lives"], 3);
+    simulation.step(30, &[]).unwrap();
+    checkpoint_death(&mut simulation, 0.0);
+    let state = simulation.state_summary()["state"].clone();
+    assert_player_at(&simulation, spawn);
+    assert_eq!(state["lives"], 2);
+    assert_eq!(state["health"], 100.0);
+    assert_eq!(state["ammo"], 30);
+    assert_eq!(state["ammo_reserve"], 150);
+    assert_eq!(state["_reload"], 0.0);
+    assert_eq!(state["_fire_cd"], 0.0);
+    assert_eq!(state["_stage"], 0);
+    assert_eq!(state["lost"], false);
+    assert!(state["objective"].as_str().unwrap().contains("Checkpoint – Leben 2/3"));
+    simulation.step(60, &[]).unwrap();
+    assert_player_at(&simulation, spawn);
+    assert_eq!(simulation.state_summary()["state"]["lives"], 2);
+}
+
+#[test]
+fn shooter_checkpoint_respawn_keeps_progress_and_dead_enemies() {
+    let mut simulation = checkpoint_simulation("examples/open_world_shooter/tests/objectives.json");
+    let spawn = player_position(&simulation);
+    simulation.step(20, &[
+        input(0, "look_pitch", -0.035),
+        input(0, "fire", 1.0),
+        input(15, "fire", 0.0),
+    ]).unwrap();
+    assert_eq!(simulation.state_summary()["state"]["_stage"], 2);
+    simulation.step(330, &[input(20, "move_x", 1.0), input(50, "move_x", 0.0)]).unwrap();
+    let before = simulation.state_summary()["state"].clone();
+    let checkpoint: [f32; 3] = serde_json::from_value(before["_test_checkpoint"].clone()).unwrap();
+    assert!(checkpoint[0] > spawn[0]+0.5, "{checkpoint:?} == {spawn:?}");
+    assert_eq!(before["_stage"], 3);
+    assert_eq!(before["kills"], 1);
+    assert!(!simulation.scene().entities.iter().any(|e| ["alpha-soldier", "intel"].contains(&e.name.as_str())));
+    checkpoint_death(&mut simulation, 0.0);
+    let state = simulation.state_summary()["state"].clone();
+    assert_player_at(&simulation, checkpoint);
+    for key in ["_stage", "kills", "_dead_alpha", "_tower_hp", "_commander_dead"] {
+        assert_eq!(state[key], before[key], "{key}");
+    }
+    assert!(state["_tick"].as_i64().unwrap() > before["_tick"].as_i64().unwrap());
+    assert_eq!(state["lives"], 2);
+    assert_eq!(state["health"], 100.0);
+    assert_eq!(state["lost"], false);
+    assert!(!simulation.scene().entities.iter().any(|e| ["alpha-soldier", "intel"].contains(&e.name.as_str())));
+
+    let tick = simulation.tick;
+    simulation.step(40, &[
+        input(tick, "move_x", 1.0), input(tick+30, "move_x", 0.0),
+        input(tick+31, "test_destroy_tower", 1.0), input(tick+32, "test_destroy_tower", 0.0),
+    ]).unwrap();
+    let state = simulation.state_summary()["state"].clone();
+    let next: [f32; 3] = serde_json::from_value(state["_test_checkpoint"].clone()).unwrap();
+    assert_eq!(state["_stage"], 4);
+    assert!(next[0] > checkpoint[0]+2.0);
+    checkpoint_death(&mut simulation, 240.0);
+    assert_player_at(&simulation, next);
+    let state = simulation.state_summary()["state"].clone();
+    assert_eq!(state["lives"], 1);
+    assert_eq!(state["ammo"], 30);
+    assert_eq!(state["ammo_reserve"], 240);
+    assert_eq!(state["_stage"], 4);
+    assert_eq!(state["kills"], 1);
+    assert!(!simulation.scene().entities.iter().any(|e| e.name == "radio-tower"));
+}
+
+#[test]
+fn shooter_third_death_exhausts_lives_and_still_loses() {
+    let mut simulation = checkpoint_simulation("examples/open_world_shooter/tests/damage.json");
+    for lives in [2, 1, 0] {
+        checkpoint_death(&mut simulation, 0.0);
+        let state = simulation.state_summary()["state"].clone();
+        assert_eq!(state["lives"], lives);
+        assert_eq!(state["lost"], lives == 0);
+        assert_eq!(state["health"], if lives == 0 { 0.0 } else { 100.0 });
+        assert_eq!(state["won"], false);
+    }
+    simulation.step(60, &[]).unwrap();
+    let state = simulation.state_summary()["state"].clone();
+    assert_eq!(state["lives"], 0);
+    assert_eq!(state["lost"], true);
+    assert_eq!(state["health"], 0.0);
+    assert_eq!(state["ammo"], 0);
+    assert_eq!(state["objective"], "Gefallen – Neustart");
+    assert!(!simulation.failed);
+}
+
+#[test]
 fn shooter_objectives_complete_with_real_combat() {
     let state = validate(
         "examples/open_world_shooter/tests/objectives.json",
@@ -217,6 +458,10 @@ fn shooter_full_generated_world_runs_120_ticks_without_script_errors() {
         assert!(scene.entities.iter().any(|entity| entity.name == name));
     }
     let mut simulation = Simulation::new(scene, &root()).unwrap();
+    assert_eq!(simulation.state_summary()["state"]["lives"], 3);
+    let generated = read("examples/open_world_shooter/scene.json");
+    let player = generated["entities"].as_array().unwrap().iter().find(|e| e["name"] == "player").unwrap();
+    assert!(player["props"]["ai_ui"]["hud_keys"].as_array().unwrap().contains(&json!("lives")));
     simulation
         .step(
             120,
@@ -343,6 +588,29 @@ fn shooter_reload_exposes_animation_time_and_refills_from_reserve() {
     assert_eq!(simulation.state()["state"]["ammo"],30);
     assert_eq!(simulation.state()["state"]["ammo_reserve"],149);
     assert_eq!(simulation.state()["state"]["_reload"],0.0);
+}
+
+#[test]
+fn shooter_travel_speed_only_scales_horizontal_movement() {
+    let mut distances = Vec::new();
+    for multiplier in [0.0, -2.0, 1.0, 4.0, 99.0] {
+        let mut scene = read("examples/open_world_shooter/tests/combat.json");
+        scene["entities"].as_array_mut().unwrap().retain(|e| e["name"] != "alpha-soldier");
+        let mut simulation = Simulation::new(serde_json::from_value(scene).unwrap(), &root()).unwrap();
+        simulation.step(30, &[
+            Input { entity: None,tick:0,action:"move_x".into(),value:1.0},
+            Input { entity: None,tick:0,action:"fire".into(),value:1.0},
+            Input { entity: None,tick:0,action:"travel_speed".into(),value:multiplier},
+        ]).unwrap();
+        let snapshot=simulation.scene();
+        let p=snapshot.entities.iter().find(|e|e.name=="player").unwrap().transform.position;
+        distances.push(p[0]+2700.0);
+        assert!((p[1]-30.9).abs()<0.1);
+        assert_eq!(simulation.state_summary()["state"]["ammo"],25);
+    }
+    for i in [1,2] {assert!((distances[i]-distances[0]).abs()<0.01);}
+    for i in [3,4] {assert!((distances[i]-4.0*distances[0]).abs()<0.2, "{distances:?}");}
+    assert!((distances[3]-distances[4]).abs()<0.01);
 }
 
 #[test]

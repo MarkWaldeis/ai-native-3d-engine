@@ -17,6 +17,7 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("input-settings.js", include_str!("../crates/engine-web/player/input-settings.js")),
     ("animation.js", include_str!("../crates/engine-web/player/animation.js")),
     ("favicon.svg", include_str!("../crates/engine-web/favicon.svg")),
+    ("asset-streaming.js", include_str!("../crates/engine-web/player/asset-streaming.js")),
     ("hlod.js", include_str!("../crates/engine-web/player/hlod.js")),
     ("occlusion.js", include_str!("../crates/engine-web/player/occlusion.js")),
     ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),
@@ -88,6 +89,8 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("fps_core.js", include_str!("../crates/engine-web/player/fps_core.js")),
     ("fx.js", include_str!("../crates/engine-web/player/fx.js")),
     ("hud.js", include_str!("../crates/engine-web/player/hud.js")),
+    ("hud-layout.js", include_str!("../crates/engine-web/player/hud-layout.js")),
+    ("hud-renderer.js", include_str!("../crates/engine-web/player/hud-renderer.js")),
     (
         "vendor/three.module.js",
         include_str!("../crates/engine-web/player/vendor/three.module.js"),

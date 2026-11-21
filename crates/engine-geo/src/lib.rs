@@ -5,6 +5,8 @@ use shared::mesh::{MeshData, Vertex};
 use shared::scene::PrimitiveKind;
 use std::f32::consts::{PI, TAU};
 
+pub mod skinning;
+
 pub fn animation_clips(path: &std::path::Path) -> anyhow::Result<Vec<shared::animation::AnimationClip>> {
     let document = gltf::Gltf::open(path)?;
     let blob = document.blob.as_deref().ok_or_else(|| anyhow::anyhow!("animation inspection requires a self-contained GLB"))?;

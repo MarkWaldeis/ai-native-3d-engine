@@ -1,8 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyLook, combatCues, fpsConfig, fpsInputs, heading, lookDir, minimapPoint, PITCH_LIMIT, reloadDip, SlotPool, tracerSpan, wrapAngle } from '../crates/engine-web/player/fps_core.js';
+import { applyLook, combatCues, defeated, fpsConfig, fpsInputs, heading, lookDir, minimapPoint, PITCH_LIMIT, reloadDip, SlotPool, tracerSpan, travelSpeedInput, wrapAngle } from '../crates/engine-web/player/fps_core.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+
+test('defeat presentation follows the script flag while a respawn is pending', () => {
+  assert.equal(defeated({ health: 0, lost: false }), false);
+  assert.equal(defeated({ health: 0, lost: true }), true);
+  assert.equal(defeated({ health: 100, lost: false }), false);
+  assert.equal(defeated({ health: 0 }), true);
+  assert.equal(defeated({ health: 100 }), false);
+  assert.equal(defeated({}), false);
+});
+
+test('travel speed URL input is numeric, opt-in and rejects invalid values', () => {
+  assert.equal(travelSpeedInput('?speed=4'), 4);
+  assert.equal(travelSpeedInput('?speed=1.5'), 1.5);
+  assert.equal(travelSpeedInput('?speed=99'), 99);
+  for (const search of ['', '?speed=', '?speed=no', '?speed=Infinity', '?speed=0', '?speed=-2']) assert.equal(travelSpeedInput(search), 1);
+});
 
 test('fpsConfig only enables first person for a player with ai_fps', () => {
   assert.equal(fpsConfig([{ tags: ['player'], props: {} }]), null);

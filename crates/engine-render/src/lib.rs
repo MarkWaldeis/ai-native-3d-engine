@@ -6,6 +6,7 @@
 mod math;
 pub mod inspection;
 mod qa;
+mod skinning;
 
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -90,6 +91,8 @@ pub struct Renderer {
     depth_view: Option<wgpu::TextureView>,
     meshes: HashMap<EntityId, GpuMesh>,
     cached_revision: u64,
+    cached_animators: Vec<(EntityId, shared::animation::Animator)>,
+    skins: skinning::SkinCache,
     size: (u32, u32),
 }
 
@@ -234,6 +237,8 @@ impl Renderer {
             depth_view: None,
             meshes: HashMap::new(),
             cached_revision: u64::MAX,
+            cached_animators: Vec::new(),
+            skins: skinning::SkinCache::default(),
             size: (0, 0),
         })
     }
@@ -269,21 +274,27 @@ impl Renderer {
         self.depth_view = Some(depth.create_view(&Default::default()));
     }
 
-    fn sync_meshes(&mut self, scene: &Scene, revision: u64) {
-        if self.cached_revision == revision {
-            return;
+    fn sync_meshes(&mut self, scene: &Scene, revision: u64) -> Result<()> {
+        let animators: Vec<_> = scene.entities.iter().filter_map(|e| e.animator.as_ref().map(|a| (e.id,a.clone()))).collect();
+        if self.cached_revision == revision && self.cached_animators == animators {
+            return Ok(());
         }
-        self.cached_revision = revision;
         self.meshes.clear();
+        self.skins.retain(scene);
         for e in &scene.entities {
             let mesh = match &e.mesh {
                 shared::scene::PrimitiveKind::Gltf { path } => {
+                    if let Some(animator) = &e.animator {
+                        self.skins.mesh(std::path::Path::new(path),animator)
+                            .with_context(|| format!("native animation {} ({path})",e.name))?
+                    } else {
                     match engine_geo::load_gltf(std::path::Path::new(path)) {
                         Ok(m) => m,
                         Err(err) => {
                             eprintln!("[render] gltf load failed ({path}): {err:#}");
                             continue;
                         }
+                    }
                     }
                 }
                 other => engine_geo::generate(other),
@@ -329,6 +340,9 @@ impl Renderer {
                 },
             );
         }
+        self.cached_revision = revision;
+        self.cached_animators = animators;
+        Ok(())
     }
 
     /// Renders the scene to an offscreen texture, returns unpadded RGBA bytes.
@@ -341,7 +355,7 @@ impl Renderer {
             bail!("invalid size {w}x{h}");
         }
         self.ensure_targets(w, h);
-        self.sync_meshes(scene, revision);
+        self.sync_meshes(scene, revision)?;
 
         // update per-entity transforms (cheap enough without full re-sync)
         for e in &scene.entities {

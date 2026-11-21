@@ -20,6 +20,7 @@ Vier Rollen, eigene X-Agent-Id, abhängige Tasks, Entity-Claims und Journal.
 - Player-Prop `ai_ui` (JSON-String oder Objekt): `title`, `mission`, `score_label`,
   `collectible_tag`, `action_label`, `intro_title`, `intro_text`, `win_text`,
   `badge`, `win_badge`, `hud_keys`, `sky_color`. `_`-State bleibt im HUD unsichtbar.
+  Freie HUD-Layouts ergänzt `ai_hud`; Schema und Beispiele: `docs/HUD.md`.
 - `cargo test -p engine-tests --test swarm_game`: Writer, Grounding/Wandkontakt,
   portables Speichern, simulate-basierter Sprung/Sieg/Sturz-Test.
 
@@ -135,6 +136,17 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- GLB-Hintergrundstreaming: `asset_concurrency` (4) priorisiert nach nächstem
+  geladenem Chunk; ungewollte Warteschlangen-Einträge entfallen. Chunks warten
+  nicht auf GLBs: `web_mesh_bounds` liefert Platzhalter, sonst bleibt die Stelle
+  leer. Mit `web_lods` zuerst gröbste Autoren-LOD, dann gewünschte Distanzstufe.
+  `texture_uploads_per_frame` (2) begrenzt `initTexture`; Modelle erscheinen erst
+  nach allen Uploads. `asset_cache_mb` (256) ist ein geschätztes LRU-Ziel für
+  Geometrie/Texturen; geladene Chunk-Assets bleiben gepinnt, dürfen es übersteigen.
+  Ohne Welt-Streaming bleibt der alte Loader aktiv. Stats/Overlay/Bench:
+  `assetsQueued`, `assetsLoading`, `assetsLoaded`, `assetMB`,
+  `textureUploadsPending`, `assetEvictions`.
+
 - HLOD: `ai_world.hlod` (true), `hlod_distance` (1600 m, größer als
   `draw_distance`), `hlod_cluster` (4×4 Chunks), `hlod_min_radius` (1,5 m).
   Statische Fernobjekte werden mit Welttransforms/Farben zusammengeführt,
@@ -172,6 +184,17 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   dieselben Werte stehen immer in `window.__engineStats`.
 - `python3 tools/gen_large_world.py target/large_world.json` erzeugt die große
   Demo (nicht einchecken); danach regulär mit `--export-web` exportieren.
+
+## Deklaratives HUD / GUI
+
+- Player-Prop `ai_hud` (Objekt/JSON): `{replace_default, widgets}`; Text/Counter,
+  Balken, Panels mit `children` und Toasts. Werte ausschließlich aus WASM-`state`.
+- `hud-layout.js` validiert und löst Vorlagen, Anker, Safe-Area und Phone-Overrides
+  (<600 px) auf; `hud-renderer.js` aktualisiert persistente DOM-Knoten.
+- `replace_default` verbirgt nur `#state`; FPS-ShooterHud bleibt unabhängig.
+  Touch-Anker unten links/rechts halten Joystick/Aktion frei. Siehe `docs/HUD.md`.
+- Tests: `tools/test_web_hud.mjs`, echter Browser: `tools/verify_web_hud.mjs`;
+  Bilder unter `target/hud-shots/`. JS enthält keine Spielregeln.
 
 ## Eingabe / Gamepad
 
