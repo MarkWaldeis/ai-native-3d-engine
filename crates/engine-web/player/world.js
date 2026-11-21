@@ -128,7 +128,7 @@ export class StreamingWorld {
   }
   assetPaths(e) { return e.kind==='gltf' ? [...new Set([e.path,...Object.values(e.animator ? {} : e.props?.web_lods || {})].filter(Boolean))] : []; }
   assetChoice(item) {
-    if(item.e.animator) return {request:item.e.path,path:item.e.path};
+    if(item.e.animator) return {request:item.e.path,path:this.assetStream.get(item.e.path) ? item.e.path : undefined};
     const lods=item.e.props?.web_lods || {}, coarse=Object.keys(lods).map(Number).sort((a,b)=>b-a).map(i=>lods[i]).find(Boolean);
     const desired=lods[item.level || 0] || item.e.path;
     const ready=this.assetPaths(item.e).filter(path=>this.assetStream.get(path));

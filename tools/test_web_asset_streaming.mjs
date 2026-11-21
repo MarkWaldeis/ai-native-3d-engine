@@ -142,9 +142,15 @@ test('asset config validates positive finite budgets and integer work caps; smal
 });
 
 test('animated GLB entities load only their animated original, never static web_lods',async()=>{
-  const {world,loaded,camera}=fixture();
+  const {world,loaded,pending,camera}=fixture();
   world.entities.get(1).e.animator={machine:{states:{}}};
   await Promise.all(world.update(camera));await settle();
   assert.deepEqual(loaded,['fine']);
   assert.deepEqual(world.assetPaths(world.entities.get(1).e),['fine']);
+  assert.equal(world.groups.get('0,0').children[0].material.wireframe,true);
+  const fine=model();pending.get('fine')(fine);await settle();
+  await Promise.all(world.update(camera));await settle();await Promise.all(world.update(camera));
+  const meshes=[];world.groups.get('0,0').traverse(o=>{if(o.isMesh)meshes.push(o);});
+  assert.ok(meshes.some(o=>o.geometry===fine.scene.children[0].geometry));
+  assert.ok(!meshes.some(o=>o.material.wireframe));
 });
