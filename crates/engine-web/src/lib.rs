@@ -57,6 +57,14 @@ impl WebGame {
             .map_err(|e| JsValue::from_str(&e))
     }
 
+    pub fn save_game(&self) -> Result<String, JsValue> {
+        self.save_game_inner().map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn load_game(&mut self, scene_json: &str, scripts_json: &str, save_json: &str) -> Result<String, JsValue> {
+        self.load_game_inner(scene_json, scripts_json, save_json).map_err(|e| JsValue::from_str(&e))
+    }
+
     pub fn set_active_region(&mut self, x: f32, z: f32, radius: f32, hysteresis: f32) -> Result<(), JsValue> {
         self.simulation.as_mut().ok_or_else(|| JsValue::from_str("load a scene before setting a region"))?
             .set_active_region(x,z,radius,hysteresis).map_err(|error| JsValue::from_str(&error.to_string()))
@@ -68,6 +76,21 @@ impl WebGame {
 }
 
 impl WebGame {
+    fn save_game_inner(&self) -> Result<String, String> {
+        self.simulation.as_ref().ok_or("load a scene before saving")?
+            .save_game().map(|save| save.to_string()).map_err(|e| e.to_string())
+    }
+    fn load_game_inner(&mut self, scene_json: &str, scripts_json: &str, save_json: &str) -> Result<String, String> {
+        if save_json.len() > engine_runtime::savegame::MAX_SAVE_BYTES { return Err("save exceeds 4 MB limit".into()); }
+        let scene = serde_json::from_str(scene_json).map_err(|e| e.to_string())?;
+        let scripts = serde_json::from_str(scripts_json).map_err(|e| e.to_string())?;
+        let save = serde_json::from_str(save_json).map_err(|e| e.to_string())?;
+        let simulation = Simulation::load_game_from_sources_with_terrain(scene, scripts, self.terrains.clone(), save).map_err(|e| e.to_string())?;
+        self.simulation = Some(simulation);
+        self.known.clear();
+        self.transforms.clear();
+        self.snapshot()
+    }
     fn load_inner(&mut self, scene_json: &str, scripts_json: &str) -> Result<String, String> {
         let scene: Scene = serde_json::from_str(scene_json).map_err(|e| e.to_string())?;
         let scripts: BTreeMap<String, String> =
@@ -114,7 +137,7 @@ impl WebGame {
         let state = simulation.state_summary();
         self.transforms.retain(|id, _| current.contains(id));
         let combat = simulation.take_events();
-        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"],"animators":simulation.animator_states(),"nav_agents":simulation.nav_agent_states(),"ragdolls":simulation.ragdoll_states()});
+        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"flags":state["flags"],"inventory":state["inventory"],"base_changed":state["base_changed"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"],"animators":simulation.animator_states(),"nav_agents":simulation.nav_agent_states(),"ragdolls":simulation.ragdoll_states()});
         self.known = current;
         Ok(result.to_string())
     }
@@ -138,6 +161,34 @@ mod tests {
         assert_eq!(initial["ragdolls"][0]["parts"].as_array().unwrap().len(), 11);
         assert_ne!(initial["ragdolls"][0]["parts"], tick["ragdolls"][0]["parts"]);
         assert_eq!(tick["events"], json!([{"type":"sensor","phase":"started","a":1,"b":2}]));
+    }
+    #[test]
+    fn savegame_roundtrip_full_snapshot() {
+        let scene = json!({"entities":[{"id":1,"name":"player","kind":"box","size":[1,1,1],"script":{"source":"fn on_start(ctx){ctx.inventory_add(\"key\",2);ctx.flag_set(\"quest\",true);} fn on_tick(ctx,dt){ctx.set_position([3.0,0.0,0.0]);}"}}]}).to_string();
+        let mut game = WebGame::new();
+        game.load_inner(&scene,"{}").unwrap();
+        game.tick_inner("{}").unwrap();
+        let save = game.save_game().unwrap();
+        let snapshot: Value = serde_json::from_str(&game.load_game_inner(&scene,"{}",&save).unwrap()).unwrap();
+        assert_eq!(snapshot["tick"],1);
+        assert_eq!(snapshot["inventory"]["key"],2);
+        assert_eq!(snapshot["flags"]["quest"],true);
+        assert_eq!(snapshot["spawned"].as_array().unwrap().len(),1);
+        assert_eq!(snapshot["transforms"][0]["transform"]["position"],json!([3.0,0.0,0.0]));
+        assert!(game.load_game_inner(&scene,"{}","{}").is_err());
+        let mut empty = WebGame::new();
+        empty.load_inner("{}","{}").unwrap();
+        let save=empty.save_game().unwrap();
+        assert!(empty.load_game_inner("{}","{}",&save).is_ok());
+    }
+    #[test]
+    fn oversized_and_missing_savegames_return_errors() {
+        let mut game=WebGame::new();
+        assert!(game.save_game_inner().is_err());
+        let source=format!("fn on_start(ctx) {{let chunk=\"{}\";for n in 0..256 {{ctx.state_set(\"large_\"+n,chunk);}}}}", "x".repeat(16384));
+        let scene=json!({"entities":[{"id":1,"name":"large-state","kind":"box","size":[1,1,1],"script":{"source":source}}]}).to_string();
+        game.load_inner(&scene,"{}").unwrap();
+        assert!(game.save_game_inner().unwrap_err().contains("4 MB"));
     }
     #[test]
     fn terrain_bridge_loads_streams_and_preserves_tiles_on_reload() {

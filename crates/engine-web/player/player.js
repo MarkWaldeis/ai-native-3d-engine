@@ -13,12 +13,29 @@ import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
+import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
+import { InputSettings } from './input-settings.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
 const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
+const input = new InputSystem(), inputEdges = new InputEdges();
+let inputSettings, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
+const touchMode = () => document.body.classList.contains('touch-input');
+function showTouch() {
+  document.body.classList.add('touch-input');
+  if (fps) fps.coarse = true;
+  updateHelp();
+}
+function updateHelp() {
+  const help = gamepadActive ? gamepadHelp(input.config, !!fps) : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
+  if (help && $('help').textContent !== help) $('help').textContent = help;
+}
+if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch-input');
+window.addEventListener('touchstart', showTouch, { passive: true });
+window.addEventListener('pointerdown', event => { if (event.pointerType === 'touch') showTouch(); }, { passive: true });
 let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
@@ -33,7 +50,7 @@ const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain, occluder;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -236,7 +253,7 @@ function apply(result) {
     if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
     $('state').replaceChildren(...fragments);
   }
-  $('logs').textContent = result.logs.slice(-12).join('\n');
+  $('logs').textContent = [...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -253,21 +270,19 @@ function showWin() {
 }
 
 function movement() {
-  let x = joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
-  let z = joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
-  const move = viewMovement(x, z, cameraOffset.toArray());
+  const move = viewMovement(sampledInput.move_x, sampledInput.move_z, cameraOffset.toArray());
   return new THREE.Vector3(move.x, 0, move.z);
 }
 
 function localMovement() {
   return {
-    x: joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')),
-    z: joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')),
+    x: sampledInput.move_x,
+    z: sampledInput.move_z,
   };
 }
 
 function controls() {
-  if (fps) return fps.inputs(localMovement(), actionInput.sample());
+  if (fps) return fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions);
   const move = movement();
   const pressed = actionInput.sample();
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
@@ -285,7 +300,7 @@ function stopPreview() {
 function updateCamera(immediate = false, elapsed = 1 / 60) {
   const player = transforms.get(playerId);
   if (!player) return;
-  if (fps) { fps.updateCamera(player, elapsed, fps.buttons.sprint); return; }
+  if (fps) { fps.updateCamera(player, elapsed, sampledInput.actions.sprint); return; }
   const direction = movement();
   if (direction.length() > 0.15) lookDirection.lerp(direction.normalize(), immediate ? 1 : 1 - Math.exp(-elapsed * 6));
   const target = new THREE.Vector3(...player.transform.position);
@@ -336,7 +351,7 @@ function resize() {
   camera.aspect = width / height; camera.updateProjectionMatrix(); updateCamera(true);
 }
 
-async function restart() {
+async function restart(save = null) {
   running = false; ready = false; resetInput();
   stopPreview();
   previewRemaining = 3.5;
@@ -346,7 +361,9 @@ async function restart() {
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
-  const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
+  const initial = save === null
+    ? game.load(JSON.stringify(source), JSON.stringify(scripts))
+    : game.load_game(JSON.stringify(source), JSON.stringify(scripts), save);
   await terrain?.preload();
   mark('webGameLoaded');
   apply(JSON.parse(initial));
@@ -364,7 +381,30 @@ async function restart() {
   mark('assetsReady');
 }
 
+const saveKey = `ai-engine-save:v1:${location.pathname}`;
+window.__aiSaveGame = () => {
+  if (!ready) throw new Error('Spiel ist noch nicht bereit.');
+  const save = game.save_game();
+  localStorage.setItem(saveKey, save);
+  return save;
+};
+window.__aiLoadGame = async () => {
+  const save = localStorage.getItem(saveKey);
+  if (save === null) return false;
+  await restart(save);
+  startRunning();
+  return true;
+};
+window.addEventListener('keydown', e => {
+  if (e.code !== 'F5' && e.code !== 'F9') return;
+  e.preventDefault();
+  if (e.repeat) return;
+  Promise.resolve().then(() => e.code === 'F5' ? window.__aiSaveGame() : window.__aiLoadGame())
+    .catch(error => console.error('Spielstand:', error));
+});
+
 function startRunning() {
+  if (document.activeElement?.matches('button')) document.activeElement.blur();
   audio.unlock();
   $('restart').hidden = true; $('start').disabled = false;
   resetInput(); modal.hidden = true; mode = 'pause'; running = true; previous = performance.now(); accumulator = 0;
@@ -400,7 +440,7 @@ $('restart').addEventListener('click', async () => {
   finally { $('restart').disabled = false; }
 });
 $('pause').addEventListener('click', () => {
-  if (!ready || mode === 'restart') return;
+  if (!ready || mode === 'restart' || inputSettings?.open) return;
   if (running) {
     pause();
   } else startRunning();
@@ -420,9 +460,16 @@ $('fullscreen').addEventListener('click', async () => {
   } catch { $('mission').textContent = 'Vollbild ist in diesem Browser nicht verfügbar.'; }
 });
 
-const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
-window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { stopPreview(); if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
-window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
+window.addEventListener('keydown', e => {
+  if (running && ['Space', 'Enter'].includes(e.code) && e.target.closest?.('footer button')) e.preventDefault();
+  if (inputSettings?.open || (!running && e.target.closest?.('button, input, dialog'))) return;
+  const actions = Object.keys(input.config.bindings).filter(action => input.config.bindings[action].some(binding => binding.type === 'key' && binding.code === e.code));
+  if (!actions.length) return;
+  e.preventDefault();
+  if (actions.includes('pause') && !e.repeat && ready && mode !== 'restart') { if (running) pause(); else startRunning(); return; }
+  if (running) { stopPreview(); keys.add(e.code); if (actions.includes('action')) actionInput.press(`key:${e.code}`); }
+});
+window.addEventListener('keyup', e => { keys.delete(e.code); actionInput.release(`key:${e.code}`); });
 window.addEventListener('blur', resetInput);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && running) pause();
@@ -464,6 +511,22 @@ function frame(now) {
     const rawElapsed = (now - previous) / 1000;
     const elapsed = Math.min(rawElapsed, 0.1); previous = now;
     if (document.hidden) return;
+    const pads = navigator.getGamepads?.() || [];
+    const gamepad = input.sampleGamepads(pads);
+    const edges = inputEdges.sample(gamepad.actions);
+    if (Object.values(gamepad.actions).some(value => Math.abs(value) > 0.15)) { gamepadActive = true; updateHelp(); }
+    else if (!Array.from(pads).some(pad => pad && pad.connected !== false)) { gamepadActive = false; updateHelp(); }
+    inputSettings?.poll(pads);
+    if (!inputSettings?.open) {
+      if (edges.has('pause') && mode !== 'restart') { if (running) pause(); else if (mode === 'pause') startRunning(); }
+      else if (edges.has('action') && !modal.hidden && !$('start').disabled) $('start').click();
+      sampledInput = input.sample({ keys, pads, touch: joystick });
+      if (running) {
+        if (gamepad.actions.action > 0.5) actionInput.press('gamepad'); else actionInput.release('gamepad');
+        if (Math.hypot(gamepad.move_x, gamepad.move_z) > 0.1) stopPreview();
+        fps?.gamepadLook(sampledInput.look_x, sampledInput.look_y, elapsed);
+      }
+    }
     renderer.info.reset();
     if (running) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
@@ -503,6 +566,7 @@ function frame(now) {
     fps?.renderOverlay();
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
+    Object.assign(stats,streaming?.hlod?.stats() || {hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0});
     stats.occludedChunks=streaming?.occludedChunks || 0; stats.occlusionTests=occluder?.tests || 0;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
@@ -510,7 +574,7 @@ function frame(now) {
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
-      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
@@ -556,6 +620,8 @@ async function boot() {
   const props = source.entities.find(e => e.tags?.includes('player'))?.props;
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
+  const title = ui.title || (source.entities.some(e => e.tags?.includes('coin')) ? 'Münzenpfad' : source.name || 'Web-Spiel');
+  inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp);
   const preset = new URLSearchParams(location.search).get('quality');
   const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
   renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });
@@ -572,7 +638,7 @@ async function boot() {
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config,assets);
-    if (world.fog?.isFog) { world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance; }
+    if (world.fog?.isFog) { const distance=config.hlod ? config.hlod_distance : config.draw_distance; world.fog.near = distance * 0.65; world.fog.far = distance; }
   }
   if (new URLSearchParams(location.search).get('stats') === '1') {
     gpuTimer = new GpuTimer(context);
@@ -585,10 +651,10 @@ async function boot() {
   terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
   if(terrain) {
     occluder=new TerrainOcclusion(terrain.occluderHeightAt,{enabled:config?.occlusion ?? true,margin:config?.occlusion_margin ?? 2});
-    streaming?.setOcclusion(occluder); terrain.setOcclusion(occluder);
+    streaming?.setOcclusion(occluder); streaming?.setHlodOcclusion(occluder); terrain.setOcclusion(occluder);
   }
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
-  if (config) camera.far = config.draw_distance;
+  if (config) camera.far = config.hlod ? config.hlod_distance : config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
   const firstPerson = fpsConfig(source.entities);
@@ -613,8 +679,9 @@ async function boot() {
   if (ui.badge) $('modal-badge').textContent = ui.badge;
   if (ui.action_label) $('action').lastChild.textContent = ui.action_label;
   document.title = `${$('title').textContent} · AI Engine`;
-  if (matchMedia('(pointer: coarse)').matches) $('help').textContent = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
-  else if (fps) $('help').textContent = 'Maus: Zielen · Klick: Feuer · R: Nachladen · Shift: Sprint · Esc: Pause';
+  touchHelp = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
+  if (touchMode() && fps) fps.coarse = true;
+  updateHelp();
   if (fps && !ui.action_label) $('action').lastChild.textContent = 'SPRUNG';
   requestAnimationFrame(frame);
 }

@@ -84,6 +84,32 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
     engine.on_print(move |message| printed.borrow_mut().log(message.to_owned()));
     engine.on_debug(move |message, _, _| data.borrow_mut().log(message.to_owned()));
     engine.register_type_with_name::<Context>("Context");
+    engine.register_fn("flag_set", |ctx: &mut Context, name: &str, value: Dynamic| -> ScriptResult<()> {
+        let value: Value = rhai::serde::from_dynamic(&value).map_err(|e| Box::<EvalAltResult>::from(e.to_string()))?;
+        let mut data = ctx.data.borrow_mut();
+        if name.len() > 256 || value.to_string().len() > 65_536 || (!data.flags.contains_key(name) && data.flags.len() >= 256) { return Err("flag limit exceeded".into()); }
+        data.flags.insert(name.into(), value);
+        Ok(())
+    });
+    engine.register_fn("flag", |ctx: &mut Context, name: &str| -> ScriptResult<Dynamic> {
+        rhai::serde::to_dynamic(ctx.data.borrow().flags.get(name).cloned().unwrap_or(Value::Null)).map_err(|e| e.to_string().into())
+    });
+    engine.register_fn("inventory_count", |ctx: &mut Context, item: &str| -> INT { ctx.data.borrow().inventory.get(item).copied().unwrap_or(0) });
+    engine.register_fn("inventory_add", |ctx: &mut Context, item: &str, n: INT| -> ScriptResult<()> {
+        let mut data = ctx.data.borrow_mut();
+        if n < 0 || item.len() > 256 || (!data.inventory.contains_key(item) && data.inventory.len() >= 256) { return Err("invalid inventory amount or inventory limit exceeded".into()); }
+        let count = data.inventory.get(item).copied().unwrap_or(0).checked_add(n).ok_or("inventory count overflow")?;
+        data.inventory.insert(item.into(), count);
+        Ok(())
+    });
+    engine.register_fn("inventory_remove", |ctx: &mut Context, item: &str, n: INT| -> ScriptResult<bool> {
+        if n < 0 || item.len() > 256 { return Err("invalid inventory amount or item".into()); }
+        let mut data = ctx.data.borrow_mut();
+        let count = data.inventory.get(item).copied().unwrap_or(0);
+        if count < n { return Ok(false); }
+        if n > 0 { data.inventory.insert(item.into(), count - n); }
+        Ok(true)
+    });
     engine.register_fn("nav_set_target",|ctx:&mut Context,target:Array|->ScriptResult<bool>{
         let target=vector(target)?;let mut data=ctx.data.borrow_mut();
         let scene=&mut data.scene;let mesh=scene.navmesh.as_ref().ok_or("scene has no baked navmesh")?;
