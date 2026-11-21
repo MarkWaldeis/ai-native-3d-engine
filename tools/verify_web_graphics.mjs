@@ -19,7 +19,16 @@ export async function verifyMobileGraphics(browser, base, profile, device, error
   });
   await page.addInitScript(installClock);
   try {
-    for (const preset of ['low', 'ultra']) {
+    for (const [preset, level] of [['low', 0], ['ultra', 2], ['balanced', 1]]) {
+      if (preset === 'balanced') await page.route('**/material_studio/scene.json', async route => {
+        const response = await route.fetch(), scene = await response.json();
+        const player = scene.entities.find(entity => entity.tags?.includes('player'));
+        Object.assign(player.props.ai_graphics, {
+          bloom_strength:0, height_fog:{density:0.04, falloff:8},
+          color_grade:{saturation:0.7, contrast:1.25},
+        });
+        await route.fulfill({response,json:scene});
+      });
       await page.goto(`${studio}/?quality=${preset}`);
       await page.waitForFunction(() => !document.querySelector('#start').disabled, null, {polling:50});
       await page.getByRole('button', {name:'Spielen'}).tap();
@@ -30,13 +39,15 @@ export async function verifyMobileGraphics(browser, base, profile, device, error
           calls:window.__engineStats.drawCalls, error:gl.getError(),
           floatTargets:!!gl.getExtension('EXT_color_buffer_float')};
       });
-      assert.equal(actual.quality, preset === 'low' ? '0' : '2');
+      assert.equal(actual.quality, String(level));
       assert.ok(actual.calls > 0 && actual.error === 0, JSON.stringify(actual));
       if (preset === 'low' || !actual.floatTargets) assert.equal(actual.mode, 'standard');
       else assert.ok(['hdr', 'standard'].includes(actual.mode), JSON.stringify(actual));
       if (preset === 'ultra') {
         await page.screenshot({path:`${shots}/material-studio-${profile.replaceAll(' ','-')}.png`});
         console.log(`PASS webkit/${profile}/graphics: playable material studio, Ultra ${actual.mode}, no WebGL errors`);
+      } else if (preset === 'balanced') {
+        console.log(`PASS webkit/${profile}/graphics: authored height fog and grading on Balanced (${actual.mode}), no WebGL errors`);
       }
     }
   } finally { await page.close(); }
