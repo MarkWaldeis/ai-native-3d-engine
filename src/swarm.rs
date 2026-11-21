@@ -8,7 +8,10 @@ use std::time::{Duration, Instant};
 pub(crate) struct Swarm {
     locks: BTreeMap<u64, (String, Instant)>,
     pub(crate) journal: VecDeque<Value>,
-    tasks: Vec<Value>,
+    pub(crate) tasks: Vec<Value>,
+    pub(crate) task_leases: BTreeMap<u64, Instant>,
+    pub(crate) task_journal: VecDeque<Value>,
+    pub(crate) task_sequence: u64,
 }
 
 fn integer(args: &Value, key: &str) -> Result<u64, String> {
@@ -43,6 +46,8 @@ impl Engine {
         if !args.is_object() {
             return Err("tool arguments must be a JSON object".into());
         }
+        let secured = self.secure_arguments(name, args)?;
+        let args = &secured;
         if let Some(value) = args.get("expected_revision") {
             let revision = value.as_u64().ok_or("expected_revision must be a nonnegative integer")?;
             if revision != self.world.revision { return Err(format!("revision conflict: expected {revision}, world is at {}", self.world.revision)); }
@@ -85,48 +90,7 @@ impl Engine {
                     "current_revision": self.world.revision,
                     "oldest_revision": self.swarm.journal.front().map(|e| &e["revision"])})
             }
-            "task_create" => {
-                let title = args["title"].as_str().filter(|s| !s.trim().is_empty()).ok_or("'title' must be a nonempty string")?;
-                let deps = if args.get("depends_on").is_some() { ids(args, "depends_on")? } else { vec![] };
-                for dep in &deps {
-                    if !self.swarm.tasks.iter().any(|t| t["id"] == *dep) { return Err(format!("no task {dep}; use task_list")); }
-                }
-                if args.get("description").is_some_and(|v| !v.is_string()) { return Err("'description' must be a string".into()); }
-                let task = json!({"id": self.swarm.tasks.len() + 1, "title": title,
-                    "description": args.get("description").cloned().unwrap_or(json!("")),
-                    "depends_on": deps, "status": "pending", "agent": null});
-                self.swarm.tasks.push(task.clone());
-                task
-            }
-            "task_claim" | "task_complete" => {
-                let id = integer(args, "id")?;
-                let index = self.swarm.tasks.iter().position(|t| t["id"] == id).ok_or_else(|| format!("no task {id}; use task_list"))?;
-                let task = &self.swarm.tasks[index];
-                if name == "task_claim" {
-                    if task["status"] != "pending" { return Err(format!("task {id} is {}; only pending tasks can be claimed", task["status"])); }
-                    for dep in task["depends_on"].as_array().unwrap() {
-                        if !self.swarm.tasks.iter().any(|t| t["id"] == *dep && t["status"] == "completed") {
-                            return Err(format!("dependency {dep} is not completed"));
-                        }
-                    }
-                    self.swarm.tasks[index]["agent"] = json!(agent);
-                    self.swarm.tasks[index]["status"] = json!("claimed");
-                } else {
-                    if task["status"] != "claimed" || task["agent"] != agent { return Err(format!("task {id} must be claimed by {agent} before completion")); }
-                    if args.get("note").is_some_and(|v| !v.is_string()) { return Err("'note' must be a string".into()); }
-                    self.swarm.tasks[index]["status"] = json!("completed");
-                    self.swarm.tasks[index]["note"] = args.get("note").cloned().unwrap_or(json!(""));
-                }
-                self.swarm.tasks[index].clone()
-            }
-            "task_list" => {
-                if let Some(status) = args.get("status") {
-                    if !["pending", "claimed", "completed"].iter().any(|s| status == s) {
-                        return Err("status must be pending, claimed, or completed".into());
-                    }
-                }
-                json!(self.swarm.tasks.iter().filter(|t| args.get("status").is_none_or(|s| t["status"] == *s)).collect::<Vec<_>>())
-            }
+            "task_create" | "task_claim" | "task_renew" | "task_release" | "task_complete" | "task_list" | "get_task_changes_since" => self.task_tool(name,args,agent)?,
             _ => return self.handle_scene_tool(name, args, agent),
         };
         Ok(text_result(result.to_string()))

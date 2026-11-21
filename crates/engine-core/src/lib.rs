@@ -282,12 +282,16 @@ impl World {
     }
 
     pub fn load(&mut self, path: &Path) -> Result<()> {
-        self.load_with_root(path, path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")))
+        let path = path.canonicalize()?;
+        self.load_with_root(&path, path.parent().unwrap())
     }
 
     pub fn load_with_root(&mut self, path: &Path, script_root: &Path) -> Result<()> {
+        let path = project_path(script_root, path)?;
+        let path = path.as_path();
         let s = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
         let mut scene: Scene = serde_json::from_str(&s).with_context(|| "parse scene json")?;
+        validate_scene_paths(&scene, script_root)?;
         let mut seen = std::collections::HashSet::new();
         for entity in &mut scene.entities {
             anyhow::ensure!(seen.insert(entity.id), "duplicate entity id {}", entity.id);
@@ -316,6 +320,7 @@ impl World {
 
 pub fn freeze_script(script: &shared::components::Script, root: &Path) -> Result<shared::components::Script> {
     use shared::components::Script;
+    if let Some(path) = script.path() { project_path(root, Path::new(path))?; }
     match script {
         Script::Path(path) | Script::File { path } => {
             let requested = Path::new(path);
@@ -328,6 +333,36 @@ pub fn freeze_script(script: &shared::components::Script, root: &Path) -> Result
         }
         _ => Ok(script.clone()),
     }
+}
+
+pub fn project_path(root: &Path, path: &Path) -> Result<std::path::PathBuf> {
+    anyhow::ensure!(!path.components().any(|c| matches!(c, std::path::Component::ParentDir)), "path escapes project root; use a project-relative path");
+    let root = root.canonicalize()?;
+    let candidate = if path.is_absolute() { path.to_path_buf() } else { root.join(path) };
+    let mut ancestor = candidate.as_path();
+    let mut suffix = Vec::new();
+    while std::fs::symlink_metadata(ancestor).is_err() {
+        suffix.push(ancestor.file_name().context("path escapes project root")?.to_owned());
+        ancestor = ancestor.parent().context("path escapes project root")?;
+    }
+    let mut resolved = ancestor.canonicalize()?;
+    anyhow::ensure!(resolved.starts_with(&root), "path escapes project root; use a project-relative path");
+    for part in suffix.into_iter().rev() { resolved.push(part); }
+    Ok(resolved)
+}
+
+pub fn validate_scene_paths(scene: &Scene, root: &Path) -> Result<()> {
+    let canonical = root.canonicalize()?;
+    let root = canonical.as_path();
+    for entity in &scene.entities {
+        if let PrimitiveKind::Gltf { path } = &entity.mesh { project_path(root, Path::new(path))?; }
+        if let Some(path) = entity.script.as_ref().and_then(shared::components::Script::path) {
+            project_path(root, Path::new(path))?;
+            let requested = Path::new(path);
+            if !requested.is_absolute() { project_path(root, &root.join("assets").join(requested))?; }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

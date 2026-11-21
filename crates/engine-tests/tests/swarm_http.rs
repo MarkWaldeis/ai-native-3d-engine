@@ -243,9 +243,10 @@ fn concurrent_agents_locks_journal_and_tasks_over_http() {
         rpc(&addr, "lead", "task_create", json!({"title":""})),
         "title",
     );
+    assert_eq!(data(rpc(&addr,"lead","task_list",json!({"status":"expired"}))),json!([]));
     error(
         rpc(&addr, "lead", "task_list", json!({"status":"invalid"})),
-        "pending, claimed, or completed",
+        "pending, claimed, completed, or expired",
     );
     error(
         rpc(&addr, "lead", "get_changes_since", json!({})),
@@ -288,6 +289,9 @@ fn stdio_protocol_keeps_anonymous_and_explicit_identity() {
         "get_changes_since",
         "task_create",
         "task_claim",
+        "task_renew",
+        "task_release",
+        "get_task_changes_since",
         "task_complete",
         "task_list",
     ] {

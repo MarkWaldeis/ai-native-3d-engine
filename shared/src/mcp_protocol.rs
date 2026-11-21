@@ -139,16 +139,19 @@ pub fn builtin_tools() -> Vec<ToolDef> {
             input_schema: schema(json!({"title":{"type":"string", "minLength":1}, "description":{"type":"string"}, "depends_on":{"type":"array", "items":{"type":"integer", "minimum":1}}}), &["title"]),
         },
         ToolDef {
-            name: "task_claim", description: "Claim a pending task only after all dependencies are completed.",
-            input_schema: schema(json!({"id":{"type":"integer", "minimum":1}}), &["id"]),
+            name: "task_claim", description: "Claim pending or expired tasks after dependencies complete. ttl_s 1..86400 (default 60). Returns a fencing lease: pass it to renew/release/complete. Expired claims may be taken over; old workers cannot complete late.",
+            input_schema: schema(json!({"id":{"type":"integer", "minimum":1},"ttl_s":{"type":"integer","minimum":1,"maximum":86400,"default":60}}), &["id"]),
         },
         ToolDef {
-            name: "task_complete", description: "Complete a task claimed by this agent.",
-            input_schema: schema(json!({"id":{"type":"integer", "minimum":1}, "note":{"type":"string"}}), &["id"]),
+            name: "task_complete", description: "Complete only this agent's live claim with its current lease. Missing lease supported only for first-generation legacy claims; always send the returned lease. Journaled independently of scene revisions.",
+            input_schema: schema(json!({"id":{"type":"integer", "minimum":1},"lease":{"type":"integer","minimum":1}, "note":{"type":"string"}}), &["id"]),
         },
+        ToolDef {name:"task_renew",description:"Extend this agent's unexpired task claim by ttl_s (default 60, 1..86400). Must supply the latest lease; expired claims must be reclaimed instead.",input_schema:schema(json!({"id":{"type":"integer","minimum":1},"lease":{"type":"integer","minimum":1},"ttl_s":{"type":"integer","minimum":1,"maximum":86400,"default":60}}),&["id","lease"])},
+        ToolDef {name:"task_release",description:"Release this agent's live task claim back to pending. Supply the latest lease. The next claim gets a new fencing lease.",input_schema:schema(json!({"id":{"type":"integer","minimum":1},"lease":{"type":"integer","minimum":1}}),&["id","lease"])},
+        ToolDef {name:"get_task_changes_since",description:"Task coordination journal after sequence (not scene revision): create/claim/renew/release/takeover/complete, task_id, authenticated agent, fencing lease and previous owner. Retains 1024 events; returns current_sequence and oldest_sequence.",input_schema:schema(json!({"sequence":{"type":"integer","minimum":0}}),&["sequence"])},
         ToolDef {
             name: "task_list", description: "List tasks, optionally filtered by status.",
-            input_schema: schema(json!({"status":{"type":"string", "enum":["pending", "claimed", "completed"]}}), &[]),
+            input_schema: schema(json!({"status":{"type":"string", "enum":["pending", "claimed", "expired", "completed"]}}), &[]),
         },
         ToolDef {
             name: "get_scene_state",
@@ -209,12 +212,12 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_scene",
-            description: "Persist the current scene to JSON. bundle_assets:true copies GLBs alongside it into assets/ with portable project-relative paths; bundle destination must be inside the project.",
+            description: "Persist the current scene to project-root-confined JSON (no traversal or escaping symlinks). bundle_assets:true copies project GLBs alongside it into assets/ with portable paths.",
             input_schema: schema(json!({"path": {"type": "string"},"bundle_assets":{"type":"boolean"}}), &["path"]),
         },
         ToolDef {
             name: "load_scene",
-            description: "Load a scene from a .json file, replacing the current state.",
+            description: "Load project-root-confined scene JSON, replacing current state. Scene/script/mesh paths cannot escape the project, including symlinks. Rejected loads leave scene/revision unchanged.",
             input_schema: schema(json!({"path": {"type": "string"}, "expected_revision": expected_rev()}), &["path"]),
         },
         ToolDef {
@@ -252,7 +255,7 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "run_blender_script",
-            description: "Run a Python script via headless Blender (blender --background --factory-startup --python).",
+            description: "Run a project-root-confined Python file via headless Blender. Unsandboxed machine access; remote HTTP disables this unless --allow-privileged-tools is explicitly enabled. This opt-in never relaxes path argument guards.",
             input_schema: schema(json!({"script": {"type": "string"}}), &["script"]),
         },
     ]

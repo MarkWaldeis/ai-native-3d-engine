@@ -45,11 +45,13 @@ fn transform_and_persistence() {
 
     let dir = std::env::temp_dir().join("ai_engine_e2e");
     std::fs::create_dir_all(&dir).unwrap();
+    e.assets_dir = dir.join("assets");
     let p = dir.join("e2e_scene.json");
     let r = call(&mut e, "save_scene", json!({"path": p.to_string_lossy()}));
     assert!(r["result"]["content"].is_array(), "{r}");
 
     let mut e2 = Engine::new();
+    e2.assets_dir = dir.join("assets");
     let r = call(&mut e2, "load_scene", json!({"path": p.to_string_lossy()}));
     assert!(r["result"]["content"].is_array(), "{r}");
     assert_eq!(e2.world.scene.entities.len(), 1);
@@ -127,7 +129,9 @@ fn rollback_restores_earlier_revision() {
 #[test]
 fn spawn_gltf_asset() {
     let mut e = Engine::new();
-    let glb = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/suzanne.glb");
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+    e.assets_dir = root.join("assets");
+    let glb = root.join("assets/suzanne.glb");
     assert!(glb.exists(), "missing fixture {}", glb.display());
     let r = call(&mut e, "spawn_primitive", json!({
         "kind": "gltf",

@@ -18,6 +18,8 @@ mod runtime;
 mod qa;
 mod authoring;
 mod batch;
+mod security;
+mod tasks;
 pub mod web;
 pub mod project;
 
@@ -30,15 +32,14 @@ pub struct Engine {
     pub blender: asset_pipeline::bridge::BlenderBridge,
     simulation: Option<engine_runtime::Simulation>,
     render_revision: u64,
+    privileged_tools: bool,
 }
 
 impl Engine {
     pub fn from_project(path: &Path) -> anyhow::Result<Self> {
         let root = path.canonicalize()?;
-        let mut engine = Self::new();
-        engine.assets_dir = root.join("assets");
-        engine.pipeline = AssetPipeline::new(&engine.assets_dir);
-        engine.world.load(&root.join("scene.json"))?;
+        let mut engine = Self::with_assets(engine_core::project_path(&root, &root.join("assets"))?);
+        engine.world.load_with_root(&root.join("scene.json"), &root)?;
         Ok(engine)
     }
 
@@ -46,6 +47,10 @@ impl Engine {
         let assets_dir = std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
             .join("assets");
+        Self::with_assets(assets_dir)
+    }
+
+    fn with_assets(assets_dir: PathBuf) -> Self {
         Self {
             world: World::new(),
             renderer: None,
@@ -55,6 +60,7 @@ impl Engine {
             blender: asset_pipeline::bridge::BlenderBridge::default(),
             simulation: None,
             render_revision: 0,
+            privileged_tools: true,
         }
     }
 

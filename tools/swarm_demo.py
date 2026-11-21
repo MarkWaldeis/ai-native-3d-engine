@@ -49,6 +49,7 @@ class Swarm:
         self.stop = threading.Event()
         self.tasks_ready = threading.Event()
         self.tasks = {}
+        self.task_leases = {}
         self.reports = {}
         self.sessions = {}
 
@@ -96,14 +97,15 @@ class Swarm:
             task = next(t for t in tasks if t["id"] == task_id)
             completed = {t["id"] for t in tasks if t["status"] == "completed"}
             if all(dep in completed for dep in task["depends_on"]):
-                self.call(agent, "task_claim", {"id": task_id})
+                claim = self.call(agent, "task_claim", {"id": task_id, "ttl_s": 600})
+                self.task_leases[task_id] = claim["lease"]
                 self.call(agent, "get_changes_since", {"revision": 0})
                 return task_id
             self.stop.wait(0.3)
         raise RuntimeError("another agent failed")
 
     def complete(self, agent, task_id, note):
-        self.call(agent, "task_complete", {"id": task_id, "note": note})
+        self.call(agent, "task_complete", {"id": task_id, "lease": self.task_leases[task_id], "note": note})
 
     def artist(self):
         agent = "Blender-Artist"

@@ -93,12 +93,9 @@ impl Engine {
 }
 
 pub(crate) fn save_bundle(scene: &Scene, root: &Path, path: &Path) -> Result<Value> {
+    engine_core::validate_scene_paths(scene, root)?;
     let root = root.canonicalize()?;
-    let path = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        root.join(path)
-    };
+    let path = engine_core::project_path(&root, path)?;
     let parent = path
         .parent()
         .context("scene path has no parent")?

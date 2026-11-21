@@ -65,6 +65,7 @@ impl Engine {
                 let path = item["path"]
                     .as_str()
                     .ok_or_else(|| anyhow::anyhow!("export missing GLB path"))?;
+                engine_core::project_path(self.assets_dir.parent().unwrap_or(std::path::Path::new(".")),std::path::Path::new(path))?;
                 engine_geo::load_gltf(std::path::Path::new(path))?;
                 let transform: Transform = serde_json::from_value(item["transform"].clone())?;
                 let mut entity = Entity {

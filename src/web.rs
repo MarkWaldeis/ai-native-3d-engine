@@ -83,6 +83,9 @@ fn run(command: &mut Command, help: &str) -> Result<()> {
 }
 
 pub fn export_web(scene: &Scene, root: &Path, out: &Path) -> Result<Value> {
+    let out = engine_core::project_path(root, out)?;
+    let out = out.as_path();
+    engine_core::validate_scene_paths(scene, root)?;
     empty_output(out)?;
     let workspace = Path::new(env!("CARGO_MANIFEST_DIR"));
     run(
@@ -113,6 +116,7 @@ pub fn export_web(scene: &Scene, root: &Path, out: &Path) -> Result<Value> {
 }
 
 pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Result<Value> {
+    engine_core::validate_scene_paths(scene, root)?;
     empty_output(out)?;
     let root = root.canonicalize()?;
     let mut scene = scene.clone();

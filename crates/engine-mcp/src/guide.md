@@ -1,8 +1,15 @@
 # AI engine guide / Leitfaden für KI-Agenten
 
-Local trusted clients only: Blender Python and filesystem tools have local machine
-access. Annotations are hints, not a sandbox. HTTP sessions are not authentication.
-Nur vertrauenswürdige lokale Agenten; HTTP nicht ungeschützt öffentlich freigeben.
+Local stdio/loopback clients are trusted. HTTP defaults to 127.0.0.1:7777;
+non-loopback requires --allow-remote with a bearer token on every request.
+AI_ENGINE_HTTP_TOKEN sets one "remote" principal; AI_ENGINE_HTTP_TOKENS is a JSON
+agent-to-token map for independent workers. Without either, remote startup prints
+a generated token once. Use a trusted network/TLS tunnel: HTTP is not encrypted.
+Remote blender_exec/run_blender_script require separate --allow-privileged-tools
+(unsandboxed Python). MCP/CLI scene/script/mesh/export paths remain project-root
+confined in every mode: no traversal or escaping symlinks. Privileged raw Python
+is not sandboxed. Nur vertrauenswürdige Projekte; keine Tokens in Projektdateien.
+Session IDs and tool annotations are not authentication or permissions.
 
 ## Workflow / Arbeitsweise
 
@@ -26,11 +33,21 @@ Nur vertrauenswürdige lokale Agenten; HTTP nicht ungeschützt öffentlich freig
 
 ## Swarm etiquette / Zusammenarbeit
 
-Distinct `agent` tool argument or HTTP `X-Agent-Id` (argument wins). Sessions do not
-replace identities. `task_create` with `depends_on`, `task_claim`, then `claim_entities`
+Local: distinct `agent` argument or `X-Agent-Id` (argument wins). Remote: credential
+fixes identity and overrides both, including batches; sessions are principal-bound.
+`task_create` with `depends_on`, `task_claim`, then `claim_entities`
 before editing existing IDs. Renew expiring claims; `release_entities` when finished.
 Use `get_revision` + `expected_revision` for CAS; after conflicts refresh scene and
 `get_changes_since`. Journal retention is 1024 scene mutations; snapshots retain 64.
+Task claims have TTL 1–86400 seconds (default 60) and return a fencing `lease`.
+Pass it to `task_renew {id,lease,ttl_s?}`, `task_release {id,lease}` and
+`task_complete {id,lease,note?}`. Renew before expiry, choose TTLs covering long
+blocking calls. `task_list` shows expired claims; `task_claim` takes them over with
+a new lease. Old owners/leases cannot complete late, even on same-agent reclaim.
+Legacy lease omission is allowed only for first-generation task_complete.
+`get_task_changes_since {sequence:0}` is the separate 1024-event task journal:
+create/claim/renew/release/takeover/complete, lease, actor, previous owner. Task
+events do not advance scene revisions. Leases and journals reset on restart.
 `task_complete` only after verification. `apply_batch` defaults to `mode:"partial"`:
 earlier successful commands remain if a later one fails. Use `mode:"atomic"` plus
 batch `expected_revision` for one scene revision/journal commit, or no changes on

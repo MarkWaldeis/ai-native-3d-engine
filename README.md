@@ -48,9 +48,10 @@ ausgegebenen `Mcp-Session-Id` bei Folgeaufrufen mitsenden, ebenso
 beendet eine Sitzung; unbekannte/beendete IDs ergeben 404. SDK-basierte MCP-Clients
 erledigen den Handshake und die Header automatisch.
 
-Nur **vertrauenswürdige lokale Clients**: Blender-Python und Dateitools haben
-lokalen Rechnerzugriff. Session-IDs sind keine Authentifizierung; Server nicht
-ungeschützt öffentlich freigeben. Fremde Browser-Origins werden abgewiesen.
+Standardmäßig nur Loopback (`--serve` ohne Adresse: `127.0.0.1:7777`). Lokales
+Blender-Python bleibt privilegiert und setzt vertrauenswürdige Clients voraus.
+Remote-Betrieb erfordert `--allow-remote` und Bearer-Authentifizierung (siehe unten).
+Session-IDs sind keine Authentifizierung. Fremde Browser-Origins werden abgewiesen.
 Tool-Annotations (`readOnlyHint`, `destructiveHint`) sind Hinweise, keine Rechte.
 Web-Export benötigt weiterhin Engine-Quellcheckout, Rust-WASM-Target und
 wasm-bindgen CLI; das exportierte Spiel benötigt nur einen statischen Host.
@@ -172,7 +173,8 @@ crates/
 | `blender_push_props` | push engine gameplay fields/custom `ai_*` props by `ai_uid`; reject concurrent Blender changes; sync to acknowledge |
 | `claim_entities` / `release_entities` / `list_locks` | agent-owned entity locks with expiry (`ttl_s`, default 60, range 1–86400) |
 | `get_changes_since` | scene mutation journal after `revision`: agent, tool, affected entity `ids` |
-| `task_create` / `task_claim` / `task_complete` / `task_list` | shared task board; dependencies must complete before claim |
+| `task_create` / `task_claim` / `task_renew` / `task_release` / `task_complete` / `task_list` | task board with dependencies, expiring claims and fencing leases |
+| `get_task_changes_since` | coordination journal with its own sequence cursor, independent of scene revisions |
 
 Every mutating tool accepts an optional `expected_revision` integer.
 
@@ -257,10 +259,46 @@ are needed. The Windows-GNU linker setting is target-scoped and remains in
 HTTP accepts one JSON-RPC request per `POST /mcp` and returns one JSON response
 (202 with an empty body for notifications). Multiple clients share one engine, with calls
 serialized on a dedicated engine thread (including GPU work). Supply an optional
-`agent` string in tool arguments or an `X-Agent-Id` HTTP header; the argument
-wins, otherwise identity defaults to `anonymous`. Use distinct identities per
-worker. This is coordination, not authentication: bind to localhost on trusted
-machines; do not expose the server publicly.
+`agent` string in tool arguments or an `X-Agent-Id` HTTP header in trusted local
+mode; the argument wins, otherwise identity defaults to `anonymous`. In remote
+mode the bearer credential fixes the identity: headers, arguments and nested
+batch commands cannot impersonate another agent. Sessions are principal-bound.
+
+### Remote HTTP / Sicherheitsgrenze (M8)
+
+Non-loopback binds fail unless `--allow-remote` is supplied. This flag requires
+bearer authentication on **every request**, even if binding to loopback (use this
+mode behind a tunnel/reverse proxy too). It prints a startup warning. Plain HTTP
+does not encrypt credentials: use a trusted network or a TLS/SSH tunnel.
+
+```sh
+# Reads AI_ENGINE_HTTP_TOKEN (principal "remote"), or generates and prints a
+# cryptographically random token once to stderr if neither token variable is set.
+ai-engine --project /absolute/game --serve 0.0.0.0:7777 --allow-remote
+# Every request, including initialize, GET and DELETE:
+# Authorization: Bearer <token>
+```
+
+For multiple workers, set `AI_ENGINE_HTTP_TOKENS` to a JSON object mapping agent
+names to distinct secret bearer tokens (provision via your secret manager, not
+checked-in project files). Do not set both token variables. One shared token is
+one identity; it cannot provide independent worker authorization. Session IDs
+cannot be used by a different principal. Wrong/missing tokens return HTTP 401;
+attempting another principal's session returns 403.
+
+Remote `blender_exec` and `run_blender_script` are disabled, including inside
+partial batches. Only the separate `--allow-privileged-tools` flag enables them.
+This deliberately grants **unsandboxed Python/machine access** to token holders.
+Tool annotations are not permissions. Do not enable this for untrusted agents.
+
+All MCP/CLI scene, script, mesh and export **path arguments** stay inside the
+active project (`--project`, otherwise cwd), in local and remote modes, even with
+privileged tools enabled. Relative paths resolve there (GLB spawn paths resolve
+under `assets/`); scene/asset/output absolute paths inside it are accepted.
+`write_script` continues to require a project-relative `.rhai` path. Parent traversal and
+symlinks escaping it are rejected, including future output directories and file
+references inside scene JSON. Raw Python is not an OS sandbox and can bypass
+filesystem policies when deliberately enabled. Use trusted project contents.
 
 ```bash
 # First initialize and copy Mcp-Session-Id from the response headers:
@@ -310,10 +348,24 @@ one journal entry containing all affected IDs. Lock/task metadata does not advan
 If your revision predates the journal window, re-read the scene. All coordination
 state is in memory and resets on restart.
 
-Tasks start `pending`, become `claimed` with an owner, then `completed` by that
-owner. `task_create` takes `title`, optional `description` and existing
-`depends_on` task ids. `task_list` optionally filters `status` (`pending`,
-`claimed`, `completed`); completion accepts an optional `note`.
+Tasks start `pending`, become `claimed`, then `completed` by the live owner.
+`task_create` takes `title`, optional `description` and existing `depends_on` IDs.
+`task_claim {id,ttl_s?}` waits for dependencies; TTL defaults to 60 seconds,
+range 1–86400. It returns `lease` and remaining `ttl_s`. Always pass that fencing
+lease to `task_renew {id,lease,ttl_s?}`, `task_release {id,lease}`, and
+`task_complete {id,lease,note?}`. Renew before expiry; select a TTL covering long
+blocking tool calls. Release returns a task to pending. Expired tasks appear as
+`expired` in `task_list` and can be claimed by another worker without cooperation
+from the dead worker. Every new claim gets a higher lease, including same-agent
+reclaims: old completions/renewals are rejected. For compatibility, only the
+first-generation `task_complete` may omit its lease; no omission after takeover.
+
+`get_task_changes_since {sequence:0}` returns `{entries,current_sequence,
+oldest_sequence}`. It journals create/claim/renew/release/takeover/complete with
+task ID, actor, lease, TTL and previous owner (1024-event retention). This cursor
+is independent of `get_changes_since` scene revisions: task coordination does
+not bump the scene or create snapshots. All leases/journals are in memory;
+restart resets them. `task_list` filters pending/claimed/expired/completed.
 
 Example session (one JSON object per line):
 

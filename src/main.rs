@@ -40,6 +40,7 @@ fn main() {
         let result = (|| -> anyhow::Result<()> {
             let scene = args.get(pos+1).ok_or_else(||anyhow::anyhow!("usage: ai-engine --export-web <scene.json> <out_dir>"))?;
             let out = args.get(pos+2).ok_or_else(||anyhow::anyhow!("usage: ai-engine --export-web <scene.json> <out_dir>"))?;
+            let scene = engine_core::project_path(&std::env::current_dir()?,std::path::Path::new(scene))?;
             let scene = serde_json::from_str(&std::fs::read_to_string(scene)?)?;
             let report = ai_engine::web::export_web(&scene, &std::env::current_dir()?, std::path::Path::new(out))?;
             println!("{report}"); Ok(())
@@ -49,8 +50,14 @@ fn main() {
     }
 
     if let Some(pos) = args.iter().position(|a| a == "--serve") {
-        let result = args.get(pos + 1).ok_or_else(|| anyhow::anyhow!("usage: ai-engine --serve 127.0.0.1:7777"))
-            .and_then(|addr| ai_engine::http::serve_project_addr(addr, project));
+        let result = (|| -> anyhow::Result<()> {
+            let remote = args.iter().any(|arg|arg=="--allow-remote");
+            let privileged = args.iter().any(|arg|arg=="--allow-privileged-tools");
+            anyhow::ensure!(!privileged || remote,"--allow-privileged-tools requires --allow-remote");
+            let options = if remote { ai_engine::http::HttpOptions::remote_from_env(privileged)? } else { ai_engine::http::HttpOptions::default() };
+            let addr = args.get(pos+1).filter(|arg|!arg.starts_with("--")).map(String::as_str).unwrap_or("127.0.0.1:7777");
+            ai_engine::http::serve_project_addr_with_options(addr,project,options)
+        })();
         if let Err(e) = result { eprintln!("HTTP server failed: {e:#}"); std::process::exit(1); }
         return;
     }
@@ -95,15 +102,17 @@ fn main() {
 fn demo(out_path: &str, scene_path: Option<&str>) -> anyhow::Result<()> {
     use shared::scene::Scene;
     let mut engine = Engine::new();
+    let root = std::env::current_dir()?;
+    let out_path = engine_core::project_path(&root,std::path::Path::new(out_path))?;
     if let Some(p) = scene_path {
-        engine.world.load(std::path::Path::new(p))?;
+        engine.world.load_with_root(&engine_core::project_path(&root,std::path::Path::new(p))?,&root)?;
     } else {
         engine.world.scene = shared::mocks::mock_scene();
     }
     let scene: Scene = engine.world.scene.clone();
     let mut renderer = engine_render::Renderer::new()?;
     let png = renderer.screenshot_png(&scene, engine.world.revision, 960, 540)?;
-    std::fs::write(out_path, &png)?;
-    eprintln!("[demo] wrote {} ({} bytes)", out_path, png.len());
+    std::fs::write(&out_path, &png)?;
+    eprintln!("[demo] wrote {} ({} bytes)", out_path.display(), png.len());
     Ok(())
 }

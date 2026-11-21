@@ -16,6 +16,7 @@ pub(crate) fn tools() -> Value {
                 | "blender_scene_info"
                 | "list_locks"
                 | "get_changes_since"
+                | "get_task_changes_since"
                 | "task_list"
                 | "get_scene_state"
                 | "get_revision"

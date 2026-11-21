@@ -141,6 +141,8 @@ def _export(request):
             residual = _BASIS.inverted() @ (trs.inverted_safe() @ converted) @ _BASIS
             mesh.transform(residual)
             path = directory / f"{obj['ai_uid']}-{uuid.uuid4().hex}.glb"
+            if directory not in path.resolve().parents:
+                raise ValueError("export path escapes project export directory")
             bpy.ops.export_scene.gltf(filepath=str(path), export_format="GLB", use_selection=True, export_yup=True)
             duplicate.select_set(False)
             manifest.append({"ai_uid": obj["ai_uid"], "name": obj.name, "path": str(path),
