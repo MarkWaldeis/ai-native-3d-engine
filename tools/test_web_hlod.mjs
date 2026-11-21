@@ -139,3 +139,13 @@ test('hlod:false accepts draw distances beyond the default hlod_distance',()=>{
   const player={tags:['player'],props:{ai_world:{hlod:false,draw_distance:2000,stream_radius:2100}}};
   assert.doesNotThrow(()=>worldConfig([player]));
 });
+
+test('HLOD-tracked and untracked entities never share an instance batch',async()=>{
+  const scene=new THREE.Scene(),world=new StreamingWorld(scene,{},config());
+  world.add(entity(1));world.add(entity(2,[150,2,0],{transform:{position:[150,2,0],scale:[0.01,0.01,0.01],rotation_deg:[0,0,0]}}));
+  const c=camera(60);await Promise.all(world.update(c));await Promise.all(world.update(c));
+  assert.ok(world.groups.get('4,0').children.length>=2);
+  for(const child of world.groups.get('4,0').children) assert.equal(new Set(child.userData.items.map(i=>world.hlod.entities.has(i.e.id))).size,1);
+  c.position.x=0;c.updateMatrixWorld();await Promise.all(world.update(c));await Promise.all(world.update(c));
+  assert.equal(world.hlod.isFar('4,0'),true);assert.equal(drawn(world.groups.get('4,0')),false);
+});

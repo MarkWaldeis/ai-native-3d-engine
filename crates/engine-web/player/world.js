@@ -31,7 +31,7 @@ export class StreamingWorld {
     this.frustum = new THREE.Frustum(); this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
   hideProxied(group, hidden = true) {
-    for (const child of group.children) if (child.isInstancedMesh) child.visible = !hidden || !child.userData.items.every(item => this.hlod.entities.has(item.e.id));
+    for (const child of group.children) if (child.isInstancedMesh) child.visible = !hidden || !this.hlod.entities.has(child.userData.items[0].e.id);
   }
   setHlodOcclusion(occluder) { this.hlod?.setOcclusion(occluder); }
   async template(e, level) {
@@ -103,13 +103,14 @@ export class StreamingWorld {
     for (const {id} of this.grid.chunks.get(key)?.values() || []) {
       const item = this.entities.get(id); if (!item) continue;
       if (item.object) { objects.push(item.object); continue; }
-      if (item.e.visible === false || item.level === 3 && !this.hlod?.isFar(key)) continue;
-      const batch = `${item.signature}:${this.hlod && item.level === 3 ? 2 : item.level || 0}:${!!item.e.collider}`;
+      const tracked = !!this.hlod?.entities.has(id);
+      if (item.e.visible === false || item.level === 3 && (!tracked || !this.hlod.isFar(key))) continue;
+      const batch = `${item.signature}:${tracked && item.level === 3 ? 2 : item.level || 0}:${!!item.e.collider}:${tracked}`;
       if (!buckets.has(batch)) buckets.set(batch,[]); buckets.get(batch).push(item);
     }
     try {
       for (const items of buckets.values()) {
-        const parts = await this.template(items[0].e,this.hlod && items[0].level === 3 ? 2 : items[0].level || 0);
+        const parts = await this.template(items[0].e,items[0].level === 3 ? 2 : items[0].level || 0);
         if (this.builds.get(key) !== group) return;
         for (const part of parts) {
           const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.billboard = part.billboard; mesh.userData.items = items;
