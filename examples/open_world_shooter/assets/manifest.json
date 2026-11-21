@@ -14,7 +14,7 @@
         3.41383
       ]
     ],
-    "tris": 3568
+    "tris": 3128
   },
   "tree_broadleaf": {
     "high": "examples/open_world_shooter/assets/tree_broadleaf.glb",
@@ -31,7 +31,7 @@
         6.37377
       ]
     ],
-    "tris": 916
+    "tris": 1108
   },
   "tree_kapok": {
     "high": "examples/open_world_shooter/assets/tree_kapok.glb",
@@ -48,7 +48,7 @@
         10.77709
       ]
     ],
-    "tris": 916
+    "tris": 1588
   },
   "bush": {
     "high": "examples/open_world_shooter/assets/bush.glb",
@@ -82,7 +82,7 @@
         0.88064
       ]
     ],
-    "tris": 1440
+    "tris": 1080
   },
   "rock_a": {
     "high": "examples/open_world_shooter/assets/rock_a.glb",
@@ -463,16 +463,16 @@
     "low": null,
     "bounds": [
       [
-        -0.048,
+        -0.06285,
         -0.14926,
         -0.672
       ],
       [
-        0.048,
-        0.2464,
-        0.256
+        0.0632,
+        0.2624,
+        0.2632
       ]
     ],
-    "tris": 1012
+    "tris": 5620
   }
 }

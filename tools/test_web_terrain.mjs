@@ -256,7 +256,8 @@ test('visuals receives offset-aware coarse/full-res heights immediately or on a 
   for(const late of [false,true]) {
     globalThis.window={};
     const samplers=[];
-    const visuals={setHeightSampler(sampler){assert.equal(this,visuals);samplers.push(sampler);}};
+    let planted, version;
+    const visuals={setHeightSampler(sampler, detail, revision){assert.equal(this,visuals);samplers.push(sampler);planted=detail;version=revision;}};
     if(!late) window.__aiEngineVisuals=visuals;
     const world=new THREE.Scene(); world.fog=new THREE.Fog(0,1,100);
     const errors=[];
@@ -265,10 +266,15 @@ test('visuals receives offset-aware coarse/full-res heights immediately or on a 
     if(late) {window.__aiEngineVisuals={setHeightSampler:null};api.update(new THREE.PerspectiveCamera(),0);window.__aiEngineVisuals=visuals;api.update(new THREE.PerspectiveCamera(),500);}
     assert.equal(samplers[0],api.heightAt);
     assert.ok(Math.abs(samplers[0](101,201)-32)<.001);
+    assert.equal(version(),0);
+    assert.ok(Number.isNaN(planted(101,201)));
     await new Promise(resolve=>setImmediate(resolve));
     if(!late) {api.update(new THREE.PerspectiveCamera(),0);await new Promise(resolve=>setImmediate(resolve));}
     assert.ok(Math.abs(samplers[0](101,201)-82)<.001);
     assert.ok(Math.abs(samplers[0](-100,-200)-32)<.001);
+    assert.equal(version(),1);
+    assert.ok(Math.abs(planted(101,201)-82)<.001);
+    assert.ok(Number.isNaN(planted(-100,-200)));
     api.update(new THREE.PerspectiveCamera(),1000);
     assert.equal(samplers.length,1);
     const replacement=[]; window.__aiEngineVisuals={setHeightSampler:s=>replacement.push(s)};

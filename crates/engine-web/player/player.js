@@ -574,7 +574,7 @@ function frame(now) {
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
-    if (fps) fps.frame(elapsed, fpsMarkers()); else { updateShadows(); updateObjective(); }
+    if (fps) fps.frame(elapsed, fpsMarkers(), effects.level); else { updateShadows(); updateObjective(); }
     if (gpuTimer) {
       gpuTimer.begin();
       const renderStart = performance.now();
