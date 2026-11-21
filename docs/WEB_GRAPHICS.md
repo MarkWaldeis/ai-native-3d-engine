@@ -73,7 +73,8 @@ Use `ai_graphics.color_grade: {"saturation":0.8,"contrast":1.25}` for a muted,
 higher-contrast look. Both controls range from 0 to 2; 1 is neutral and
 saturation 0 is monochrome. Grading runs after tone mapping in Balanced and
 Ultra, without an extra pass when HDR is already active. It does not change
-the HDR bloom or exposure meter, the HTML HUD, or the Low and legacy paths.
+HDR bloom, exposure metering, the separate first-person 3D overlay, the HTML
+HUD, or the Low and legacy paths.
 
 For authored reflections, set `environment_map` in `ai_graphics` to a
 project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
