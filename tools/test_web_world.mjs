@@ -5,8 +5,9 @@ import test from 'node:test';
 registerHooks({resolve(specifier,context,nextResolve) {
   return nextResolve(specifier === 'three' ? new URL('../crates/engine-web/player/vendor/three.module.js',import.meta.url).href : specifier,context);
 }});
+globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
 const THREE = await import('three');
-const {StreamingWorld} = await import('../crates/engine-web/player/world.js');
+const {disposeObject, StreamingWorld, WebAssets} = await import('../crates/engine-web/player/world.js');
 const {worldConfig} = await import('../crates/engine-web/player/streaming.js');
 const {batchKey} = await import('../crates/engine-web/player/streaming.js');
 const {TerrainOcclusion} = await import('../crates/engine-web/player/occlusion.js');
@@ -25,6 +26,46 @@ test('streamed chunk visibility combines frustum with stable terrain occlusion',
   occluder.beginFrame();world.update(camera);assert.equal(group.visible,false);assert.equal(world.occludedChunks,1);
   occluder.enabled=false;occluder.beginFrame();world.update(camera);assert.equal(group.visible,true);assert.equal(world.occludedChunks,0);
 });
+const {primitiveMaterial} = await import('../crates/engine-web/player/materials.js');
+
+test('primitive maps share source pixels, distinguish UV variants, and work in streaming templates', async () => {
+  const surface = 'assets/material/0.png', packed = 'assets/material/1.png', calls = [];
+  const scene = new THREE.Scene(), assets = new WebAssets(4);
+  const material = {base_color_map:surface, normal_map:surface, orm_map:packed, uv_repeat:[3,2], normal_scale:9};
+  const box = {kind:'box', size:[1,1,1], props:{ai_material:material}};
+  const tiled = {...box, props:{ai_material:{...material, uv_repeat:[4,2], metalness:0.35}}};
+  const model = {kind:'gltf', props:{ai_material:{base_color_map:'assets/material/2.png'}}};
+  const invalid = {...box, props:{ai_material:{base_color_map:'https://example.invalid/color.png'}}};
+  await assets.preloadMaterialMaps([box, tiled, model, invalid], { async loadAsync(path) {
+    calls.push(path);
+    return new THREE.Texture();
+  } });
+  assert.deepEqual(calls, [surface, packed]);
+  const regular = primitiveMaterial(box, assets), alternative = primitiveMaterial(tiled, assets);
+  assert.equal(regular.map.colorSpace, THREE.SRGBColorSpace);
+  assert.equal(regular.normalMap.colorSpace, THREE.NoColorSpace);
+  assert.equal(regular.map.source, regular.normalMap.source);
+  assert.equal(regular.map.source, alternative.map.source);
+  assert.notEqual(regular.map, alternative.map);
+  assert.deepEqual(regular.map.repeat.toArray(), [3,2]);
+  assert.deepEqual(alternative.map.repeat.toArray(), [4,2]);
+  assert.equal(regular.map.wrapS, THREE.RepeatWrapping);
+  assert.equal(regular.map.anisotropy, 4);
+  assert.equal(regular.map.userData.shared, true);
+  assert.deepEqual(regular.normalScale.toArray(), [2,2]);
+  assert.equal(regular.aoMap, regular.roughnessMap);
+  assert.equal(regular.roughnessMap, regular.metalnessMap);
+  assert.equal(regular.roughness, 1);
+  assert.equal(regular.metalness, 1);
+  assert.equal(alternative.metalness, 0.35);
+  const world = new StreamingWorld(scene, {}, worldConfig([{tags:['player'],props:{ai_world:{}}}]), assets);
+  assert.equal((await world.template(box, 0))[0].material.map, regular.map);
+  assert.equal((await world.template(tiled, 1))[0].material.map, alternative.map);
+  assert.notEqual(batchKey(box), batchKey(tiled));
+  const explicitDefaults = {...box, props:{ai_material:{...material, metalness:0.08}}};
+  assert.notEqual(batchKey(box), batchKey(explicitDefaults));
+  assert.equal(primitiveMaterial(box, new WebAssets()).metalness, 0.08, 'use scalar defaults if the image is missing');
+});
 
 function glb(scale) {
   const document={asset:{version:'2.0'},buffers:[{byteLength:36}],bufferViews:[{buffer:0,byteLength:36}],accessors:[{bufferView:0,componentType:5126,count:3,type:'VEC3',min:[0,0,0],max:[scale,scale,0]}],meshes:[{primitives:[{attributes:{POSITION:0}}]}],nodes:[{mesh:0}],scenes:[{nodes:[0]}],scene:0};
@@ -36,7 +77,6 @@ function glb(scale) {
 }
 
 test('authored GLB LOD paths use the existing distance levels and keep distinct batch/cache identities', async () => {
-  globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
   const {world}=fixture();let impostors=0;world.impostor=()=>{impostors++;return [];};
   const base={kind:'gltf',path:glb(3)},authored={...base,props:{web_lods:{1:glb(2),2:glb(1)}}};
   assert.notEqual(batchKey(base),batchKey(authored));
@@ -47,10 +87,10 @@ test('authored GLB LOD paths use the existing distance levels and keep distinct 
   await assert.rejects(world.template({...base,props:{web_lods:{1:'data:model/gltf-binary;base64,YmFk'}}},1));
 });
 
-test('animated GLBs switch authored LOD meshes at both distances and restore the base mesh', async () => {
+test('unbatched GLBs preserve shadow settings at both authored LOD distances', async () => {
   const {world} = fixture();
   const object = new THREE.Group(), high = new THREE.Group(); object.add(high);
-  const entity = {id:4,kind:'gltf',path:glb(3),props:{web_lods:{1:glb(2),2:glb(1)}},script:'animated.rhai',transform:{position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
+  const entity = {id:4,kind:'gltf',path:glb(3),props:{web_lods:{1:glb(2),2:glb(1)},ai_sun_shadow:{cast:false}},script:'actor.rhai',transform:{position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
   world.add(entity,object);
   const camera = new THREE.PerspectiveCamera();
   for (const [distance,level] of [[150,1],[300,2]]) {
@@ -58,7 +98,13 @@ test('animated GLBs switch authored LOD meshes at both distances and restore the
     await Promise.all(world.update(camera)); world.update(camera);
     assert.equal(high.visible,false);
     const item = world.entities.get(4);
-    assert.equal(item.lods.get(entity.props.web_lods[level]).visible,true);
+    const lod = item.lods.get(entity.props.web_lods[level]);
+    assert.equal(lod.visible,true);
+    const source = (await world.assets.load(entity.props.web_lods[level])).scene;
+    const mesh = lod.getObjectByProperty('isMesh',true);
+    assert.equal(mesh.castShadow,false);
+    assert.equal(mesh.receiveShadow,true);
+    assert.equal(source.getObjectByProperty('isMesh',true).receiveShadow,false,'per-entity flags must not alter shared assets');
     assert.equal([...item.lods.values()].filter(lod=>lod.visible).length,1);
     assert.equal(item.impostor,undefined);
   }
@@ -76,8 +122,34 @@ function fixture(addProp = false) {
   return {scene,world,key:world.grid.key(ground.transform.position)};
 }
 
+test('four-angle impostors share one target and restore the previous renderer state', () => {
+  const previous = {}, previousColor = new THREE.Color('#63758c');
+  let target = previous;
+  const draws = [];
+  const renderer = {
+    autoClear:false,
+    getRenderTarget:()=>target, getActiveCubeFace:()=>2, getActiveMipmapLevel:()=>1,
+    getClearColor:color=>color.copy(previousColor), getClearAlpha:()=>0.7,
+    setClearColor(color,alpha) { this.color = color; this.alpha = alpha; },
+    setRenderTarget(t,face,mip) { target = t; this.face = face; this.mip = mip; },
+    clear() {},
+    render(scene,camera) { draws.push([target, target.viewport.toArray(), camera.position.clone()]); },
+  };
+  const world = new StreamingWorld(new THREE.Scene(),renderer,{impostor_views:4});
+  const source = new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshBasicMaterial());
+  source.position.set(3,0,-2);
+  const [part] = world.impostor(source);
+  assert.deepEqual(draws.map(draw=>draw[1]),[[0,0,64,64],[64,0,64,64],[0,64,64,64],[64,64,64,64]]);
+  assert.ok(draws.every(draw => draw[0] === draws[0][0]));
+  assert.deepEqual(draws.map(draw=>draw[2].sub(source.position).toArray().map(v => Math.round(v) || 0)),
+    [[0,0,4],[4,0,0],[0,0,-4],[-4,0,0]]);
+  assert.equal(part.material.map.image.width,128);
+  assert.equal(target,previous);
+  assert.deepEqual([renderer.face,renderer.mip,renderer.alpha,renderer.autoClear],[2,1,0.7,false]);
+  assert.ok(renderer.color.equals(previousColor));
+});
+
 test('streamed sun shadow flags split instance batches without duplicating templates', async () => {
-  globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
   const {world,key} = fixture();
   const path = glb(1);
   for (const [index, props] of [
@@ -106,7 +178,7 @@ test('LOD rebuild retains visible ground until its replacement is ready', async 
   const camera = new THREE.PerspectiveCamera(55,1.6,0.1,480);
   camera.position.set(20.4,6.5,-1.4); camera.lookAt(13.4,0.5,-10.4); camera.updateMatrixWorld();
   const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
-  assert.ok(frustum.intersectsBox(old.userData.bounds),'the ground is inside the frustum at the reported location');
+  assert.ok(frustum.intersectsObject(old.children[0]),'the ground is inside the frustum at the reported location');
   let ready;
   const template = world.template.bind(world), gate = new Promise(resolve => {ready=resolve;});
   world.template = async (...args) => {await gate; return template(...args);};
@@ -120,6 +192,22 @@ test('LOD rebuild retains visible ground until its replacement is ready', async 
   assert.equal(old.parent,null);
   assert.equal(world.groups.get(key).parent,scene);
   assert.equal(world.groups.get(key).children.length,2);
+});
+
+test('a loaded chunk outside the camera can still contribute to the shadow pass', async () => {
+  const scene = new THREE.Scene(), world = new StreamingWorld(scene,{},worldConfig([
+    {tags:['player'],props:{ai_world:{chunk_size:2,stream_radius:16}}},
+  ]));
+  const camera = new THREE.OrthographicCamera(-1,1,1,-1,0.1,20);
+  camera.position.z = 5; camera.updateMatrixWorld();
+  const caster = {id:1,kind:'box',size:[1,1,1],transform:{position:[3,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
+  world.add(caster);
+  await Promise.all(world.update(camera)); world.update(camera);
+  const group = world.groups.get(world.grid.key(caster.transform.position));
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+  assert.equal(frustum.intersectsObject(group.children[0]),false);
+  assert.equal(group.children[0].castShadow,true);
+  assert.equal(group.visible,true);
 });
 
 test('failed, superseded and reset rebuilds cannot replace a complete chunk', async () => {
@@ -141,6 +229,64 @@ test('failed, superseded and reset rebuilds cannot replace a complete chunk', as
   world.reset(); await pending[2](); await reset;
   assert.equal(scene.children.length,0);
   assert.equal(world.groups.size,0);
+});
+
+test('unloading a distant chunk releases its instance buffers and reuses templates on return', async () => {
+  const {scene,world,key} = fixture();
+  const actor = new THREE.Group();
+  world.add({...world.entities.get(1).e,id:5},actor);
+  await world.rebuild(key);
+  const camera = new THREE.PerspectiveCamera(), old = world.groups.get(key);
+  const instance = old.children.find(o=>o.isInstancedMesh);
+  let disposals = 0;
+  instance.addEventListener('dispose',()=>disposals++);
+  const geometry = instance.geometry, material = instance.material;
+  const nested = new THREE.InstancedMesh(geometry,material,1);
+  nested.userData.sharedAsset = true;
+  actor.add(nested);
+  let nestedDisposals = 0;
+  nested.addEventListener('dispose',()=>nestedDisposals++);
+  let templateDisposals = 0;
+  for (const resource of [geometry,material]) resource.addEventListener('dispose',()=>templateDisposals++);
+  camera.position.x = 2000; camera.updateMatrixWorld();
+  assert.deepEqual(world.update(camera),[]);
+  assert.equal(disposals,1);
+  assert.equal(world.groups.has(key),false);
+  assert.equal(old.parent,null);
+  assert.equal(actor.parent,null);
+  assert.equal(nestedDisposals,0);
+  assert.equal(templateDisposals,0);
+  camera.position.x = 0; camera.updateMatrixWorld();
+  await Promise.all(world.update(camera));
+  const restored = world.groups.get(key), mesh = restored.children.find(o=>o.isInstancedMesh);
+  assert.notEqual(mesh,instance);
+  assert.equal(mesh.geometry,geometry);
+  assert.equal(mesh.material,material);
+  assert.equal(restored.parent,scene);
+  assert.equal(actor.parent,restored);
+  world.reset();
+  assert.equal(nestedDisposals,0);
+  disposeObject(actor);
+  assert.equal(nestedDisposals,1);
+  assert.equal(templateDisposals,0);
+});
+
+test('an instance build in flight cannot restore a chunk after it has unloaded', async () => {
+  const {world,key} = fixture();
+  let release;
+  const template = world.template.bind(world), gate = new Promise(resolve=>{release=resolve;});
+  world.template = async (...args) => {await gate; return template(...args);};
+  const camera = new THREE.PerspectiveCamera();
+  camera.updateMatrixWorld();
+  const build = world.update(camera);
+  assert.equal(build.length,1);
+  camera.position.x = 2000; camera.updateMatrixWorld();
+  world.update(camera);
+  release(); await Promise.all(build);
+  assert.equal(world.groups.has(key),false);
+  camera.position.x = 0; camera.updateMatrixWorld();
+  await Promise.all(world.update(camera));
+  assert.equal(world.groups.get(key).parent,world.scene);
 });
 
 test('streamed objectives honor authored collectible tags without including unrelated collectibles', () => {

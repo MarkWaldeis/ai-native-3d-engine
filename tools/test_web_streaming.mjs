@@ -64,6 +64,9 @@ test('config opt-in, auto enable, invalid config and small scenes', () => {
   assert.equal(worldConfig([{transform:{position:[2000,0,0]}}]).chunk_size,128);
   assert.equal(worldConfig([{tags:['player'],props:{ai_world:'{"chunk_size":64}'}}]).chunk_size,64);
   assert.equal(worldConfig([{tags:['player'],props:{ai_world:{}}}]).sim_radius,256);
+  assert.equal(worldConfig([{tags:['player'],props:{ai_world:{}}}]).impostor_views,1);
+  assert.equal(worldConfig([{tags:['player'],props:{ai_world:{impostor_views:4}}}]).impostor_views,4);
+  assert.throws(() => worldConfig([{tags:['player'],props:{ai_world:{impostor_views:2}}}]),RangeError);
   assert.equal(worldConfig([{tags:['player'],props:{ai_world:{camera_distance:24}}}]).camera_distance,24);
   assert.equal(worldConfig([{tags:['player'],props:{ai_world:{}}}]).camera_distance,undefined);
   for (const camera_distance of [0,-1,Infinity,'close']) assert.throws(() => worldConfig([{tags:['player'],props:{ai_world:{camera_distance}}}]),RangeError);

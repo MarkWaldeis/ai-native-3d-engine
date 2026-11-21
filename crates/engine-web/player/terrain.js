@@ -61,6 +61,20 @@ async function fetchBytes(url) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+export function terrainDetailTexture(THREE) {
+  const textureBytes = new Uint8Array(64 * 64 * 4);
+  let seed = 7331;
+  for (let i = 0; i < textureBytes.length; i += 4) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    textureBytes.fill(100 + (seed >>> 25), i, i + 3); textureBytes[i + 3] = 255;
+  }
+  const detail = new THREE.DataTexture(textureBytes, 64, 64);
+  detail.wrapS = detail.wrapT = THREE.RepeatWrapping; detail.magFilter = THREE.LinearFilter;
+  detail.minFilter = THREE.LinearMipmapLinearFilter; detail.generateMipmaps = true; detail.needsUpdate = true;
+  return detail;
+}
+
+
 export async function createTerrain(THREE, entities, game, world, engineStats, onError) {
   const terrainEntities = entities.filter(e => typeof e.props?.ai_terrain === 'string');
   if (!terrainEntities.length) return null;
@@ -76,6 +90,14 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       visualsTarget = visuals; visualsSetter = visuals.setHeightSampler;
     }
   }
+  const graphics = entities.find(e => e.tags?.includes('player'))?.props?.ai_graphics;
+  let authored = graphics;
+  if (typeof authored === 'string') {
+    try { authored = JSON.parse(authored); } catch { authored = null; }
+  }
+  const water = Number.isFinite(authored?.water?.level) ? authored.water.level : 0.6;
+  const detail = terrainEntities.some(e => Number.isFinite(e.props.ai_terrain_detail) && e.props.ai_terrain_detail > 0)
+    ? terrainDetailTexture(THREE) : null;
   for (const entity of terrainEntities) {
     const path = entity.props.ai_terrain;
     if (!maps.has(path)) {
@@ -87,13 +109,10 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       maps.set(path, {path, manifest, base, coarse: decodeHeights(coarseBytes, 'AITC', manifest.coarse.dims, manifest.height_range)});
     }
     const map = maps.get(path), c = map.manifest.config;
-    const material = new THREE.MeshStandardMaterial({roughness: 0.96});
-    const graphics=entities.find(e=>e.tags?.includes('player'))?.props?.ai_graphics;
-    let authored=graphics;
-    if(typeof authored==='string') {try {authored=JSON.parse(authored);} catch {authored=null;}}
-    terrainSurface(THREE,material,Number.isFinite(authored?.water?.level)?authored.water.level:0.6);
     const offset = entity.transform?.position || [0, 0, 0];
     const layer = {map, offset, visible: entity.visible !== false, chunks: []};
+    const material = new THREE.MeshStandardMaterial({roughness: 0.96});
+    terrainSurface(THREE, material, water, detail, entity.props.ai_terrain_detail);
     for (let z = 0; z < map.manifest.grid[1]; z++) for (let x = 0; x < map.manifest.grid[0]; x++) {
       const chunk = {map, x, z, offset, material, visible: layer.visible, mesh: null, stride: null};
       if(chunk.visible) {chunk.coarse = buildMesh(chunk, null, 1); world.add(chunk.coarse);}
