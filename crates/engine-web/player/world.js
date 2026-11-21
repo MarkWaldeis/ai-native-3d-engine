@@ -5,6 +5,38 @@ import { isCollectible } from './presentation.js';
 import { primitiveMaterial, tuneAssetTextures } from './materials.js';
 import { sunShadowSettings } from './graphics-settings.js';
 
+function impostorMaterial(texture, center, views) {
+  const material = new THREE.MeshBasicMaterial({map:texture, transparent:true, alphaTest:0.1, side:THREE.DoubleSide});
+  material.customProgramCacheKey = () => `impostor:${views}`;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.impostorCenter = {value:center};
+    shader.vertexShader = 'uniform vec3 impostorCenter;\n' + shader.vertexShader;
+    const atlas = views === 4 ? `
+      vec3 toEye = cameraPosition - (billboardModel * vec4(impostorCenter, 1.0)).xyz;
+      vec3 xAxis = billboardModel[0].xyz, zAxis = billboardModel[2].xyz;
+      vec2 localEye = vec2(dot(toEye, xAxis) / max(dot(xAxis, xAxis), 1e-8),
+                           dot(toEye, zAxis) / max(dot(zAxis, zAxis), 1e-8));
+      float yaw = dot(localEye, localEye) > 1e-8 ? atan(localEye.x, localEye.y) : 0.0;
+      float cell = mod(floor(yaw * 0.63661977 + 0.5), 4.0);
+      vec2 tile = vec2(mod(cell, 2.0), floor(cell * 0.5));
+      vMapUv = (tile + mix(vec2(0.5 / 64.0), vec2(63.5 / 64.0), vMapUv)) * 0.5;
+    ` : '';
+    shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `
+      mat4 billboardModel = modelMatrix;
+      #ifdef USE_INSTANCING
+        billboardModel *= instanceMatrix;
+      #endif
+      mat4 billboardView = viewMatrix * billboardModel;
+      vec4 mvPosition = billboardView * vec4(impostorCenter, 1.0);
+      mvPosition.xy += (transformed.xy - impostorCenter.xy)
+        * vec2(length(billboardView[0].xyz), length(billboardView[1].xyz));
+      gl_Position = projectionMatrix * mvPosition;
+      ${atlas}
+    `);
+  };
+  return material;
+}
+
 export class WebAssets {
   constructor(anisotropy = 1) {
     this.anisotropy = anisotropy;
@@ -58,14 +90,34 @@ export class StreamingWorld {
     const bounds = new THREE.Box3().setFromObject(model), center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
     const span = Math.max(size.x,size.y,size.z) * 1.1;
     const camera = new THREE.OrthographicCamera(-span/2,span/2,span/2,-span/2,0.01,span*5);
-    camera.position.copy(center).add(new THREE.Vector3(0,0,span*2)); camera.lookAt(center);
     scene.add(new THREE.HemisphereLight(0xffffff,0x888888,3));
-    const target = new THREE.WebGLRenderTarget(128,128);
-    const previous = this.renderer.getRenderTarget(), color = this.renderer.getClearColor(new THREE.Color()), alpha = this.renderer.getClearAlpha();
-    this.renderer.setRenderTarget(target); this.renderer.setClearColor(0,0); this.renderer.render(scene,camera);
-    this.renderer.setRenderTarget(previous); this.renderer.setClearColor(color,alpha);
+    const views = this.config.impostor_views ?? 1, tileSize = views === 4 ? 64 : 128;
+    const target = new THREE.WebGLRenderTarget(128,128), renderer = this.renderer;
+    const previous = renderer.getRenderTarget(), face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
+    const color = renderer.getClearColor(new THREE.Color()), alpha = renderer.getClearAlpha(), autoClear = renderer.autoClear;
+    target.scissorTest = views > 1;
+    try {
+      renderer.setClearColor(0,0);
+      renderer.autoClear = false;
+      for (let i = 0; i < views; i++) {
+        const angle = i * Math.PI / 2;
+        camera.position.set(Math.sin(angle),0,Math.cos(angle)).multiplyScalar(span * 2).add(center);
+        camera.lookAt(center);
+        target.viewport.set((i % 2) * tileSize, Math.floor(i / 2) * tileSize, tileSize, tileSize);
+        target.scissor.copy(target.viewport);
+        renderer.setRenderTarget(target);
+        renderer.clear();
+        renderer.render(scene,camera);
+      }
+    } catch (error) {
+      target.dispose();
+      throw error;
+    } finally {
+      renderer.setRenderTarget(previous,face,mip); renderer.setClearColor(color,alpha);
+      renderer.autoClear = autoClear;
+    }
     const geometry = new THREE.PlaneGeometry(span,span); geometry.translate(center.x,center.y,center.z);
-    return [{geometry,material:new THREE.MeshBasicMaterial({map:target.texture,transparent:true,alphaTest:0.1,side:THREE.DoubleSide}),matrix:new THREE.Matrix4(),billboard:true}];
+    return [{geometry,material:impostorMaterial(target.texture,center,views),matrix:new THREE.Matrix4(),billboard:true}];
   }
   add(e, object) {
     object?.removeFromParent();
@@ -103,7 +155,7 @@ export class StreamingWorld {
         const parts = await this.template(items[0].e,items[0].level || 0);
         if (this.builds.get(key) !== group) return;
         for (const part of parts) {
-          const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.billboard = part.billboard; mesh.userData.items = items;
+          const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map();
           mesh.castShadow = items[0].shadows.castShadow && !part.billboard;
           mesh.receiveShadow = items[0].shadows.receiveShadow;
           mesh.userData.support = !!items[0].e.collider;
@@ -122,11 +174,10 @@ export class StreamingWorld {
       if (this.groups.get(key) !== group) group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
     }
   }
-  setMatrix(mesh,index,item,local = new THREE.Matrix4(),camera) {
+  setMatrix(mesh,index,item,local) {
     const t = item.e.transform;
     this.dummy.position.fromArray(t.position); this.dummy.scale.fromArray(t.scale);
     this.dummy.rotation.set(...t.rotation_deg.map(THREE.MathUtils.degToRad),'ZYX');
-    if (camera) this.dummy.quaternion.copy(camera.quaternion);
     this.dummy.updateMatrix(); mesh.setMatrixAt(index,this.matrix.copy(this.dummy.matrix).multiply(local));
   }
   update(camera) {
@@ -176,10 +227,7 @@ export class StreamingWorld {
             item.impostorTask.catch(error => console.error(error));
           }
           item.object.children[0].visible = level !== 2 || !item.impostor;
-          if (item.impostor) {
-            item.impostor.visible = level === 2;
-            item.impostor.quaternion.copy(item.object.quaternion).invert().multiply(camera.quaternion);
-          }
+          if (item.impostor) item.impostor.visible = level === 2;
         }
       }
       const group = this.groups.get(key);
@@ -189,7 +237,6 @@ export class StreamingWorld {
           if (item?.object && group.userData.bounds) group.userData.bounds.expandByPoint(item.object.position);
         }
         group.visible = !group.userData.bounds || this.frustum.intersectsBox(group.userData.bounds);
-        group.traverse(o => { if (o.userData.billboard) { o.userData.items.forEach((item,i) => this.setMatrix(o,i,item,undefined,camera)); o.instanceMatrix.needsUpdate = true; } });
       }
     }
     for (const key of this.dirty) if (this.grid.loaded.has(key)) { this.dirty.delete(key); const task = this.rebuild(key); tasks.push(task); task.catch(error => { console.error(error); }); }

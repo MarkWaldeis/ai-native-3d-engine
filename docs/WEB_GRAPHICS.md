@@ -4,6 +4,13 @@ Exports are self-contained WebGL 2 sites. Existing scenes keep the legacy look.
 Enable the enhanced renderer with an `ai_graphics` object (or JSON string) in
 `props` of the entity tagged `player`. An empty object enables the defaults.
 
+For distant streamed GLBs without an authored low-detail mesh, set
+`"impostor_views": 4` in the player's `ai_world`. The lowest-detail
+billboard uses the nearest of four baked side views, so it no longer
+shows the same face from every angle. It uses a single 128×128 atlas
+(four 64×64 views). The default keeps a single 128×128 view; authored
+`web_lods` meshes still take precedence.
+
 ```json
 {
   "ai_graphics": {

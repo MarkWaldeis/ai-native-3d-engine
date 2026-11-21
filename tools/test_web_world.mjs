@@ -60,6 +60,33 @@ function fixture(addProp = false) {
   return {scene,world,key:world.grid.key(ground.transform.position)};
 }
 
+test('four-angle impostors share one target and restore the previous renderer state', () => {
+  const previous = {}, previousColor = new THREE.Color('#63758c');
+  let target = previous;
+  const draws = [];
+  const renderer = {
+    autoClear:false,
+    getRenderTarget:()=>target, getActiveCubeFace:()=>2, getActiveMipmapLevel:()=>1,
+    getClearColor:color=>color.copy(previousColor), getClearAlpha:()=>0.7,
+    setClearColor(color,alpha) { this.color = color; this.alpha = alpha; },
+    setRenderTarget(t,face,mip) { target = t; this.face = face; this.mip = mip; },
+    clear() {},
+    render(scene,camera) { draws.push([target, target.viewport.toArray(), camera.position.clone()]); },
+  };
+  const world = new StreamingWorld(new THREE.Scene(),renderer,{impostor_views:4});
+  const source = new THREE.Mesh(new THREE.BoxGeometry(2,2,2),new THREE.MeshBasicMaterial());
+  source.position.set(3,0,-2);
+  const [part] = world.impostor(source);
+  assert.deepEqual(draws.map(draw=>draw[1]),[[0,0,64,64],[64,0,64,64],[0,64,64,64],[64,64,64,64]]);
+  assert.ok(draws.every(draw => draw[0] === draws[0][0]));
+  assert.deepEqual(draws.map(draw=>draw[2].sub(source.position).toArray().map(v => Math.round(v) || 0)),
+    [[0,0,4],[4,0,0],[0,0,-4],[-4,0,0]]);
+  assert.equal(part.material.map.image.width,128);
+  assert.equal(target,previous);
+  assert.deepEqual([renderer.face,renderer.mip,renderer.alpha,renderer.autoClear],[2,1,0.7,false]);
+  assert.ok(renderer.color.equals(previousColor));
+});
+
 test('streamed sun shadow flags split instance batches without duplicating templates', async () => {
   globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
   const {world,key} = fixture();

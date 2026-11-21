@@ -282,6 +282,54 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(shadows.normal > shadows.wide + 30 && shadows.error === 0, JSON.stringify(shadows));
     console.log('PASS sun shadows: wider authored volume captures a caster outside the default volume');
 
+    const impostors = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { StreamingWorld } = await import('./world.js');
+      const { worldConfig } = await import('./streaming.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.setSize(96, 96, false);
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const config = worldConfig([{tags:['player'],props:{ai_world:{impostor_views:4,lod_distances:[2,4]}}}]);
+      const scene = new THREE.Scene(), model = new THREE.Group();
+      const color = [0xff0000,0x00ff00,0xffffff,0xffffff,0x0000ff,0xffff00];
+      const source = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2),color.map(value=>new THREE.MeshBasicMaterial({color:value})));
+      source.position.x = 2;
+      model.add(source);
+      const world = new StreamingWorld(scene,renderer,config,{load:async()=>({scene:model})});
+      const camera = new THREE.PerspectiveCamera(30,1,0.1,40);
+      const samples = [];
+      try {
+        for (const [index, batched] of [true,false].entries()) {
+          const transform = {position:[0,0,0],scale:[1.3,1,1],rotation_deg:[0,90,0]};
+          const entity = {id:index+1,kind:'gltf',path:'fixture',transform};
+          const object = batched ? null : new THREE.Group();
+          if (object) { object.rotation.y = Math.PI / 2; object.scale.fromArray(transform.scale); object.add(model.clone()); }
+          world.add(entity,object);
+          const center = new THREE.Vector3(0,0,-2.6);
+          let instance, before;
+          for (const offset of [[1,0,0],[0,0,-1],[-1,0,0],[0,0,1]]) {
+            camera.position.fromArray(offset).multiplyScalar(10).add(center);
+            camera.lookAt(center); camera.updateMatrixWorld();
+            await Promise.all(world.update(camera));
+            await world.entities.get(entity.id).impostorTask;
+            world.update(camera);
+            if (batched && !instance) {
+              instance = scene.getObjectByProperty('isInstancedMesh',true);
+              before = instance.instanceMatrix.version;
+            }
+            renderer.render(scene,camera);
+            gl.readPixels(48,48,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+            samples.push(pixel.slice(0,3).reduce((mask,channel,i)=>mask | (Number(channel>128)<<i),0));
+          }
+          if (batched && before !== instance.instanceMatrix.version) throw new Error('Camera motion updated the instance buffer');
+          world.reset();
+        }
+        return {samples,error:gl.getError()};
+      } finally { renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    assert.deepEqual(impostors,{samples:[4,1,3,2,4,1,3,2],error:0});
+    console.log('PASS impostors: four camera angles use the correct baked faces, centered on the rotated model without instance buffer uploads');
+
     const finishes = await page.evaluate(async () => {
       const THREE = await import('three');
       const { primitiveMaterial } = await import('./materials.js');
