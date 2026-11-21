@@ -46,6 +46,17 @@ fn ball_scene() -> Value {
 }
 
 #[test]
+fn authoring_physics_queries_resolve_mesh_colliders_from_project_root() {
+    let mut engine = host(json!({"entities":[
+        {"id":1,"name":"Suzanne","kind":"gltf","path":"assets/suzanne.glb","collider":{"shape":"mesh"}}
+    ]}));
+    let overlap = data(call(&mut engine, "overlap", json!({
+        "origin":[0,0,0],"shape":{"shape":"box","half_extents":[10,10,10]}
+    })));
+    assert_eq!(overlap["ids"], json!([1]));
+}
+
+#[test]
 fn physics_queries_use_live_colliders_and_respect_filters() {
     let mut engine = host(json!({"entities":[
         {"id":1,"name":"compound","kind":"box","size":[1,1,1],"props":{"ai_physics":{"collider":{

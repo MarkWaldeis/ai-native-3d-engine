@@ -364,7 +364,7 @@ impl Physics {
             } else { entity
                 .collider
                 .as_ref()
-                .map(|shape| collider(entity, shape))
+                .map(|shape| collider(entity, shape, &self.root))
                 .transpose()? };
             let builder = if collider.is_none() {
                 builder.additional_mass(config.mass)
@@ -670,7 +670,7 @@ fn query_hit(hit: Option<RayHit>) -> Value {
     }
 }
 
-fn collider(entity: &Entity, shape: &Shape) -> Result<ColliderBuilder> {
+fn collider(entity: &Entity, shape: &Shape, root: &std::path::Path) -> Result<ColliderBuilder> {
     let positions: Vec<[f32; 3]> =
         if matches!(entity.mesh, shared::scene::PrimitiveKind::Gltf { .. })
             && entity.props.get("web_mesh_bounds").is_some()
@@ -686,7 +686,7 @@ fn collider(entity: &Entity, shape: &Shape) -> Result<ColliderBuilder> {
         } else {
             let mesh = match &entity.mesh {
                 shared::scene::PrimitiveKind::Gltf { path } => {
-                    engine_geo::load_gltf(std::path::Path::new(path))?
+                    engine_geo::load_gltf(&root.join(path))?
                 }
                 kind => engine_geo::generate(kind),
             };
