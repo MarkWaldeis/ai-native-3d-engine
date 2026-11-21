@@ -19,6 +19,14 @@ MODEL_SIZES = {
     'watchtower': (5.10462, 9.05, 5),
     'bunker': (6.3, 3.05, 5.3),
 }
+VEGETATION_BUDGETS = {
+    # X/Z half-extents, height, high/low triangle and high primitive budgets.
+    'tree_palm': (3.37909, 3.41383, 10.34475, 3200, 693, 4),
+    'tree_broadleaf': (6.59979, 6.37377, 14.18711, 1150, 185, 4),
+    'tree_kapok': (11.00072, 10.77709, 23.82228, 1600, 186, 4),
+    'bush': (1.24013, 1.09355, 1.46445, 1050, 219, 3),
+    'fern': (.86726, .88064, .71288, 1100, 244, 2),
+}
 
 
 class AssetsTest(unittest.TestCase):
@@ -47,6 +55,19 @@ class AssetsTest(unittest.TestCase):
                     counts.append(count)
                     self.assertGreater(count, 0)
                     self.assertTrue(all(p.get('mode', 4) == 4 for p in primitives))
+                    if name in VEGETATION_BUDGETS:
+                        x, z, height, high_limit, low_count, primitive_limit = VEGETATION_BUDGETS[name]
+                        if key == 'high':
+                            self.assertLessEqual(count, high_limit)
+                            self.assertLessEqual(len(primitives), primitive_limit)
+                            expected = [[-x, 0, -z], [x, height, z]]
+                            self.assertEqual(entry['bounds'], expected)
+                            positions = [doc['accessors'][p['attributes']['POSITION']] for p in primitives]
+                            for bound, select, values in zip(('min', 'max'), (min, max), expected):
+                                for axis, target in enumerate(values):
+                                    self.assertAlmostEqual(select(a[bound][axis] for a in positions), target, delta=1e-5)
+                        else:
+                            self.assertEqual(count, low_count)
                     for index in {p['attributes']['NORMAL'] for p in primitives}:
                         accessor = doc['accessors'][index]
                         self.assertEqual(accessor['componentType'], 5126)
