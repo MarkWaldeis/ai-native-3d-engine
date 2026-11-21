@@ -9,8 +9,9 @@ import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
+import { feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
+import { SpatialAudio, bindAudioGestures } from './audio.js';
 import { travelSpeedInput } from './fps_core.js';
-import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
@@ -50,7 +51,8 @@ let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
 let effects, assets, lastFeedback, lastHUD = '';
-const audio = new GameAudio();
+const audio = new SpatialAudio();
+window.__aiAudio = { stats: () => audio.stats(), engine: audio };
 const animations = new Animations();
 window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
@@ -252,6 +254,7 @@ function applyRagdolls(states = []) {
 }
 
 function apply(result) {
+  audio.apply(result);
   if (netEndpoint && result.my_entity != null) playerId = result.my_entity;
   hudLayout?.update(result);
   const feedback = feedbackEvents(lastFeedback, result.state);
@@ -432,6 +435,7 @@ async function restart(save = null) {
     net = new BrowserNet(game, netEndpoint, fail, undefined, {onDisconnect: showNetworkDisconnect});
     window.__engineNet = net.status;
   }
+  audio.configure(source);
   await terrain?.preload();
   mark('webGameLoaded');
   apply(JSON.parse(initial));
@@ -531,6 +535,7 @@ $('fullscreen').addEventListener('click', async () => {
   } catch { $('mission').textContent = 'Vollbild ist in diesem Browser nicht verfügbar.'; }
 });
 
+bindAudioGestures(window, () => audio.unlock(), () => running && !document.hidden);
 window.addEventListener('keydown', e => {
   if (running && ['Space', 'Enter'].includes(e.code) && e.target.closest?.('footer button')) e.preventDefault();
   if (inputSettings?.open || (!running && e.target.closest?.('button, input, dialog'))) return;
@@ -631,6 +636,8 @@ function frame(now) {
       }
     }
     updateCamera(false, elapsed);
+    audio.update({ position: camera.position.toArray(), forward: camera.getWorldDirection(new THREE.Vector3()).toArray(), up: new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).toArray() });
+    Object.assign(stats, audio.stats());
     occluder?.beginFrame();
     streaming?.update(camera);
     for (const [id, group] of ragdolls) {
