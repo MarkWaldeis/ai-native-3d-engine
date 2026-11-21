@@ -174,3 +174,22 @@ fn web_export_empty_scene_and_missing_sources_are_safe() {
         .iter()
         .any(|t| t["name"] == "export_web"));
 }
+
+#[test]
+fn web_export_bundles_ai_viewmodel_glb() {
+    let fixture = Fixture::new();
+    let root = root();
+    let scene: Scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"player","kind":"box","size":[1,1,1],"tags":["player"],"props":{"ai_fps":{},"ai_viewmodel":"assets/suzanne.glb"}}
+    ]})).unwrap();
+    let out = fixture.0.join("site");
+    let report = export_bundle(&scene, &root, &out, &fixture.0.join("pkg")).unwrap();
+    assert_eq!(report["assets"], 1);
+    let exported: Value = serde_json::from_slice(&std::fs::read(out.join("scene.json")).unwrap()).unwrap();
+    let path = exported["entities"][0]["props"]["ai_viewmodel"].as_str().unwrap().to_string();
+    assert_eq!(path, "assets/0.glb");
+    assert!(out.join(&path).is_file());
+    let mut escape = scene.clone();
+    escape.entities[0].props["ai_viewmodel"] = json!("../outside.glb");
+    assert!(export_bundle(&escape, &root, &fixture.0.join("site2"), &fixture.0.join("pkg")).is_err());
+}

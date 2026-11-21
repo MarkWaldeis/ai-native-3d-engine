@@ -251,6 +251,23 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
                 *path=json!(assets[&original]);
             }
         }
+        if let Some(original) = entity.props.get("ai_viewmodel").and_then(Value::as_str).map(str::to_owned) {
+            if !assets.contains_key(&original) {
+                let file = [root.join(&original), root.join("assets").join(&original)]
+                    .into_iter()
+                    .find(|p| p.is_file())
+                    .with_context(|| format!("missing ai_viewmodel GLB: {original}"))?
+                    .canonicalize()?;
+                if !file.starts_with(&root) {
+                    bail!("ai_viewmodel path escapes project root: {original}");
+                }
+                let bytes = std::fs::read(&file)?;
+                embedded_glb(&bytes).with_context(|| format!("{} must be a self-contained GLB", file.display()))?;
+                let target = content_asset(bytes, &mut files, &mut content);
+                assets.insert(original.clone(), target);
+            }
+            entity.props["ai_viewmodel"] = json!(assets[&original]);
+        }
     }
     files.insert("scene.json".into(), serde_json::to_vec_pretty(&scene)?);
     files.insert("scripts.json".into(), serde_json::to_vec_pretty(&scripts)?);
