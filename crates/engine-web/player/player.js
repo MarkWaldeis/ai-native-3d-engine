@@ -24,6 +24,7 @@ import { SdfAtlas, SdfLabel } from './sdf-text.js';
 import { hudTemplate } from './hud-layout.js';
 import { TouchControls } from './touch-controls.js';
 import { hapticCue, pulseHaptics } from './touch.js';
+import { OverlayNavigation } from './ui-navigation.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -32,7 +33,7 @@ const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
 const travelSpeed = travelSpeedInput(location.search);
 const input = new InputSystem(), inputEdges = new InputEdges();
-let inputSettings, touchControls, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
+let inputSettings, touchControls, uiNavigation, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
 const touchMode = () => document.body.classList.contains('touch-input');
 function showTouch() {
   document.body.classList.add('touch-input');
@@ -314,19 +315,20 @@ function apply(result) {
     $('state').textContent = `${result.connected ? `Spieler ${result.player_number}` : 'Verbinde …'} · ${Math.round(result.stats?.rtt_ms || 0)} ms · ${result.players || 0} Spieler verbunden`;
   }
   $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...(touchControls?.warnings || []), ...textWarnings, ...(textAtlas?.warnings || []), ...result.logs.slice(-12)].join('\n');
-  if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
+  if (running && (result.state.won === true || result.state.gewonnen === true)) showEnd();
+  else if (running && (result.state.lost === true || fps?.dead)) showEnd(true);
 }
 
-function showWin() {
+function showEnd(lost = false) {
   fps?.stop();
   running = false; resetInput(); mode = 'restart'; modal.hidden = false;
   $('restart').hidden = true;
-  $('modal-badge').textContent = ui.win_badge || 'ALLE MÜNZEN GESAMMELT';
-  $('modal-symbol').textContent = '✦'; $('modal-title').textContent = 'Gewonnen!';
-  $('modal-text').textContent = ui.win_text || `Geschafft! ${latest.state.score ?? ''} Münzen gesammelt und das Ziel erreicht. Noch eine Runde?`;
+  $('modal-badge').textContent = lost ? 'SPIEL VORBEI' : ui.win_badge || 'ALLE MÜNZEN GESAMMELT';
+  $('modal-symbol').textContent = lost ? '↻' : '✦'; $('modal-title').textContent = lost ? 'Spiel vorbei' : 'Gewonnen!';
+  $('modal-text').textContent = lost ? 'Noch einmal versuchen? Oder einen gespeicherten Spielstand laden.' : ui.win_text || `Geschafft! ${latest.state.score ?? ''} Münzen gesammelt und das Ziel erreicht. Noch eine Runde?`;
   $('start').textContent = 'Nochmal spielen'; $('start').disabled = false;
   $('modal-note').textContent = 'Dein Spiel läuft mit derselben Simulation wie im Editor.';
-  modal.dataset.screen = 'win';
+  modal.dataset.screen = lost ? 'gameover' : 'win';
 }
 
 function movement() {
@@ -472,6 +474,7 @@ window.__aiLoadGame = async () => {
 window.addEventListener('keydown', e => {
   if (e.code !== 'F5' && e.code !== 'F9') return;
   e.preventDefault();
+  if (inputSettings?.open) return;
   if (e.repeat) return;
   Promise.resolve().then(() => e.code === 'F5' ? window.__aiSaveGame() : window.__aiLoadGame())
     .catch(error => console.error('Spielstand:', error));
@@ -514,6 +517,13 @@ $('restart').addEventListener('click', async () => {
   try { await restart(); startRunning(); } catch (error) { fail(error); }
   finally { $('restart').disabled = false; }
 });
+$('menu-settings').addEventListener('click', () => inputSettings?.show());
+for (const action of ['save', 'load']) $(`menu-${action}`).addEventListener('click', async () => {
+  try {
+    const result = action === 'save' ? window.__aiSaveGame() : await window.__aiLoadGame();
+    $('menu-status').textContent = result ? action === 'save' ? 'Spielstand gespeichert.' : 'Spielstand geladen.' : 'Kein Spielstand vorhanden.';
+  } catch (error) { if (!ready) fail(error); else $('menu-status').textContent = `Spielstand: ${error.message}`; }
+});
 $('pause').addEventListener('click', () => {
   if (!ready || mode === 'restart' || inputSettings?.open) return;
   if (running) {
@@ -538,7 +548,7 @@ $('fullscreen').addEventListener('click', async () => {
 bindAudioGestures(window, () => audio.unlock(), () => running && !document.hidden);
 window.addEventListener('keydown', e => {
   if (running && ['Space', 'Enter'].includes(e.code) && e.target.closest?.('footer button')) e.preventDefault();
-  if (inputSettings?.open || (!running && e.target.closest?.('button, input, dialog'))) return;
+  if (uiNavigation?.scope || inputSettings?.open || (!running && e.target.closest?.('button, input, dialog'))) return;
   const actions = Object.keys(input.config.bindings).filter(action => input.config.bindings[action].some(binding => binding.type === 'key' && binding.code === e.code));
   if (!actions.length) return;
   e.preventDefault();
@@ -595,22 +605,22 @@ function showNetworkDisconnect() {
 
 function frame(now) {
   requestAnimationFrame(frame);
-  hudLayout?.frame(now);
-  if (!renderer || !ready) return;
   try {
-    const rawElapsed = (now - previous) / 1000;
-    const elapsed = Math.min(rawElapsed, 0.1); previous = now;
     if (document.hidden) return;
     const pads = navigator.getGamepads?.() || [];
+    const uiBlocked = uiNavigation.poll(pads, now);
+    inputSettings?.poll(pads);
+    hudLayout?.frame(now);
+    if (!renderer || !ready) return;
+    const rawElapsed = (now - previous) / 1000;
+    const elapsed = Math.min(rawElapsed, 0.1); previous = now;
     const gamepad = input.sampleGamepads(pads);
     sampledInput = input.sample({ keys, pads, touch: { ...joystick, actions: touchControls?.sample() } });
     const edges = inputEdges.sample(sampledInput.actions);
     if (Object.values(gamepad.actions).some(value => Math.abs(value) > 0.15)) { gamepadActive = true; updateHelp(); }
     else if (!Array.from(pads).some(pad => pad && pad.connected !== false)) { gamepadActive = false; updateHelp(); }
-    inputSettings?.poll(pads);
-    if (!inputSettings?.open) {
+    if (!uiBlocked && !inputSettings?.open) {
       if (edges.has('pause') && mode !== 'restart') { if (running) pause(); else if (mode === 'pause') startRunning(); }
-      else if (edges.has('action') && !modal.hidden && !$('start').disabled) $('start').click();
       if (running) {
         if (gamepad.actions.action > 0.5) actionInput.press('gamepad'); else actionInput.release('gamepad');
         if (Math.hypot(gamepad.move_x, gamepad.move_z) > 0.1) stopPreview();
@@ -619,10 +629,10 @@ function frame(now) {
     }
     renderer.info.reset();
     if (net) {
-      const result = running ? net.tick(controls(false, false), controls(false), () => { actionInput.sample(); touchControls?.consume(); }) : net.tick({});
+      const result = running && !uiBlocked ? net.tick(controls(false, false), controls(false), () => { actionInput.sample(); touchControls?.consume(); }) : net.tick({});
       if (result) apply(result);
       if (!net.status.connected && net.socket.readyState >= 2) showNetworkDisconnect();
-    } else if (running) {
+    } else if (running && !uiBlocked) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
       if (previewRemaining === 0) stopPreview();
       accumulator += elapsed;
@@ -721,7 +731,7 @@ async function boot() {
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   hudLayout = new HudLayout(props?.ai_hud, source.entities);
   const title = ui.title || (source.entities.some(e => e.tags?.includes('coin')) ? 'Münzenpfad' : source.name || 'Web-Spiel');
-  inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp);
+  inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp, () => uiNavigation.sync());
   const preset = new URLSearchParams(location.search).get('quality');
   const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
   renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });
@@ -785,6 +795,12 @@ async function boot() {
   if (touchMode() && fps) fps.coarse = true;
   updateHelp();
   if (fps && !ui.action_label) $('action').lastChild.textContent = 'SPRUNG';
-  requestAnimationFrame(frame);
 }
-boot().catch(fail);
+uiNavigation = new OverlayNavigation({ capture: () => !!inputSettings?.capturing, reset: resetInput,
+  pause: () => { if (!ready || uiNavigation.scope?.tagName === 'DIALOG' || mode === 'restart') return; if (running) pause(); else if (mode === 'pause') startRunning(); },
+  back: () => { if (ready && mode === 'pause') startRunning(); } });
+requestAnimationFrame(frame);
+boot().then(() => {
+  $('menu-settings').disabled = false;
+  for (const id of ['menu-save', 'menu-load']) $(id).disabled = !!netEndpoint;
+}).catch(fail);

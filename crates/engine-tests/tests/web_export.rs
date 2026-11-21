@@ -148,6 +148,8 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "sdf-text.js",
         "input.js",
         "input-settings.js",
+        "ui-nav.js",
+        "ui-navigation.js",
         "touch.js",
         "touch-controls.js",
         "nature.js",

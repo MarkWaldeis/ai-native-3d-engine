@@ -8,7 +8,7 @@ const labels = {
 const signature = binding => JSON.stringify(binding);
 
 export class InputSettings {
-  constructor(input, authored, title, onOpen, onChange = () => {}) {
+  constructor(input, authored, title, onOpen, onChange = () => {}, onClose = null) {
     this.input = input; this.authored = authored; this.onOpen = onOpen; this.onChange = onChange;
     this.storageKey = `ai-engine:input:${title}`;
     input.fromJSON(authored); this.warnings = [...input.warnings];
@@ -32,7 +32,7 @@ export class InputSettings {
     this.vibration = document.getElementById('input-haptics');
     this.vibration.addEventListener('change', () => { input.config.haptics.enabled = this.vibration.checked; this.save(); });
     document.getElementById('input-close').addEventListener('click', () => this.dialog.close());
-    this.dialog.addEventListener('close', () => { this.cancelCapture(); this.trigger.focus(); });
+    this.dialog.addEventListener('close', () => { this.cancelCapture(); if (onClose) onClose(); else this.trigger.focus(); });
     this.dialog.addEventListener('cancel', event => { if (this.capturing) { event.preventDefault(); this.cancelCapture(); } });
     this.dialog.addEventListener('keydown', event => {
       if (!this.capturing) return;

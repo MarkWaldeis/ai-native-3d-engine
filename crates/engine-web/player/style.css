@@ -40,6 +40,12 @@ footer{position:absolute;bottom:max(16px,env(safe-area-inset-bottom));left:max(2
 footer button{border-radius:16px;background:#ffffffad;color:#183647;padding:7px 11px;margin-left:5px;font-size:10px;font-weight:600}
 footer{z-index:4;flex-wrap:wrap}
 body.touch-input #help{display:none}
+.menu-actions{display:flex;justify-content:center;flex-wrap:wrap;gap:8px;margin-top:14px}
+.menu-actions button{font:inherit;font-size:12px;border:1px solid #ffffff55;border-radius:10px;background:#102b38;color:#eaffef;padding:9px 12px;cursor:pointer}
+.ui-nav-hint{font-size:12px!important;color:#c4f7ab!important;margin:12px 0 0!important}
+body.ui-overlay #controls,body.ui-overlay #touch-buttons,body.ui-overlay .fps-look-zone,body.ui-overlay .fps-fire,body.ui-overlay .fps-reload-button{visibility:hidden}
+#menu-status:empty{display:none}
+:focus-visible,.gamepad-ui button:focus,.gamepad-ui input:focus{outline:3px solid #ffe09a;outline-offset:4px}
 body.touch-input footer{justify-content:flex-end}
 #input-help{overflow-wrap:anywhere}
 footer>div{display:flex;flex-wrap:wrap;gap:5px}

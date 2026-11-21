@@ -81,7 +81,7 @@ try {
   await page.locator('[data-action="sprint"]').click(); await page.evaluate(() => { testPad.axes[0] = -0.8; advanceFrames(1); });
   assert.match(await page.locator('#input-bindings li').filter({ has: page.locator('[data-action="sprint"]') }).innerText(), /Linker Stick ←/);
   await page.locator('#input-close').click();
-  assert.ok(await page.locator('#input-settings').evaluate(element => element === document.activeElement));
+  assert.ok(await page.locator('#modal').evaluate(element => element.contains(document.activeElement)), 'closing settings restores focus inside the pause overlay');
   console.log('PASS input remapping: KeyE survives reload; Escape cancels; gamepad button/axis capture; focus restored');
   await page.evaluate(() => { testPad.axes[0] = 0; });
   await page.locator('#start').click();

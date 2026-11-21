@@ -12,7 +12,7 @@
   <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 </head>
 <body>
-  <canvas id="game" aria-label="3D-Spielfeld"></canvas>
+  <canvas id="game" tabindex="-1" aria-label="3D-Spielfeld"></canvas>
   <header id="hud">
     <div class="brand"><span class="eyebrow">AI ENGINE · WEB-PLAYER</span><h1 id="title">Münzenpfad</h1></div>
     <div id="state" class="state" aria-live="polite"><span>Wird geladen …</span></div>
@@ -26,7 +26,7 @@
   </div>
   <footer><span id="help">WASD / Pfeile · Leertaste: Aktion</span><div><button id="input-settings" disabled>Steuerung</button><button id="mute" aria-pressed="false">Ton an</button><button id="logs-toggle">Protokoll</button><button id="fullscreen">Vollbild</button></div></footer>
   <dialog id="input-panel" aria-labelledby="input-title">
-    <div class="input-heading"><h2 id="input-title">Steuerung</h2><button id="input-close" aria-label="Steuerung schließen">Schließen</button></div>
+    <div class="input-heading"><h2 id="input-title">Steuerung</h2><button id="input-close" data-primary aria-label="Steuerung schließen">Schließen</button></div>
     <p>Tastatur und Gamepad individuell belegen. Währenddessen bleibt das Spiel pausiert.</p>
     <p id="input-help"></p>
     <p id="input-status" role="status" aria-live="polite"></p>
@@ -35,7 +35,7 @@
     <button id="input-reset">Standard wiederherstellen</button>
   </dialog>
   <pre id="logs" hidden></pre>
-  <section id="modal" class="modal" data-screen="start" aria-labelledby="modal-title">
+  <section id="modal" class="modal" role="dialog" aria-modal="true" data-screen="start" aria-labelledby="modal-title">
     <div class="modal-card">
       <span id="modal-badge" class="eyebrow">EIN KLEINES ABENTEUER FÜR ZWISCHENDURCH</span>
       <div id="modal-symbol" aria-hidden="true">✦</div>
@@ -43,6 +43,12 @@
       <p id="modal-text">Bewege die blaue Kugel mit dem Joystick oder den Pfeiltasten. Sammle die Münzen und erreiche das grüne Ziel.</p>
       <button id="start" disabled>Spiel wird geladen …</button>
       <button id="restart" hidden>Neustart</button>
+      <div class="menu-actions">
+        <button id="menu-settings" disabled>Steuerung</button>
+        <button id="menu-save" disabled>Speichern</button>
+        <button id="menu-load" disabled>Laden</button>
+      </div>
+      <p id="menu-status" role="status" aria-live="polite"></p>
       <span class="modal-note" id="modal-note">Kopfhörer auf. Durchatmen. Losspielen. · Ton ist abschaltbar.</span>
     </div>
   </section>

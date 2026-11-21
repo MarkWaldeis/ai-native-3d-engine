@@ -17,6 +17,8 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("net.js", include_str!("../crates/engine-web/player/net.js")),
     ("input.js", include_str!("../crates/engine-web/player/input.js")),
     ("input-settings.js", include_str!("../crates/engine-web/player/input-settings.js")),
+    ("ui-nav.js", include_str!("../crates/engine-web/player/ui-nav.js")),
+    ("ui-navigation.js", include_str!("../crates/engine-web/player/ui-navigation.js")),
     ("touch.js", include_str!("../crates/engine-web/player/touch.js")),
     ("touch-controls.js", include_str!("../crates/engine-web/player/touch-controls.js")),
     ("animation.js", include_str!("../crates/engine-web/player/animation.js")),

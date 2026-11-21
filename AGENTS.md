@@ -221,6 +221,11 @@ Tests: `tools/test_web_sdf.mjs`, `tools/verify_web_sdf.mjs`; Bilder:
 
 ## Eingabe / Gamepad
 
+Menüs: `ui-nav.js` (DOM-frei) + `ui-navigation.js` kapseln Fokus im obersten
+Overlay. D-Pad/linker Stick oder Pfeile/Tab navigieren; A/Enter wählen,
+B/Escape schließen, Start pausiert. Capture hat Vorrang. Tests:
+`test_web_ui_nav.mjs`, `verify_web_ui_nav.mjs`; Details: `docs/INPUT.md`.
+
 `ai_touch` ergänzt logische Touch-Tasten/Joystick-Layout; `ai_input.haptics`
 steuert optionale Gamepad-/Touch-Vibration, gespeichert über „Steuerung“.
 Schema: `docs/INPUT.md`; Tests: `test_web_touch.mjs`, `verify_web_touch.mjs`.
