@@ -34,7 +34,7 @@ export class HudLayout {
     }
   }
   reset(entities) {
-    this.entities = new Map(entities.map(entity => [entity.id, entity]));
+    this.entities = new Map();
     this.totals = countHudTags(entities); this.state = {}; this.left = { ...this.totals };
     for (const record of this.nodes.values()) { record.initialized = false; record.until = 0; if (record.widget.type === 'toast') record.node.hidden = true; }
   }

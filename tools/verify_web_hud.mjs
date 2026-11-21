@@ -96,9 +96,14 @@ try {
     await page.screenshot({ path: path.join(shots, `hud-${name}.png`) });
     await page.locator('#pause').click(); await page.evaluate(() => advanceFrames(130));
     assert.ok(await toast.isHidden(), 'toast expires in ~2 seconds even when paused');
+    await page.evaluate(() => window.__aiSaveGame());
     await page.getByRole('button', { name: 'Neustart', exact: true }).click(); await page.evaluate(() => advanceFrames(2));
     assert.equal(await coins.innerText(), 'Münzen 0/3'); assert.ok(await toast.isHidden(), 'restart resets toast baseline');
-    console.log(`PASS HUD ${name}: real WASM coin collection updates counter/bar/tag counts, toast appears/expires, stable nodes, safe layout and restart`);
+    assert.equal(await page.evaluate(() => window.__aiLoadGame()), true);
+    assert.equal(await coins.innerText(), 'Münzen 1/3');
+    assert.equal(await page.locator('[data-hud-id="remaining"]').innerText(), 'Übrig: 2', 'restored save excludes previously removed coins');
+    assert.ok(await toast.isHidden(), 'save restore establishes a new toast baseline');
+    console.log(`PASS HUD ${name}: real WASM coin collection updates counter/bar/tag counts, toast appears/expires, stable nodes, safe layout, restart and save restore`);
     await page.close();
   }
   assert.deepEqual(errors, []); console.log('PASS HUD browser: no page errors or failed asset responses');
