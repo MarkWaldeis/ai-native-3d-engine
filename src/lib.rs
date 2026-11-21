@@ -11,11 +11,15 @@ use shared::scene::{Camera, PrimitiveKind, Transform};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod swarm;
+pub mod http;
+
 pub struct Engine {
     pub world: World,
     renderer: Option<Renderer>,
     pub pipeline: AssetPipeline,
     pub assets_dir: PathBuf,
+    swarm: swarm::Swarm,
 }
 
 impl Engine {
@@ -28,6 +32,7 @@ impl Engine {
             renderer: None,
             pipeline: AssetPipeline::new(&assets_dir),
             assets_dir,
+            swarm: swarm::Swarm::default(),
         }
     }
 
@@ -122,7 +127,7 @@ fn primitive_kind(args: &Value, assets_dir: &Path) -> Result<PrimitiveKind, Stri
                 path: full.to_string_lossy().replace('\\', "/"),
             }
         }
-        other => return Err(format!("unknown primitive kind: {other}")),
+        other => return Err(format!("unknown primitive kind: {other}; valid kinds: box, plane, sphere, cylinder, wall_with_door, gltf")),
     };
     Ok(k)
 }
@@ -150,6 +155,12 @@ impl Engine {
 
 impl ToolHandler for Engine {
     fn handle(&mut self, name: &str, args: &Value) -> Result<Value, String> {
+        self.handle_agent(name, args)
+    }
+}
+
+impl Engine {
+    fn handle_tool(&mut self, name: &str, args: &Value) -> Result<Value, String> {
         let expected = expected_rev(args);
         let r = (|| -> anyhow::Result<Value> {
             match name {
@@ -249,7 +260,9 @@ impl ToolHandler for Engine {
                         if tool == "apply_batch" {
                             anyhow::bail!("nested apply_batch is not allowed");
                         }
-                        let sub_args = c.get("arguments").cloned().unwrap_or(json!({}));
+                        let mut sub_args = c.get("arguments").cloned().unwrap_or(json!({}));
+                        if !sub_args.is_object() { anyhow::bail!("batch command arguments must be a JSON object"); }
+                        sub_args["agent"] = args.get("agent").cloned().unwrap_or(json!("anonymous"));
                         match self.handle(tool, &sub_args) {
                             Ok(v) => results.push(v),
                             Err(e) => {

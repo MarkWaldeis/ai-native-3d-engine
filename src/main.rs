@@ -13,6 +13,13 @@ use std::io::{BufRead, Write};
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    if let Some(pos) = args.iter().position(|a| a == "--serve") {
+        let result = args.get(pos + 1).ok_or_else(|| anyhow::anyhow!("usage: ai-engine --serve 127.0.0.1:7777"))
+            .and_then(|addr| ai_engine::http::serve_addr(addr));
+        if let Err(e) = result { eprintln!("HTTP server failed: {e:#}"); std::process::exit(1); }
+        return;
+    }
+
     if args.iter().any(|a| a == "--demo") {
         let pos = args.iter().position(|a| a == "--demo").unwrap();
         let out = args.get(pos + 1).cloned().unwrap_or_else(|| "demo.png".into());

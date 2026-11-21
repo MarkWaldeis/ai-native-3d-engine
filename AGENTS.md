@@ -20,7 +20,27 @@ Rust wurde als `stable-x86_64-pc-windows-gnu` installiert. Zwei Stolpersteine:
 
 Danach: `cargo build` / `cargo build --release` / `cargo test --workspace`.
 
-## Laufmodi
+## Build (macOS / Linux)
+
+Stable Rust via rustup installieren, dann `cargo build --workspace` und
+`cargo test --workspace`. Bei frischer Installation ggf. `source "$HOME/.cargo/env"`.
+Die Windows-GNU-Linker-Konfiguration ist target-spezifisch und wird hier nicht
+benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
+
+## Swarm-Server
+
+`ai-engine --serve 127.0.0.1:7777`: JSON-RPC per `POST /mcp`, eine gemeinsame
+Engine auf dediziertem Thread. Identität: Tool-Argument `agent` vor Header
+`X-Agent-Id`, sonst `anonymous`. Nur vertrauenswürdige lokale Clients; keine Auth.
+Tools: `claim_entities {ids, ttl_s?}` (Default 60s), `release_entities {ids}`,
+`list_locks`, `get_changes_since {revision}`, `task_create {title, description?,
+depends_on?}`, `task_claim {id}`, `task_complete {id, note?}`, `task_list {status?}`.
+Fremde Locks verhindern Entity-Mutationen und globale Szenenersetzung;
+Batch-Unterbefehle erben die Agent-ID. Journal hält 1024 Szenen-Mutationen,
+Lock-/Task-Metadaten ändern keine Szenenrevision. Status: pending/claimed/completed.
+Alle Koordinationsdaten sind flüchtig. HTTP-Tests: `cargo test -p engine-tests --test swarm_http`.
+
+## Laufmodi (stdio / Demo)
 
 - `ai-engine` — MCP-stdio-Server (newline-delimited JSON-RPC 2.0, echte
   `initialize`/`tools/list`/`tools/call`-Methoden). In `mcp_config.json`

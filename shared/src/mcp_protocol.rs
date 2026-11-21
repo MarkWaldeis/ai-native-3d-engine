@@ -60,7 +60,8 @@ pub struct ToolDef {
     pub input_schema: Value,
 }
 
-fn schema(props: Value, required: &[&str]) -> Value {
+fn schema(mut props: Value, required: &[&str]) -> Value {
+    props["agent"] = json!({"type": "string", "minLength": 1, "description": "Agent identity; overrides HTTP X-Agent-Id; defaults to anonymous"});
     json!({
         "type": "object",
         "properties": props,
@@ -78,6 +79,38 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         json!({"type": "integer", "description": "optimistic concurrency: apply only if world.revision still equals this value"})
     };
     vec![
+        ToolDef {
+            name: "claim_entities",
+            description: "Lock existing entity ids for this agent; fails atomically if any belongs to another agent. Renew by claiming again. TTL defaults to 60 seconds.",
+            input_schema: schema(json!({"ids": {"type":"array", "items":{"type":"integer", "minimum":0}}, "ttl_s":{"type":"integer", "minimum":1, "maximum":86400}}), &["ids"]),
+        },
+        ToolDef {
+            name: "release_entities",
+            description: "Release this agent's locks. Cannot release another agent's locks.",
+            input_schema: schema(json!({"ids":{"type":"array", "items":{"type":"integer", "minimum":0}}}), &["ids"]),
+        },
+        ToolDef { name: "list_locks", description: "List unexpired locks with owner and remaining TTL.", input_schema: schema(json!({}), &[]) },
+        ToolDef {
+            name: "get_changes_since",
+            description: "Journal entries after revision, with agent, tool and affected entity ids. Retains 1024 entries; oldest_revision indicates retention floor. Scene mutations only; task/lock metadata does not change scene revision.",
+            input_schema: schema(json!({"revision":{"type":"integer", "minimum":0}}), &["revision"]),
+        },
+        ToolDef {
+            name: "task_create", description: "Create a pending task; dependencies must be existing task ids.",
+            input_schema: schema(json!({"title":{"type":"string", "minLength":1}, "description":{"type":"string"}, "depends_on":{"type":"array", "items":{"type":"integer", "minimum":1}}}), &["title"]),
+        },
+        ToolDef {
+            name: "task_claim", description: "Claim a pending task only after all dependencies are completed.",
+            input_schema: schema(json!({"id":{"type":"integer", "minimum":1}}), &["id"]),
+        },
+        ToolDef {
+            name: "task_complete", description: "Complete a task claimed by this agent.",
+            input_schema: schema(json!({"id":{"type":"integer", "minimum":1}, "note":{"type":"string"}}), &["id"]),
+        },
+        ToolDef {
+            name: "task_list", description: "List tasks, optionally filtered by status.",
+            input_schema: schema(json!({"status":{"type":"string", "enum":["pending", "claimed", "completed"]}}), &[]),
+        },
         ToolDef {
             name: "get_scene_state",
             description: "Return the entire scene as JSON (entities, transforms, camera).",

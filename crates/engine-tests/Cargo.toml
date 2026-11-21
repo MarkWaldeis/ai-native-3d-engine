@@ -14,3 +14,4 @@ engine-geo = { path = "../engine-geo" }
 asset-pipeline = { path = "../asset-pipeline" }
 serde_json = "1"
 base64 = "0.22"
+tiny_http = "0.12"
