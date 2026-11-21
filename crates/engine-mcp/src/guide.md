@@ -61,8 +61,10 @@ Legacy lease omission is allowed only for first-generation task_complete.
 create/claim/renew/release/takeover/complete, lease, actor, previous owner. Task
 events do not advance scene revisions. Project engines (`--project X`) checkpoint
 tasks, lease counters, locks/deadlines, both journals, authoring scene/revision,
-allocator and rollback snapshots atomically in `X/.ai-engine/state.json` before
-acknowledging mutations. Offline time consumes TTL. Restart stopped with fresh
+allocator and rollback snapshots in `X/.ai-engine/`: an atomic base plus delta
+journal/head commits, compacted every 16 writes. Back up the whole directory;
+`state.json` alone is not current. Mutations are acknowledged after commit.
+Offline time consumes TTL. Restart stopped with fresh
 HTTP sessions; reread journals and expired claims before editing. Only one writer
 per project is allowed. Corrupt state fails startup, never silently resets.
 Reads/play ticks are not checkpointed. Explicit save_scene remains the portable

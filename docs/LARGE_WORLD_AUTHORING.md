@@ -200,9 +200,11 @@ cargo run --example authoring_index -- /path/to/generated/scene.json
 ```
 
 **M15 remains partial:** prefab instances still expand to flat runtime entities.
-Shared-template runtime contracts, incremental authoring checkpoints and safe
-asset garbage collection are deferred: they need coordination with the frozen
-shared contract, savegame/persistence and active asset-streaming ownership. No
+Shared-template runtime is explicitly blocked until #34/#46/#48/#51 merge and
+the frozen scene/runtime contract is coordinated. Incremental authoring checkpoints
+and conservative dry-run-default GLB GC are now delivered separately; see
+[project storage](PROJECT_STORAGE.md) for the journal, compaction and reference
+protection rules, and remaining CPU/heap/asset-type limits. No
 physics, savegame, netcode, player streaming or rendering-quality files changed.
 Neither these authoring features nor the existing renderer establish AAA
 production readiness.

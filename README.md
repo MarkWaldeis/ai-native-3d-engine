@@ -465,9 +465,10 @@ extension and the 44 km² HTTP benchmark command:
 ### Restart-safe project coordination
 
 `ai-engine --project X --serve 127.0.0.1:8787` resumes from
-`X/.ai-engine/state.json`. Project-mode stdio uses the same storage. Successful
-coordination/authoring mutations are acknowledged only after one checkpoint is
-written to a unique temporary file, synced and atomically renamed. The checkpoint
+`X/.ai-engine/`. Project-mode stdio uses the same storage. Successful
+coordination/authoring mutations are acknowledged after an atomic base checkpoint
+or a synced delta journal entry plus atomic head commit. Compaction runs every
+16 changes. Back up the **whole directory**, not only `state.json`. The checkpoint
 contains tasks, fencing counters, task journal/sequence, scene journal/revision,
 entity locks, the matching authoring scene, monotonic entity allocator and the
 64-snapshot rollback window. Journals retain 1024 entries each. Partial batches
@@ -498,6 +499,12 @@ first explicitly `save_scene` if needed, stop the engine, then move/delete
 `.ai-engine/`. Copying/moving a project requires fresh `.ai-engine` metadata; its
 identity is bound to the canonical project path. Bare `Engine::new()` without
 project mode remains an ephemeral authoring engine.
+
+Storage format, migration and limits: [Project storage](docs/PROJECT_STORAGE.md).
+Conservative asset GC defaults to a report: `python3 tools/asset_gc.py X`; explicit
+`--apply` removes unreferenced project GLBs only. Other formats and Blender sources
+are retained; referenced assets, rollback history and Blender dependencies protect
+GLBs from collection. Stop external authors before destructive GC.
 
 Example session (one JSON object per line):
 
