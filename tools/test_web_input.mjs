@@ -117,3 +117,26 @@ test('German binding labels cover keys, standard buttons, sticks and fallbacks',
   assert.equal(describeBinding({ type: 'button', index: 30 }), 'Gamepad Taste 30');
   assert.equal(describeBinding(null), 'Unbekannte Bindung');
 });
+
+test('common keyboard codes use German names without exposing modifier or numpad codes', () => {
+  const names = {
+    ShiftLeft: 'Shift links', ShiftRight: 'Shift rechts', ControlLeft: 'Strg links', ControlRight: 'Strg rechts',
+    AltLeft: 'Alt links', AltRight: 'Alt rechts', MetaLeft: 'Meta links', MetaRight: 'Meta rechts',
+    Escape: 'Esc', Enter: 'Eingabe', Tab: 'Tab', Backspace: 'Rücktaste', Space: 'Leertaste',
+    Delete: 'Entf', Insert: 'Einfg', Home: 'Pos1', End: 'Ende', PageUp: 'Bild ↑', PageDown: 'Bild ↓',
+    CapsLock: 'Feststelltaste', NumLock: 'Num', ScrollLock: 'Rollen', PrintScreen: 'Druck',
+    ContextMenu: 'Kontextmenü', Pause: 'Pause', Digit1: '1', KeyX: 'X', F12: 'F12',
+    NumpadEnter: 'Ziffernblock Eingabe', NumpadAdd: 'Ziffernblock +', NumpadSubtract: 'Ziffernblock −',
+    NumpadMultiply: 'Ziffernblock ×', NumpadDivide: 'Ziffernblock ÷', NumpadEqual: 'Ziffernblock =',
+    NumpadDecimal: 'Ziffernblock Dezimaltrennzeichen', NumpadComma: 'Ziffernblock ,',
+    NumpadBackspace: 'Ziffernblock Rücktaste', NumpadClear: 'Ziffernblock Löschen',
+    NumpadClearEntry: 'Ziffernblock Eingabe löschen', NumpadParenLeft: 'Ziffernblock (', NumpadParenRight: 'Ziffernblock )',
+    NumpadHash: 'Ziffernblock #', NumpadStar: 'Ziffernblock *', NumpadMemoryStore: 'Ziffernblock Speicher setzen',
+    NumpadMemoryRecall: 'Ziffernblock Speicher abrufen', NumpadMemoryClear: 'Ziffernblock Speicher löschen',
+    NumpadMemoryAdd: 'Ziffernblock Speicher +', NumpadMemorySubtract: 'Ziffernblock Speicher −',
+    Unidentified: 'Unidentified',
+  };
+  for (let i = 0; i <= 9; i++) names[`Numpad${i}`] = `Ziffernblock ${i}`;
+  for (const [code, name] of Object.entries(names)) assert.equal(describeBinding({ type: 'key', code }), `Taste ${name}`, code);
+  assert.equal(describeBinding({ type: 'key', code: '' }), 'Unbekannte Bindung');
+});

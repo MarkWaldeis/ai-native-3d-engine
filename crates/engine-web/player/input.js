@@ -154,10 +154,33 @@ export class InputSystem {
   }
 }
 
+const KEY_NAMES = {
+  Space: 'Leertaste', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→',
+  ShiftLeft: 'Shift links', ShiftRight: 'Shift rechts', ControlLeft: 'Strg links', ControlRight: 'Strg rechts',
+  AltLeft: 'Alt links', AltRight: 'Alt rechts', MetaLeft: 'Meta links', MetaRight: 'Meta rechts',
+  Escape: 'Esc', Enter: 'Eingabe', Tab: 'Tab', Backspace: 'Rücktaste', Delete: 'Entf', Insert: 'Einfg',
+  Home: 'Pos1', End: 'Ende', PageUp: 'Bild ↑', PageDown: 'Bild ↓', CapsLock: 'Feststelltaste',
+  NumLock: 'Num', ScrollLock: 'Rollen', Pause: 'Pause', PrintScreen: 'Druck', ContextMenu: 'Kontextmenü',
+};
+const NUMPAD_NAMES = {
+  Add: '+', Subtract: '−', Multiply: '×', Divide: '÷', Decimal: 'Dezimaltrennzeichen', Comma: ',',
+  Enter: 'Eingabe', Equal: '=', Backspace: 'Rücktaste', Clear: 'Löschen', ClearEntry: 'Eingabe löschen',
+  ParenLeft: '(', ParenRight: ')', Hash: '#', Star: '*',
+  MemoryStore: 'Speicher setzen', MemoryRecall: 'Speicher abrufen', MemoryClear: 'Speicher löschen',
+  MemoryAdd: 'Speicher +', MemorySubtract: 'Speicher −',
+};
+
 export function describeBinding(value) {
   const binding = bindingCopy(value);
   if (!binding) return 'Unbekannte Bindung';
-  if (binding.type === 'key') return `Taste ${{ Space: 'Leertaste', ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Escape: 'Esc' }[binding.code] ?? binding.code.replace(/^Key|^Digit/, '')}`;
+  if (binding.type === 'key') {
+    const code = binding.code;
+    if (code.startsWith('Numpad')) {
+      const suffix = code.slice(6);
+      return `Taste Ziffernblock ${NUMPAD_NAMES[suffix] ?? suffix}`;
+    }
+    return `Taste ${KEY_NAMES[code] ?? code.replace(/^(?:Key(?=[A-Z]$)|Digit(?=[0-9]$))/, '')}`;
+  }
   if (binding.type === 'button') return `Gamepad ${['A', 'B', 'X', 'Y', 'LB', 'RB', 'LT', 'RT', 'Zurück', 'Start', 'L3', 'R3', 'Steuerkreuz ↑', 'Steuerkreuz ↓', 'Steuerkreuz ←', 'Steuerkreuz →'][binding.index] ?? `Taste ${binding.index}`}`;
   const arrow = binding.index % 2 ? (binding.dir > 0 ? '↓' : '↑') : (binding.dir > 0 ? '→' : '←');
   return `${binding.index < 2 ? 'Linker Stick' : binding.index < 4 ? 'Rechter Stick' : `Achse ${binding.index}`} ${arrow}`;
