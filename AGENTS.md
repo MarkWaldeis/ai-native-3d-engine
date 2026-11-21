@@ -114,6 +114,27 @@ und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt
   `cargo run -- --demo docs/coin_game.png examples/coin_game/scene.json`.
   Beispiel-PNG auf macOS: `docs/coin_game.png` (Windows-QA-Pfad bleibt gültig).
 
+## AI-QA / M4
+
+- `get_screenshot {views:["current","front","back","left","right","top","iso"],
+  overlay_ids:true}` → ein beschriftetes Kontaktblatt (480×320 pro Kachel,
+  width/height optional). Ohne Optionen identisches bisheriges Rendering.
+  Auto-Framing aller sichtbaren Mesh-Bounds; current behält Blickrichtung.
+  Eingebetteter ASCII-Bitmapfont; IDs/Kurznamen an projizierten Mesh-Zentren,
+  auch bei Verdeckung. Kein Font-/Display-Server nötig.
+- `validate_scene {}` → Findings severity/entity/code/message/suggested_fix.
+  Nur lesend, aktive Simulation oder Autorenszene. Bounds-basierte physische
+  Heuristiken, Frustum 16:9; Fixes vor Anwendung prüfen. Compile-Checks führen
+  keine Rhai-Hooks aus. Keine Collider-Dreiecks-/Occlusion-Analyse.
+- Absichtlich schwebend: Tag `floating`/`trigger` oder Props
+  `ai_floating:true`/`ai_trigger:true`. Scripted ohne Collider unterdrückt
+  ebenfalls floating/overlap (coin_game). Dynamische Bodies dürfen fallen.
+  Fehlende Assets/Scripts, Namen, ungültige Skalierung werden trotzdem geprüft.
+- Edit-Distance-Hinweise bei unbekannten Tools, Primitiven und Entity-Namen
+  (query/Assertions). Fehlgeschlagene Assertions bleiben Reports, keine Exceptions.
+- Test: `cargo test -p engine-tests --test ai_qa -- --nocapture`.
+  Sichtgeprüftes Beispiel-Kontaktblatt: `docs/contact_sheet.png`.
+
 ## Crates (Übersicht)
 
 | Crate | Aufgabe |

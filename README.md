@@ -313,6 +313,64 @@ cargo run -- --demo docs/coin_game.png examples/coin_game/scene.json
 
 ![Coin collector](docs/coin_game.png)
 
+## AI-QA (M4)
+
+`get_screenshot` keeps its original camera and PNG output when no QA options
+are supplied. For an inspection contact sheet:
+
+```json
+{"views":["current","front","back","left","right","top","iso"],"overlay_ids":true}
+```
+
+This returns one PNG in a near-square grid. Each tile has an embedded bitmap
+view label; no system fonts are used. All requested cameras auto-fit visible
+world-space mesh bounds. `current` preserves the current viewing direction but
+reframes the scene; the other directions are +Z, -Z, -X, +X, +Y and isometric.
+An empty scene uses unit bounds. Tile dimensions default to 480×320, configurable
+with `width`/`height` (128–2048 × 96–2048; sheet limited to 20 megapixels).
+`overlay_ids:true` alone preserves the authoring/live camera. Labels show entity
+ID and up to 12 name characters at projected mesh centers, nudged to reduce
+collisions. These are inspection labels, including occluded entities whose
+centers project into the image, not depth-tested visibility measurements.
+The bitmap font supports ASCII letters/digits, space, dash and underscore;
+other characters render as `?`.
+
+`validate_scene {}` returns read-only findings:
+
+```json
+{"severity":"warning","entity":2,"code":"floating",
+ "message":"Bottom is 1.500 units above the closest support...",
+ "suggested_fix":{"tool":"set_transform","arguments":{"id":2,"position":[0,0.5,0]}}}
+```
+
+Checks cover floating objects, heavy overlaps, missing GLB files, script
+compilation (without executing hooks), camera-frustum exclusion, duplicate/empty
+names, dynamic bodies without colliders, and zero/negative scale. Findings have
+`error`, `warning` or `info` severity and `suggested_fix:null` where no suitable
+tool exists (edit components/names/scripts in scene JSON or Blender).
+
+Geometry checks use conservative world AABBs, not exact collision geometry;
+review rotated/concave-model overlap warnings before applying fixes. Heavy
+overlap means >30% of the smaller bounds volume, with >0.05 penetration on all
+axes. Floating requires a horizontally overlapping support below the object;
+the closest support is used, with a 0.1-unit/5%-height gap tolerance. Dynamic
+bodies are allowed to fall. Intentional floating/trigger decorations can use
+tags `floating` or `trigger`, or props `ai_floating:true` / `ai_trigger:true`.
+Scripted entities **without colliders** also suppress floating/overlap warnings:
+the coin-game coins deliberately use this policy. Physical checks ignore hidden
+entities; asset/script/name/scale checks still apply. Frustum checks assume
+16:9 and only flag bounds wholly beyond a clip plane. QA reads the active
+simulation during play, otherwise authoring; it never changes scene/revision.
+
+Unknown tool/primitive names and unknown entity names in `query`/simulation
+assertions include a deterministic edit-distance “did you mean” hint when a
+close candidate exists. An unknown query name is an error; an unknown assertion
+entity remains a failed assertion with `actual:null` and an explanatory message.
+
+![Coin-game inspection contact sheet](docs/contact_sheet.png)
+
+Tests: `cargo test -p engine-tests --test ai_qa -- --nocapture`.
+
 ## Roadmap
 
 - [x] deterministic conflict resolution (`expected_revision` CAS + rollback)

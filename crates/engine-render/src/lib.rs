@@ -4,6 +4,8 @@
 //! No window/surface needed; works on Vulkan/DX12/Metal.
 
 mod math;
+pub mod inspection;
+mod qa;
 
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -329,6 +331,10 @@ impl Renderer {
 
     /// Renders the scene to an offscreen texture, returns unpadded RGBA bytes.
     pub fn render_rgba(&mut self, scene: &Scene, revision: u64, w: u32, h: u32) -> Result<Vec<u8>> {
+        self.render_rgba_camera(scene, revision, w, h, 0.05, 500.0, false)
+    }
+
+    fn render_rgba_camera(&mut self, scene: &Scene, revision: u64, w: u32, h: u32, near: f32, far: f32, safe_up: bool) -> Result<Vec<u8>> {
         if w == 0 || h == 0 || w > 8192 || h > 8192 {
             bail!("invalid size {w}x{h}");
         }
@@ -348,8 +354,8 @@ impl Renderer {
 
         let cam = &scene.camera;
         let aspect = w as f32 / h as f32;
-        let view = math::look_at(cam.position, cam.target, [0.0, 1.0, 0.0]);
-        let proj = math::perspective(cam.fov_deg, aspect, 0.05, 500.0);
+        let view = math::look_at(cam.position, cam.target, inspection::up(cam, safe_up));
+        let proj = math::perspective(cam.fov_deg, aspect, near, far);
         let globals = Globals {
             view_proj: math::mul(proj, view),
             light_dir: [scene.light_dir[0], scene.light_dir[1], scene.light_dir[2], 0.0],

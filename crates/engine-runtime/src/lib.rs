@@ -61,6 +61,12 @@ pub struct Simulation {
 }
 
 impl Simulation {
+    pub fn check_script(script: &Script, name: &str, root: &Path) -> Result<()> {
+        let simulation = Self::new(Scene::default(), root)?;
+        let (label, source) = simulation.source(script, name)?;
+        if source.len()>65_536 { bail!("{label}:1: script exceeds 65536 bytes"); }
+        simulation.engine.compile(&source).map(|_| ()).map_err(|e| anyhow::anyhow!("{label}:{}: {e}", e.position().line().unwrap_or(1)))
+    }
     pub fn new(mut scene: Scene, root: &Path) -> Result<Self> {
         if scene.entities.len() > MAX_ENTITIES {
             bail!("simulation supports at most {MAX_ENTITIES} entities");

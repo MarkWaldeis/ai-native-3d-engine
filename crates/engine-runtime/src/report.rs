@@ -83,6 +83,12 @@ pub fn validate(assertions: &[Value], ticks: u64) -> Result<()> {
 
 pub fn evaluate(simulation: &Simulation, assertion: &Value) -> Value {
     let scene = simulation.scene();
+    if let Some(name) = assertion["entity"].as_str() {
+        if !scene.entities.iter().any(|e| e.name == name) {
+            let hint = shared::suggestions::hint(name, scene.entities.iter().map(|e| e.name.as_str()));
+            return json!({"assert":assertion,"at_tick":simulation.tick,"passed":false,"actual":null,"message":format!("unknown entity name '{name}'{hint}")});
+        }
+    }
     let (passed, actual) = if let Some(name) = assertion["entity"].as_str() {
         if let Some(entity) = scene.entities.iter().find(|e| e.name == name) {
             if let Some(target) = assertion.get("position_near") {
@@ -137,6 +143,11 @@ pub fn evaluate(simulation: &Simulation, assertion: &Value) -> Value {
 }
 
 pub fn query(scene: &Scene, args: &Value) -> Result<Value> {
+    if let Some(name) = args["name"].as_str() {
+        if !scene.entities.iter().any(|e| e.name == name) {
+            bail!("unknown entity name '{name}'{}", shared::suggestions::hint(name, scene.entities.iter().map(|e| e.name.as_str())));
+        }
+    }
     for key in ["tag", "name"] {
         if args.get(key).is_some_and(|v| !v.is_string()) {
             bail!("{key} must be a string");

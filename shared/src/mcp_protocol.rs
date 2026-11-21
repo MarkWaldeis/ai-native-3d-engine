@@ -79,6 +79,7 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         json!({"type": "integer", "description": "optimistic concurrency: apply only if world.revision still equals this value"})
     };
     vec![
+        ToolDef { name: "validate_scene", description: "Read-only AI-QA findings: severity, entity ID, code, message, suggested_fix tool call or null. World-AABB floating/overlap heuristics; floating/trigger tags, ai_floating/ai_trigger:true, or scripted non-collider entities suppress physical warnings. Frustum assumes 16:9. Reads active simulation if playing.", input_schema: schema(json!({}), &[]) },
         ToolDef { name: "play", description: "Start a separate simulation from an authoring snapshot. Hooks on_start run at tick 0; authoring edits are disabled until stop. One shared play session per Engine.", input_schema: schema(json!({}), &[]) },
         ToolDef {
             name: "step", description: "Advance the active simulation at fixed 60 Hz. Inputs are zero-based absolute tick events, applied before that tick's hooks and held until changed. No authoring revisions are changed.",
@@ -197,9 +198,9 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "get_screenshot",
-            description: "Render the scene headless and return a base64 PNG image.",
+            description: "Render a PNG. Optional views produces a labelled auto-framed contact sheet (width/height per tile, default 480x320); overlay_ids labels projected visible entity centers. Without options, rendering is unchanged.",
             input_schema: schema(
-                json!({"width": {"type": "integer"}, "height": {"type": "integer"}}),
+                json!({"width": {"type": "integer"}, "height": {"type": "integer"}, "views":{"type":"array","minItems":1,"maxItems":7,"items":{"type":"string","enum":["current","front","back","left","right","top","iso"]}},"overlay_ids":{"type":"boolean","default":false}}),
                 &[],
             ),
         },

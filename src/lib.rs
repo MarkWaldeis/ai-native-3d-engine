@@ -15,6 +15,7 @@ mod swarm;
 pub mod http;
 mod blender;
 mod runtime;
+mod qa;
 
 pub struct Engine {
     pub world: World,
@@ -135,7 +136,7 @@ fn primitive_kind(args: &Value, assets_dir: &Path) -> Result<PrimitiveKind, Stri
                 path: full.to_string_lossy().replace('\\', "/"),
             }
         }
-        other => return Err(format!("unknown primitive kind: {other}; valid kinds: box, plane, sphere, cylinder, wall_with_door, gltf")),
+        other => return Err(format!("unknown primitive kind: {other}; valid kinds: box, plane, sphere, cylinder, wall_with_door, gltf{}", shared::suggestions::hint(other, ["box", "plane", "sphere", "cylinder", "wall_with_door", "gltf"]))),
     };
     Ok(k)
 }
@@ -252,6 +253,7 @@ impl Engine {
                     ))
                 }
                 "get_screenshot" => {
+                    if args.get("views").is_some() || args.get("overlay_ids").is_some() { return self.qa_screenshot(args); }
                     let w = args.get("width").and_then(|v| v.as_u64()).unwrap_or(960) as u32;
                     let h = args.get("height").and_then(|v| v.as_u64()).unwrap_or(540) as u32;
                     let scene = self.simulation.as_ref().map(|s| s.scene()).unwrap_or_else(|| self.world.scene.clone());
@@ -315,7 +317,12 @@ impl Engine {
                         .run_blender_script(Path::new(s), Duration::from_secs(120))?;
                     Ok(text_result(out))
                 }
-                other => anyhow::bail!("unknown tool: {other}"),
+                "validate_scene" => {
+                    let scene = self.simulation.as_ref().map(|s| s.scene()).unwrap_or_else(|| self.world.scene.clone());
+                    let project = self.assets_dir.parent().unwrap_or_else(|| Path::new("."));
+                    Ok(text_result(qa::validate_scene(&scene, project).to_string()))
+                }
+                other => anyhow::bail!("unknown tool: {other}{}", shared::suggestions::hint(other, shared::mcp_protocol::builtin_tools().iter().map(|t| t.name))),
             }
         })();
         r.map_err(|e| e.to_string())
