@@ -68,7 +68,7 @@ try {
           function sample(snapshot) {
             if (snapshot.state.won && win_tick===null) win_tick=snapshot.tick;
             if (snapshot.tick%30===0 || snapshot.tick===trace.ticks) samples.push({tick:snapshot.tick,state:Object.fromEntries(trace.keys.map(key=>[key,snapshot.state[key]??null]))});
-            if (snapshot.tick%30===0 || snapshot.tick===trace.ticks) animation_samples.push({tick:snapshot.tick,animators:snapshot.animators});
+            if (snapshot.tick%30===0 || snapshot.tick===trace.ticks) animation_samples.push({tick:snapshot.tick,animators:snapshot.animators,nav_agents:snapshot.nav_agents});
           }
           sample(JSON.parse(runtime.load(JSON.stringify(scene),JSON.stringify(scripts))));
           for (let tick=0;tick<trace.ticks;tick++) {

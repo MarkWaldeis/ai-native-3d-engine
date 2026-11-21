@@ -801,6 +801,7 @@ Tests: `cargo test -p engine-tests --test terrain`; Messung bei Standardauflösu
 
 - [x] deterministic conflict resolution (`expected_revision` CAS + rollback)
 - [x] glTF/GLB mesh import (`spawn_primitive kind:"gltf"` → `assets/*.glb` → GPU)
+- [x] [deterministic tiled NPC navigation](docs/NAVIGATION.md): collider bake, incremental regions, A*, Rhai agents, MCP lint and QA overlays
 - [ ] windowed mode + interactive camera (winit)
 - [ ] richer primitive/CSG set (real boolean ops in `engine-geo`)
 - [ ] multi-agent session support (named worlds / command queue per agent)
