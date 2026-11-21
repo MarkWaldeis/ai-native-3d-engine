@@ -57,7 +57,7 @@ export class GameEffects {
     this.particles = this.particles.slice(-96);
   }
   reset() { this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = 0; }
-  update(elapsed, objects, camera, active, frameElapsed = elapsed) {
+  update(elapsed, objects, camera, active, frameElapsed = elapsed, shadowTarget) {
     this.time += elapsed;
     if (this.level > 0 || ++this.shadowFrame % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
     for (const [id, group] of objects) {
@@ -70,6 +70,10 @@ export class GameEffects {
     }
     this.sun.target.position.copy(camera.position).addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 10);
     this.sun.target.position.y = 0; this.sun.position.copy(this.sun.target.position).add(new THREE.Vector3(-6,16,9));
+    if (shadowTarget) {
+      this.sun.target.position.copy(shadowTarget);
+      this.sun.position.copy(shadowTarget).add(new THREE.Vector3(-6,16,9));
+    }
     this.particles = this.particles.filter(p => p.age < 0.85);
     this.particles.forEach((p,i) => {
       p.age += elapsed; p.velocity.y -= elapsed*3; p.position.addScaledVector(p.velocity,elapsed);

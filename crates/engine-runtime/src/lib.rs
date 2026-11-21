@@ -15,6 +15,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+#[cfg(test)]
+mod region_tests;
+
 pub const DT: f32 = 1.0 / 60.0;
 pub const MAX_ENTITIES: usize = 32768;
 
@@ -89,6 +92,14 @@ struct ScriptInstance {
     label: String,
 }
 
+#[derive(Clone, Copy)]
+struct ActiveRegion {
+    x: f32,
+    z: f32,
+    radius: f32,
+    hysteresis: f32,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
@@ -104,6 +115,8 @@ pub struct Simulation {
     physics: Physics,
     root: PathBuf,
     sources: Option<BTreeMap<String, String>>,
+    active_region: Option<ActiveRegion>,
+    inactive: BTreeSet<u64>,
     pub tick: u64,
     pub failed: bool,
 }
@@ -176,6 +189,8 @@ impl Simulation {
             physics: Physics::new(root.clone()),
             root,
             sources,
+            active_region: None,
+            inactive: BTreeSet::new(),
             tick: 0,
             failed: false,
         };
@@ -188,6 +203,57 @@ impl Simulation {
 
     pub fn scene(&self) -> Scene {
         self.data.borrow().scene.clone()
+    }
+
+    pub fn visit_entities(&self, mut visitor: impl FnMut(&shared::scene::Entity)) {
+        for entity in &self.data.borrow().scene.entities {
+            visitor(entity);
+        }
+    }
+
+    pub fn state_summary(&self) -> Value {
+        let data = self.data.borrow();
+        json!({"tick":self.tick,"failed":self.failed,"state":data.state,"logs":data.logs})
+    }
+
+    pub fn set_active_region(&mut self, x: f32, z: f32, radius: f32, hysteresis: f32) -> Result<()> {
+        if ![x,z,radius,hysteresis].iter().all(|v| v.is_finite()) || radius <= 0.0 || hysteresis < 0.0 {
+            bail!("active region needs finite coordinates, positive radius and nonnegative hysteresis");
+        }
+        self.active_region = Some(ActiveRegion { x,z,radius,hysteresis });
+        Ok(())
+    }
+
+    pub fn clear_active_region(&mut self) {
+        self.active_region = None;
+        self.inactive.clear();
+    }
+
+    pub fn entity_active(&self, id: u64) -> bool {
+        !self.inactive.contains(&id)
+    }
+
+    fn refresh_active_region(&mut self) {
+        let Some(region) = self.active_region else { return; };
+        let data = self.data.borrow();
+        let candidates: Vec<_> = data.scene.entities.iter().filter(|entity| entity.script.is_some() || entity.rigidbody.as_ref().is_some_and(|body| body.kind != shared::components::BodyType::Static)).collect();
+        let live: BTreeSet<_> = candidates.iter().map(|e| e.id).collect();
+        self.inactive.retain(|id| live.contains(id));
+        for entity in candidates {
+            let always = entity.tags.iter().any(|t| t == "player" || t == "always_active");
+            let moving = entity.rigidbody.as_ref().is_some_and(|body| body.kind != shared::components::BodyType::Static);
+            if always || (!moving && entity.script.is_none()) {
+                self.inactive.remove(&entity.id);
+                continue;
+            }
+            let position = entity.transform.position;
+            let threshold = region.radius + if self.inactive.contains(&entity.id) { 0.0 } else { region.hysteresis };
+            if (position[0]-region.x).hypot(position[2]-region.z) > threshold {
+                self.inactive.insert(entity.id);
+            } else {
+                self.inactive.remove(&entity.id);
+            }
+        }
     }
 
     pub fn state(&self) -> Value {
@@ -237,10 +303,14 @@ impl Simulation {
     }
 
     fn prepare_scripts(&mut self) -> Result<()> {
-        let entities = self.scene().entities;
+        let entities: Vec<_> = self.data.borrow().scene.entities.iter()
+            .filter(|entity| entity.script.is_some()).cloned().collect();
         self.scripts
             .retain(|id, _| entities.iter().any(|e| e.id == *id));
         for entity in entities {
+            if entity.script.is_none() || self.scripts.contains_key(&entity.id) {
+                continue;
+            }
             if !self
                 .data
                 .borrow()
@@ -249,9 +319,6 @@ impl Simulation {
                 .iter()
                 .any(|e| e.id == entity.id)
             {
-                continue;
-            }
-            if self.scripts.contains_key(&entity.id) {
                 continue;
             }
             if let Some(script) = &entity.script {
@@ -339,8 +406,10 @@ impl Simulation {
                         .insert(input.action.clone(), input.value);
                 }
                 self.prepare_scripts()?;
+                self.refresh_active_region();
                 let ids: Vec<_> = self.scripts.keys().copied().collect();
                 for id in ids {
+                    if !self.entity_active(id) { continue; }
                     if self.data.borrow().scene.entities.iter().any(|e| e.id == id) {
                         self.hook(id, "on_tick")?;
                     }
@@ -348,7 +417,7 @@ impl Simulation {
                 let mut data = self.data.borrow_mut();
                 let forces = std::mem::take(&mut data.forces);
                 let dirty = std::mem::take(&mut data.dirty);
-                self.physics.step(&mut data.scene, &dirty, forces)?;
+                self.physics.step(&mut data.scene, &dirty, forces, &self.inactive)?;
                 let (velocities, grounded) = self.physics.motion();
                 data.velocities=velocities; data.grounded=grounded;
                 self.tick += 1;

@@ -69,8 +69,17 @@ try {
           runtime.free(); summaries[trace.name]={win_tick,checkpoints:samples};
         }
         const tick = WebGame.prototype.tick, load = WebGame.prototype.load;
-        WebGame.prototype.tick = function(...args) {const result=tick.apply(this,args);window.snapshot=JSON.parse(result);return result;};
-        WebGame.prototype.load = function(...args) {const result=load.apply(this,args);window.snapshot=JSON.parse(result);return result;};
+        const transforms = new Map();
+        function capture(result,reset = false) {
+          if(reset) transforms.clear();
+          const snapshot = JSON.parse(result);
+          for(const entity of snapshot.transforms) transforms.set(entity.id,entity);
+          for(const id of snapshot.removed) transforms.delete(id);
+          window.snapshot = {...snapshot,transforms:[...transforms.values()]};
+          return result;
+        }
+        WebGame.prototype.tick = function(...args) {return capture(tick.apply(this,args));};
+        WebGame.prototype.load = function(...args) {return capture(load.apply(this,args),true);};
         return summaries;
       },traces.filter(trace=>trace.game===game));
       for(const [name,result] of Object.entries(parity)) {

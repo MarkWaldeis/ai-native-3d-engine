@@ -1,8 +1,9 @@
 import * as THREE from 'three';
-import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame } from './controls.js';
 import { GameEffects } from './effects.js';
+import { worldConfig } from './streaming.js';
+import { StreamingWorld, loadAsset } from './world.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing } from './presentation.js';
 
 const $ = id => document.getElementById(id);
@@ -17,7 +18,9 @@ let effects, lastFeedback, lastHUD = '';
 const audio = new GameAudio();
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
-const loader = new GLTFLoader();
+const transforms = new Map(), objectives = new Map();
+let streaming, statsOverlay, playerId;
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -34,7 +37,7 @@ if (new URLSearchParams(location.search).has('bench')) {
         triangles: renderer?.info.render.triangles ?? 0,
         geometries: renderer?.info.memory.geometries ?? 0,
         textures: renderer?.info.memory.textures ?? 0,
-        entities: objects.size,
+        entities: transforms.size,
         simTicks: latest?.tick ?? 0,
       };
     },
@@ -83,6 +86,7 @@ function mesh(geometry, color) {
 }
 
 function createObject(entity) {
+  if (streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
   switch (entity.kind) {
@@ -108,9 +112,9 @@ function createObject(entity) {
     }
     case 'gltf': {
       object = new THREE.Group();
-      const task = loader.loadAsync(entity.path).then(gltf => {
+      const task = loadAsset(entity.path).then(gltf => {
         gltf.scene.traverse(child => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
-        object.add(gltf.scene);
+        object.add(gltf.scene.clone(true));
       });
       loading.add(task); task.finally(() => loading.delete(task)).catch(fail);
       break;
@@ -120,8 +124,11 @@ function createObject(entity) {
   group.add(object); group.visible = entity.visible !== false;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
   effects.decorate(group);
+  if (group.userData.tags.some(tag => ['player','coin','crystal','portal','goal'].includes(tag))) objectives.set(entity.id,group);
+  streaming?.add(entity,group);
   group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
   if (group.userData.tags.includes('player')) {
+    playerId = entity.id;
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), new THREE.MeshBasicMaterial({
       color: 0x183a38, map: shadowTexture, transparent: true, depthWrite: false,
       polygonOffset: true, polygonOffsetFactor: -2,
@@ -131,8 +138,9 @@ function createObject(entity) {
 }
 
 function disposeObject(object) {
-  world.remove(object);
+  object.removeFromParent();
   object.traverse(child => {
+    if (child.userData.sharedAsset) return;
     child.geometry?.dispose();
     for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
       if (!mat) continue;
@@ -149,9 +157,10 @@ function apply(result) {
     if (object?.userData.tags.some(tag => tag === 'coin' || tag === 'crystal')) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
-  for (const id of result.removed) { const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
+  for (const id of result.removed) { streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) createObject(entity);
   for (const entity of result.transforms) {
+    transforms.set(entity.id,entity); streaming?.move(entity.id,entity.transform);
     const object = objects.get(entity.id); if (!object) continue;
     const transform = entity.transform;
     object.position.fromArray(transform.position); object.scale.fromArray(transform.scale);
@@ -212,7 +221,7 @@ function controls() {
 }
 
 function previewingRoute() {
-  return previewRemaining > 0 && camera.aspect < 0.85 && latest.transforms.some(entity => entity.tags.some(tag => ['portal','goal'].includes(tag)));
+  return !streaming && previewRemaining > 0 && camera.aspect < 0.85 && [...objectives.values()].some(object => object.userData.tags.some(tag => ['portal','goal'].includes(tag)));
 }
 
 function stopPreview() {
@@ -221,7 +230,7 @@ function stopPreview() {
 }
 
 function updateCamera(immediate = false, elapsed = 1 / 60) {
-  const player = latest?.transforms.find(e => e.tags.includes('player'));
+  const player = transforms.get(playerId);
   if (!player) return;
   const direction = movement();
   if (direction.length() > 0.15) lookDirection.lerp(direction.normalize(), immediate ? 1 : 1 - Math.exp(-elapsed * 6));
@@ -234,15 +243,15 @@ function updateCamera(immediate = false, elapsed = 1 / 60) {
   camera.fov = 55; camera.updateProjectionMatrix();
   const preview = previewingRoute();
   $('game').dataset.cameraMode = preview ? 'route' : 'follow';
-  world.fog.near = preview ? 30 : 12; world.fog.far = preview ? 120 : 55;
+  if (!streaming) { world.fog.near = preview ? 30 : 12; world.fog.far = preview ? 120 : 55; }
   if (preview) {
-    const points = latest.transforms.filter(entity => entity.tags.some(tag => ['player','portal','goal','coin','crystal'].includes(tag))).map(entity => entity.transform.position);
+    const points = [...objectives.values()].filter(object => object.visible).map(object => object.position.toArray());
     const framing = routeFrame(points, camera.aspect, camera.fov);
     const center = new THREE.Vector3(...framing.target);
     camera.position.copy(center).add(cameraOffset.clone().normalize().multiplyScalar(framing.distance));
     camera.lookAt(center); return;
   }
-  const distance = followDistance(camera.aspect, camera.fov);
+  const distance = followDistance(camera.aspect, camera.fov) * (streaming ? 6 : 1);
   const offset = new THREE.Vector3(cameraOffset.x, 0, cameraOffset.z).normalize().multiplyScalar(distance * 0.74);
   offset.y = distance * 0.67;
   camera.position.copy(followTarget).add(offset); camera.lookAt(followTarget);
@@ -250,12 +259,12 @@ function updateCamera(immediate = false, elapsed = 1 / 60) {
 
 function updateShadows() {
   world.updateMatrixWorld(true);
-  const support = [...objects.values()].filter(object => object.userData.support);
+  const support = streaming ? null : [...objects.values()].filter(object => object.userData.support);
   for (const [id, shadow] of shadows) {
     const player = objects.get(id);
     if (!player) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); shadows.delete(id); continue; }
     shadowRay.set(player.position.clone(), new THREE.Vector3(0, -1, 0)); shadowRay.far = 20;
-    const hit = shadowRay.intersectObjects(support, true).find(hit => hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y > 0.5);
+    const hit = shadowRay.intersectObjects(support || streaming.support(player.position), true).find(hit => hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y > 0.5);
     shadow.visible = !!hit;
     if (hit) {
       const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
@@ -278,6 +287,7 @@ async function restart() {
   stopPreview();
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
+  streaming?.reset(); transforms.clear(); objectives.clear(); playerId = undefined;
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
   const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
@@ -285,13 +295,14 @@ async function restart() {
   apply(JSON.parse(initial));
   await Promise.all([...loading]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
-  const player = latest.transforms.find(e => e.tags.includes('player'));
+  const player = transforms.get(playerId);
   if (player) {
     spawnHeight = player.transform.position[1];
     lookDirection.fromArray(source.camera.target).sub(new THREE.Vector3(...player.transform.position)); lookDirection.y = 0;
     if (lookDirection.length() > 0.1) lookDirection.normalize();
   }
   camera.position.fromArray(source.camera.position); camera.lookAt(...source.camera.target); updateCamera(true);
+  if (streaming) await Promise.all(streaming.update(camera));
   accumulator = 0; previous = performance.now(); ready = true;
   mark('assetsReady');
 }
@@ -398,16 +409,31 @@ function frame(now) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
       if (previewRemaining === 0) stopPreview();
       accumulator += elapsed;
-      while (accumulator >= 1 / 60 && running) { apply(JSON.parse(game.tick(JSON.stringify(controls())))); accumulator -= 1 / 60; }
+      while (accumulator >= 1 / 60 && running) {
+        const position = transforms.get(playerId)?.transform.position;
+        if (streaming && position) game.set_active_region(position[0],position[2],streaming.config.sim_radius,streaming.config.sim_hysteresis);
+        const tickStart = performance.now();
+        apply(JSON.parse(game.tick(JSON.stringify(controls()))));
+        stats.tickMs = performance.now() - tickStart;
+        accumulator -= 1 / 60;
+      }
     }
-    updateCamera(false, elapsed); effects.update(elapsed, objects, camera, running, rawElapsed);
+    updateCamera(false, elapsed);
+    streaming?.update(camera);
+    effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streaming && objects.get(playerId)?.position);
     updateShadows(); updateObjective(); renderer.render(world, camera);
+    stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
+    stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
+    stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
+    stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
+    world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
+    if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances`;
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
 }
 
 function updateObjective() {
-  const entries = [...objects].filter(([, object]) => object.visible).map(([id, object]) => ({id,tags:object.userData.tags,position:object.position.toArray()}));
+  const entries = streaming ? streaming.objectiveEntries() : [...objectives].filter(([, object]) => object.visible).map(([id, object]) => ({id,tags:object.userData.tags,position:object.position.toArray()}));
   const player = entries.find(entity => entity.tags.includes('player'));
   const target = player && nextObjective(entries, player.position);
   $('objective').hidden = !target;
@@ -443,8 +469,19 @@ async function boot() {
   const authoredUI = source.entities.find(e => e.tags?.includes('player'))?.props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   effects = new GameEffects(renderer, world, ui.sky_color);
+  const config = worldConfig(source.entities);
+  if (config) {
+    streaming = new StreamingWorld(world,renderer,config);
+    world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance;
+  }
+  if (new URLSearchParams(location.search).get('stats') === '1') {
+    statsOverlay = document.createElement('div');
+    statsOverlay.style.cssText = 'position:fixed;left:8px;top:8px;z-index:1000;background:#000b;color:white;padding:6px;font:12px monospace;pointer-events:none';
+    document.body.append(statsOverlay);
+  }
   game = new WebGame();
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
+  if (config) camera.far = config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
   resize(); await restart(); $('pause').disabled = false;

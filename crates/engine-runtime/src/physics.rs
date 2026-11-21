@@ -363,8 +363,17 @@ impl Physics {
         scene: &mut Scene,
         dirty: &BTreeSet<u64>,
         forces: Vec<Force>,
+        inactive: &BTreeSet<u64>,
     ) -> Result<()> {
         self.reconcile(scene)?;
+        for (id, handle) in &self.handles {
+            let body = &mut self.bodies[*handle];
+            let enabled = body.is_fixed() || !inactive.contains(id);
+            if body.is_enabled() != enabled {
+                body.set_enabled(enabled);
+                if enabled { body.wake_up(true); }
+            }
+        }
         for entity in &scene.entities {
             if dirty.contains(&entity.id) {
                 if let Some(handle) = self.handles.get(&entity.id) {
@@ -411,6 +420,7 @@ impl Physics {
         for entity in &mut scene.entities {
             if let Some(handle) = self.handles.get(&entity.id) {
                 let body = &self.bodies[*handle];
+                if !body.is_enabled() { continue; }
                 entity.transform.position = [
                     body.translation().x,
                     body.translation().y,
