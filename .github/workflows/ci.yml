@@ -43,7 +43,10 @@ jobs:
           cargo run -- --project examples/lantern_maze --export-web scene.json web
           mv examples/lantern_maze/web target/m9-site/lantern_maze
       - name: Native simulate reference for recorded traces
-        run: cargo run --example web_parity > target/web-native.json
+        run: |
+          cargo run --example web_parity > target/web-native.json
+          cargo run --example native_skinning > target/native-skinning.json
+          node tools/verify_native_skinning.mjs target/native-skinning.json
       - name: Keyboard release checks and native-WASM parity
         env:
           PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
