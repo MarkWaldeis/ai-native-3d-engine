@@ -19,7 +19,7 @@ class LandingJungleTest(unittest.TestCase):
             self.assertGreaterEqual(math.hypot(x - LZ[0], z - LZ[1]), 29.99)
             self.assertLessEqual(math.hypot(x - LZ[0], z - LZ[1]), 40.01)
             self.assertGreaterEqual(road_dist(x, z), 9)
-            self.assertIn('ai_lod_low', tree['props'])
+            self.assertEqual(tree['props']['web_lods']['1'], tree['props']['web_lods']['2'])
 
 
 if __name__ == '__main__':
