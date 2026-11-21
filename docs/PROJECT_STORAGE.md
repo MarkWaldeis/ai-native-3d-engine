@@ -59,6 +59,12 @@ Externe verlinkte Blender-Bibliotheken und Symlinks verweigern die Inventur.
 Ungültiges JSON/GLB, ein aktiver Engine-Writer oder während der Inventur geänderte
 Dateien verweigern ebenfalls die Bereinigung.
 
+JSON-Objektschlüssel und alternative Text-Szenenformate zählen ebenfalls als
+Referenzen. Python-/JavaScript-Dateien, nichtleere Blender-Textblöcke, unbekannte
+Binärcontainer und Rhai-Spawn-/Import-/Eval-/Funktionszeiger-Code können Namen
+dynamisch erzeugen: dann bleiben **alle GLBs** erhalten. Das meldet
+`retained_all_glbs:true`; auch `--apply` umgeht diesen Schutz nicht.
+
 Die Löschfreigabe bezieht sich auf den deklarierten Projekt-Referenzgraphen;
 beliebige zukünftige Dateinamenberechnungen in fremden Programmen sind nicht
 statisch beweisbar. Vor `--apply` externe Autoren/Blender stoppen und Änderungen

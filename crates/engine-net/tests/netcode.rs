@@ -633,6 +633,7 @@ fn snapshot(tick: u64, x: f32) -> Snapshot {
         input_late_ticks: 0,
         baseline_tick: None,
         entities: vec![NetEntityState {
+            ragdoll: None,
             id: 1,
             position: [x, 0.0, 0.0],
             rotation_deg: [0.0; 3],

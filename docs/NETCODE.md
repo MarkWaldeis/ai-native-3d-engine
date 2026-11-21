@@ -30,6 +30,22 @@ so its results do not depend on machine speed.
 
 ## Prediction and reconciliation
 
+`NetEntityState::ragdoll` carries the preset's activation/enabled flags, upright
+reset orientation and named bone poses, linear/angular velocities, sleep flags
+and capsule dimensions. Inactive rigs have an empty part list. Bone changes and
+activation/deactivation participate in delta selection and reconciliation even
+when the entity root is unchanged. Joints and hitbox ownership are rebuilt from
+the shared preset; corrected bone bodies update their colliders and queries.
+`Simulation::apply_net_entity_states` returns `Result<()>`, rejecting malformed
+rigs atomically. Missing ragdoll data preserves legacy root-only corrections.
+
+Rollback checkpoints clone the full Rapier bodies, joints, contacts and rig
+bookkeeping. `NetClient::render_states` interpolates remote bone positions and
+rotations, holds activation changes until their snapshot tick, and caps bone
+extrapolation at 250 ms. Own-player visual smoothing offsets every bone equally.
+`NetGame` forwards these rendered bones as `ragdolls` to the existing capsule
+renderer; rendered poses never feed back into simulation.
+
 Each client keeps a bounded 128-tick ring of full `Simulation::save_state`
 checkpoints and its own input history. At snapshot T, own position/velocity/
 rotation and shared script state are compared with predicted state T. The

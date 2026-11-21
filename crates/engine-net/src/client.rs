@@ -337,6 +337,19 @@ impl NetClient {
                 .chain(&s.rotation_deg)
                 .chain(&s.linvel)
                 .chain(&s.angvel)
+                .chain(s.ragdoll.iter().flat_map(|rig| {
+                    rig.upright_rotation_deg
+                        .iter()
+                        .chain(rig.parts.iter().flat_map(|bone| {
+                            bone.position
+                                .iter()
+                                .chain(&bone.rotation_deg)
+                                .chain(&bone.linvel)
+                                .chain(&bone.angvel)
+                                .chain(std::iter::once(&bone.radius))
+                                .chain(std::iter::once(&bone.half_height))
+                        }))
+                }))
                 .any(|v| !v.is_finite())
         }) {
             bail!("non-finite snapshot entity");
@@ -479,7 +492,8 @@ impl NetClient {
             }
         }
         self.simulation.tick = tick;
-        self.simulation.apply_net_entity_states(&snapshot.entities);
+        self.simulation
+            .apply_net_entity_states(&snapshot.entities)?;
         self.simulation
             .apply_net_script_state(snapshot.script_state.clone());
         self.simulation
@@ -572,6 +586,13 @@ impl NetClient {
             let decay = (1.0 - elapsed / self.config.smoothing_ms).clamp(0.0, 1.0) as f32;
             for i in 0..3 {
                 own.position[i] += self.smooth_offset[i] * decay;
+            }
+            if let Some(rig) = &mut own.ragdoll {
+                for bone in &mut rig.parts {
+                    for i in 0..3 {
+                        bone.position[i] += self.smooth_offset[i] * decay;
+                    }
+                }
             }
             states.push(own);
         }

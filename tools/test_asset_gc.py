@@ -52,6 +52,28 @@ class AssetGC(unittest.TestCase):
     def test_empty(self):
         self.assertEqual(gc.collect(self.root)['unreferenced'], [])
 
+    def test_dynamic_inline_and_external_code_conservatively_retain_assets(self):
+        live=self.asset('generated-name.glb')
+        (self.root/'scene.json').write_text(json.dumps({'script':{'source':'fn on_tick(ctx,dt){ctx.spawn_entity(#{kind:"gl"+"tf",path: "assets/"+ctx.state_get("model")+".glb"});}'}}))
+        self.assertEqual(gc.collect(self.root,apply=True)['removed'],[])
+        (self.root/'scene.json').write_text('{}')
+        (self.root/'build.py').write_text('name = "generated-" + "name.glb"')
+        self.assertEqual(gc.collect(self.root,apply=True)['removed'],[])
+        self.assertTrue(live.exists())
+
+    def test_manifest_keys_and_alternate_scene_extensions_protect_assets(self):
+        live=self.asset('live.glb')
+        (self.root/'backup.scene').write_text('{"assets/live.glb": {"enabled":true}}')
+        self.assertEqual(gc.collect(self.root,apply=True)['removed'],[])
+        self.assertTrue(live.exists())
+
+    def test_unknown_binary_inventory_retains_assets(self):
+        live=self.asset('live.glb')
+        (self.root/'unknown.database').write_bytes(b'\xff\xfe\x00')
+        self.assertTrue(gc.collect(self.root)['retained_all_glbs'])
+        self.assertEqual(gc.collect(self.root,apply=True)['removed'],[])
+        self.assertTrue(live.exists())
+
     def test_references_in_build_named_directories_are_not_discarded(self):
         live = self.asset('old-save.glb')
         (self.root / 'target').mkdir()
@@ -100,15 +122,25 @@ class AssetGC(unittest.TestCase):
             self.skipTest('real Blender unavailable; dependency-audit integration is local-only')
         source = self.root / 'forest.blend'
         live, dead = self.asset('live.glb'), self.asset('unused.glb')
-        code = f"import bpy; bpy.context.object['runtime_asset']='assets/live.glb'; bpy.ops.wm.save_as_mainfile(filepath={str(source)!r})"
+        keyed=self.asset('keyed.glb')
+        code = f"import bpy; bpy.context.object['runtime_asset']='assets/live.glb'; bpy.context.object['assets/keyed.glb']=True; bpy.ops.wm.save_as_mainfile(filepath={str(source)!r})"
         gc.subprocess.run([blender, '--background', '--factory-startup', '--python-expr', code], check=True, capture_output=True, timeout=120)
         before = source.read_bytes()
         report = gc.collect(self.root, apply=True, blender=blender)
         self.assertEqual(report['removed'], ['assets/unused.glb'])
         self.assertEqual(report['blender_sources_protected'], 1)
         self.assertTrue(live.exists())
+        self.assertTrue(keyed.exists())
         self.assertFalse(dead.exists())
         self.assertEqual(source.read_bytes(), before)
+        dead=self.asset('script-generated.glb')
+        code=f"import bpy; bpy.ops.wm.open_mainfile(filepath={str(source)!r},use_scripts=False); bpy.data.texts.new('generator').write('model = chr(120) + chr(121)'); bpy.ops.wm.save_as_mainfile(filepath={str(source)!r})"
+        gc.subprocess.run([blender,'--background','--factory-startup','--disable-autoexec','--python-expr',code],check=True,capture_output=True,timeout=120)
+        before=source.read_bytes()
+        report=gc.collect(self.root,apply=True,blender=blender)
+        self.assertTrue(report['retained_all_glbs'])
+        self.assertTrue(dead.exists())
+        self.assertEqual(source.read_bytes(),before)
 
 
 if __name__ == '__main__':

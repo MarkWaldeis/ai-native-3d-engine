@@ -138,6 +138,15 @@ This Chromium check does **not** certify Mobile Safari or physical iOS devices.
 Those still require a separate full touch victory; opening the page or seeing the
 start screen is not an acceptance pass.
 
+## Waldwächter · Blender forest showcase
+
+Collect five relics while avoiding three animated navmesh guards in a 512 × 512 m
+forest. Capture returns you to the last checkpoint without losing relics. German
+UI, keyboard and on-screen joystick use the existing player unchanged.
+[Measured workflow, reproduction and limits](docs/SHOWCASE_REPORT.md).
+
+`cargo run -- --project examples/waldwaechter --export-web scene.json web`
+
 ## M6 · Himmelsgarten: Blender-first HTTP swarm
 
 `examples/sky_garden/` is a floating-island platformer: steer Milo with the touch

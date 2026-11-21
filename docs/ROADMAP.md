@@ -22,6 +22,7 @@ Stand: **21. November 2026**, [`3ae0be5`](https://github.com/MarkWaldeis/ai-nati
 | WebKit-CI und Review-Fixes | Verpflichtende iPhone-/iPad-WebKit-Release-Prüfungen, Coin-Touch-Toleranz/Kamera, robuste erste Aktivierung und Favicon; integriert und nach Rebase verifiziert. | [`e3b23b3`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/e3b23b3) |
 | Charakteranimation | Echter Blender-Rig mit mehreren Actions, deterministische Animator-State-Machine/Rhai-Parameter, MCP-Lint sowie simulationsgetriebene Web-Skinning-Crossfades. | [`8028ee6`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/8028ee6), [Details](CHARACTER_ANIMATION.md) |
 | NPC-Navigation | Konservatives 2.5D-Quad-Navmesh mit Region-Tiles und inkrementellem Bake, deterministisches A*/String-Pulling, Nav-Agent/Rhai, MCP-Lint/QA-Overlay und Laternen-Patrouille mit Paritätstrace. | [`417a43d`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/417a43d), [Details](NAVIGATION.md) |
+| Waldwächter-Showcase | Größerer Blender-Wald mit Collection-Prefabs/LODs, vier animierten Rigs, drei Navmesh-Patrouillen, fünf Relikten und Checkpoint-Rückkehr. Bestehende Runtime und Spielersteuerung unverändert. | [Messbericht und Grenzen](SHOWCASE_REPORT.md) |
 
 Der Windows-Flake im Mock-Blender-Socket des Projekt-Recovery-Tests ist mit [`3ae0be5`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/3ae0be5) behoben. Das ist eine Test-Fixture-Korrektur, keine Änderung der Navigations- oder Renderinglogik.
 

@@ -231,8 +231,18 @@ impl NetGame {
                 s.script_state.clone()
             });
         let players = client.latest_snapshot().map_or(0, |s| s.players.len());
+        let ragdolls: Vec<_> = client
+            .render_states(fraction)
+            .into_iter()
+            .filter_map(|entity| {
+                entity
+                    .ragdoll
+                    .filter(|rig| rig.active)
+                    .map(|rig| json!({"id":entity.id,"enabled":rig.enabled,"parts":rig.parts}))
+            })
+            .collect();
         Ok(json!({"tick":client.simulation().tick,"input_ticks":self.input_ticks,"outgoing":outgoing,"transforms":transforms,"state":state,
-            "logs":[],"spawned":spawned,"removed":removed,"fx":[],"events":[],"animators":[],"nav_agents":[],
+            "logs":[],"spawned":spawned,"removed":removed,"fx":[],"events":[],"animators":[],"nav_agents":[],"ragdolls":ragdolls,
             "my_entity":client.entity_id(),"player_number":client.client_id(),"connected":!self.closed && client.entity_id().is_some(),
             "players":players,"stats":client.stats()}).to_string())
     }
@@ -445,6 +455,36 @@ mod tests {
         assert_eq!(result["connected"], false);
         assert!(result["outgoing"].as_array().unwrap().is_empty());
     }
+    #[test]
+    fn network_bridge_exposes_active_ragdoll_bones_to_the_renderer() {
+        let scene: Scene = serde_json::from_value(json!({"entities":[{
+            "id":1,"name":"rig","kind":"box","size":[1,1,1],"tags":["net_player"],
+            "rigidbody":{"type":"kinematic"},
+            "props":{"ai_physics":{"ragdoll":{"preset":"humanoid","start_active":true}}}
+        }]}))
+        .unwrap();
+        let mut game = NetGame::new();
+        game.load_inner(&serde_json::to_string(&scene).unwrap(), "{}")
+            .unwrap();
+        let mut server = NetServer::new(scene, BTreeMap::new(), ServerConfig::default()).unwrap();
+        let welcome = server
+            .receive(1, ClientMessage::Hello { name: "rig".into() })
+            .unwrap()
+            .unwrap();
+        game.receive_inner(&serde_json::to_string(&welcome).unwrap())
+            .unwrap();
+        let result: Value = serde_json::from_str(&game.tick_inner("{}", 0.0).unwrap()).unwrap();
+        assert_eq!(result["ragdolls"][0]["id"], 1);
+        assert_eq!(result["ragdolls"][0]["parts"].as_array().unwrap().len(), 11);
+        assert_eq!(result["ragdolls"][0]["parts"][2]["name"], "head");
+        assert!(
+            result["ragdolls"][0]["parts"][2]["radius"]
+                .as_f64()
+                .unwrap()
+                > 0.0
+        );
+    }
+
     #[test]
     fn stale_frame_timestamps_do_not_rewind_network_time_or_disconnect() {
         let mut game = NetGame::new();
