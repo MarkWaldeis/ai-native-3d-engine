@@ -404,6 +404,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "engine-net"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "engine-runtime",
+ "serde",
+ "serde_json",
+ "shared",
+]
+
+[[package]]
 name = "engine-render"
 version = "0.1.0"
 dependencies = [
