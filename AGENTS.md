@@ -66,7 +66,29 @@ Blender: `C:\Program Files\Blender Foundation\Blender 5.2\blender.exe` —
 wird mit `--factory-startup` gestartet (siehe agent-memory `blender-52-headless`:
 `-b` auf .blend allein hängt auf dieser Maschine).
 
-## Crates
+## Blender-Bridge (M2)
+
+macOS: `/Applications/Blender.app/Contents/MacOS/Blender`, alternativ `blender`
+auf PATH. `blender_start` startet headless mit Bridge; eigener Prozess endet mit
+Engine. Manuell: `blender -b --factory-startup --python blender/ai_engine_bridge.py`.
+Interaktiv: Skript als Legacy-Add-on installieren/aktivieren oder im Text Editor
+öffnen und Run Script. TCP nur localhost, Standard 9876; `AI_ENGINE_BLENDER_PORT`
+in beiden Prozessen setzen. Beliebiger Python-Zugriff: ausschließlich vertraute Clients.
+Alle bpy-Befehle laufen auf dem Hauptthread (Timer-Queue; headless gleicher Pump).
+
+Tools: `blender_status`, `blender_start`, `blender_exec {code}` (stdout + optionale
+JSON-Variable `result`), `blender_scene_info`, `blender_sync {objects?, prune?}`.
+Sync übernimmt `ai_uid` → `source_uid`, `ai_*` → `props` und erhält Entity-IDs;
+Locks/CAS/Journal gelten auch hier. `.blend` speichern, um UIDs zu persistieren.
+Blender-Z-up → Engine-Y-up: `(x,y,z)` → `(x,z,-y)`, Mesh lokal, Transform genau einmal.
+`prune:true` entfernt nur verschwundene Blender-Meshes; Filter löschen keine
+weiter existierenden Objekte. GLBs in `assets/blender/` sind versioniert für Rollback.
+Noch keine Texturen/Multi-Material-Darstellung; eine Grundfarbe pro Objekt.
+E2E: `cargo test -p engine-tests --test blender_bridge -- --nocapture` (SKIP ohne Blender).
+Demo: `blender/sync_demo.py`; Vergleichsbilder in `docs/blender_sync_demo.png`
+und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt gültig).
+
+## Crates (Übersicht)
 
 | Crate | Aufgabe |
 |---|---|

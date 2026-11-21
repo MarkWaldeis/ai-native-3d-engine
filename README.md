@@ -59,6 +59,9 @@ crates/
 | `apply_batch` | apply N commands atomically in one call — the engine's "tick" |
 | `list_assets` | list files in `assets/` |
 | `run_blender_script` | headless Blender → generated GLB assets land in `assets/` |
+| `blender_status` / `blender_start` | inspect local bridge/version or launch an engine-owned headless bridge |
+| `blender_exec` / `blender_scene_info` | run trusted Python on Blender's main thread; inspect objects and `ai_*` props |
+| `blender_sync` | export meshes to `assets/blender/`, upsert by stable `source_uid`; optional `objects` names/UIDs and explicit `prune:true` |
 | `claim_entities` / `release_entities` / `list_locks` | agent-owned entity locks with expiry (`ttl_s`, default 60, range 1–86400) |
 | `get_changes_since` | scene mutation journal after `revision`: agent, tool, affected entity `ids` |
 | `task_create` / `task_claim` / `task_complete` / `task_list` | shared task board; dependencies must complete before claim |
@@ -117,6 +120,65 @@ Example session (one JSON object per line):
 ```
 
 ## Design notes for the evaluator
+
+### Blender-first bridge
+
+Blender is found on PATH, in `/Applications/Blender.app`, or in the existing
+Windows Blender Foundation directories. Start the bridge through `blender_start`
+or manually:
+
+```bash
+blender --background --factory-startup --python blender/ai_engine_bridge.py
+```
+
+For **interactive Blender**, install `blender/ai_engine_bridge.py` as a legacy
+add-on through Preferences → Add-ons → Install from Disk, then enable **AI Engine
+Bridge**. Alternatively open the script in Blender's Text Editor and choose
+**Run Script**. Rerunning replaces the previous listener; disabling the add-on
+stops it. Interactive commands run through `bpy.app.timers` on Blender's main
+thread; headless mode pumps the same queue on the main thread and stays alive.
+
+The protocol is one newline-terminated JSON request/response per TCP connection
+at `127.0.0.1:9876`. Set `AI_ENGINE_BLENDER_PORT` in **both** the engine and Blender
+environments to choose another port. Commands are `ping`, `exec {code}`,
+`scene_info`, and `export {dir, objects?, whole_scene?}`. `exec` returns captured
+stdout and a JSON-serializable `result` variable; each call has a fresh Python
+namespace (`bpy` scene state persists). This is **arbitrary local Python execution**,
+not a sandbox or authentication boundary: trusted local clients only.
+
+`blender_start` connects to an existing bridge without owning it, or starts a
+headless process that is terminated when its owning Engine is dropped. Startup
+uses the repository's bridge script; retain the `blender/` directory with the
+engine. `blender_status` gives startup instructions if disconnected.
+
+`blender_sync` assigns missing `ai_uid` custom properties and stores them as
+`Entity.source_uid`, with all `ai_*` custom properties in `Entity.props`.
+Save the `.blend` file to preserve these UIDs across Blender restarts. Re-sync
+updates mesh, name, transform, base color and props while preserving engine ids.
+Duplicated Blender objects with copied UIDs receive distinct UIDs on inspection/
+export. Existing JSON scenes remain compatible through serde defaults.
+
+The default export is one evaluated mesh per GLB, with world placement represented
+once by the Entity transform. Blender `(x,y,z)` becomes engine `(x,z,-y)`;
+orientation is converted with the same basis and residual parent shear is baked
+into geometry. Parent transforms/modifiers are included. Whole-scene export
+instead bakes world placement into one GLB and reports `baked_world_transform`.
+The current renderer uses one base color per object; textures and multi-material
+shading are not yet reproduced.
+
+Each sync is one revision/journal entry and respects `agent`, `expected_revision`
+and foreign entity locks. Without `prune:true`, vanished objects remain. With
+pruning, only previously synced objects absent from the complete Blender mesh
+list are removed; filtering `objects` never deletes other still-existing objects.
+Export filenames are versioned so locked entities and rollback snapshots keep
+their original geometry. Generated GLBs are ignored by git; retain them beside
+saved scenes (old exports are not automatically garbage-collected).
+
+`cargo test -p engine-tests --test blender_bridge -- --nocapture` runs the real
+headless Blender E2E when installed, otherwise prints `SKIP`. A reproducible
+scene is in `blender/sync_demo.py`; comparison images:
+[`docs/blender_sync_demo.png`](docs/blender_sync_demo.png) (engine) and
+[`docs/blender_sync_reference.png`](docs/blender_sync_reference.png) (Blender).
 
 - **AI-native control loop**: the whole engine is behind typed MCP tools. An
   agent can `get_scene_state` → mutate → `get_screenshot` → iterate — the same

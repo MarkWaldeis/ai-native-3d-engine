@@ -80,6 +80,26 @@ pub fn builtin_tools() -> Vec<ToolDef> {
     };
     vec![
         ToolDef {
+            name: "blender_status", description: "Check local Blender bridge connection/version; if disconnected, returns startup instructions.",
+            input_schema: schema(json!({}), &[]),
+        },
+        ToolDef {
+            name: "blender_start", description: "Connect to an existing local bridge or launch headless Blender and wait for ping. Engine-owned Blender stops when the engine exits.",
+            input_schema: schema(json!({}), &[]),
+        },
+        ToolDef {
+            name: "blender_exec", description: "Execute trusted Python on Blender's main thread. Returns captured stdout and optional JSON-serializable result variable. Local machine access: trusted agents only.",
+            input_schema: schema(json!({"code":{"type":"string"}}), &["code"]),
+        },
+        ToolDef {
+            name: "blender_scene_info", description: "List Blender objects, stable ai_uid, local Blender Z-up transforms (rotation radians), world_transform and ai_* custom props.",
+            input_schema: schema(json!({}), &[]),
+        },
+        ToolDef {
+            name: "blender_sync", description: "Export Blender meshes to assets/blender and atomically upsert by source_uid, preserving entity ids. Converts Blender Z-up to engine Y-up. Optional objects filters by name or ai_uid. prune removes only previously synced objects absent from Blender, even when filtered. Respects entity locks and expected_revision; journals one scene mutation.",
+            input_schema: schema(json!({"objects":{"type":"array", "items":{"type":"string"}}, "prune":{"type":"boolean", "default":false}, "expected_revision":expected_rev()}), &[]),
+        },
+        ToolDef {
             name: "claim_entities",
             description: "Lock existing entity ids for this agent; fails atomically if any belongs to another agent. Renew by claiming again. TTL defaults to 60 seconds.",
             input_schema: schema(json!({"ids": {"type":"array", "items":{"type":"integer", "minimum":0}}, "ttl_s":{"type":"integer", "minimum":1, "maximum":86400}}), &["ids"]),

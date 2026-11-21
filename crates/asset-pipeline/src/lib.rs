@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
+pub mod bridge;
+
 pub struct AssetPipeline {
     pub assets_dir: PathBuf,
     blender: Option<PathBuf>,
@@ -35,7 +37,7 @@ impl AssetPipeline {
         let blender = self
             .blender
             .clone()
-            .context("blender.exe not found (checked PATH + Blender Foundation dir)")?;
+            .context("Blender not found; install Blender or add blender to PATH")?;
         if !script.exists() {
             bail!("script not found: {}", script.display());
         }
@@ -132,19 +134,16 @@ fn collect(dir: &Path, root: &Path, out: &mut Vec<String>) {
     }
 }
 
-/// Locate blender.exe: PATH, then Blender Foundation install dirs (newest first).
-fn find_blender() -> Option<PathBuf> {
-    if let Ok(o) = Command::new("where").arg("blender").output() {
-        if o.status.success() {
-            let s = String::from_utf8_lossy(&o.stdout);
-            if let Some(line) = s.lines().next() {
-                let p = PathBuf::from(line.trim());
-                if p.exists() {
-                    return Some(p);
-                }
-            }
+/// Locate Blender on PATH, macOS app bundles, or Windows install directories.
+pub fn find_blender() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join(if cfg!(windows) { "blender.exe" } else { "blender" });
+            if candidate.is_file() { return Some(candidate); }
         }
     }
+    let mac = PathBuf::from("/Applications/Blender.app/Contents/MacOS/Blender");
+    if mac.is_file() { return Some(mac); }
     let base = Path::new(r"C:\Program Files\Blender Foundation");
     let mut dirs: Vec<PathBuf> = std::fs::read_dir(base)
         .ok()?

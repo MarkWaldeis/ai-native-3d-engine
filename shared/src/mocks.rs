@@ -27,6 +27,8 @@ pub fn mock_scene() -> Scene {
             transform: Transform::default(),
             color: [0.45, 0.5, 0.55, 1.0],
             visible: true,
+            source_uid: None,
+            props: serde_json::json!({}),
         },
         Entity {
             id: 2,
@@ -35,6 +37,8 @@ pub fn mock_scene() -> Scene {
             transform: Transform::at(-1.5, 0.75, 0.0),
             color: [0.85, 0.55, 0.2, 1.0],
             visible: true,
+            source_uid: None,
+            props: serde_json::json!({}),
         },
         Entity {
             id: 3,
@@ -46,6 +50,8 @@ pub fn mock_scene() -> Scene {
             transform: Transform::at(1.6, 0.8, 1.0),
             color: [0.25, 0.55, 0.9, 1.0],
             visible: true,
+            source_uid: None,
+            props: serde_json::json!({}),
         },
     ];
     scene

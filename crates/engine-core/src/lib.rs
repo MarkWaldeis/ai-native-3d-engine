@@ -40,6 +40,10 @@ pub enum Command {
     Rollback {
         revision: u64,
     },
+    SyncBlender {
+        entities: Vec<Entity>,
+        remove: Vec<EntityId>,
+    },
 }
 
 #[derive(Default)]
@@ -103,6 +107,8 @@ impl World {
             transform,
             color,
             visible: true,
+            source_uid: None,
+            props: json!({}),
         });
         self.bump();
         id
@@ -174,6 +180,35 @@ impl World {
 
     pub fn apply(&mut self, cmd: Command) -> Result<Value> {
         match cmd {
+            Command::SyncBlender { entities, remove } => {
+                let mut scene = self.scene.clone();
+                let mut next_id = self.next_id;
+                let mut ids = remove.clone();
+                let mut seen = std::collections::HashSet::new();
+                for mut entity in entities {
+                    let uid = entity.source_uid.as_deref().filter(|s| !s.is_empty())
+                        .context("Blender entity requires nonempty source_uid")?;
+                    if !seen.insert(uid.to_owned()) { bail!("duplicate Blender source_uid {uid}"); }
+                    if let Some(existing) = scene.entities.iter_mut().find(|e| e.source_uid.as_deref() == Some(uid)) {
+                        entity.id = existing.id;
+                        ids.push(entity.id);
+                        *existing = entity;
+                    } else {
+                        entity.id = next_id;
+                        next_id += 1;
+                        ids.push(entity.id);
+                        scene.entities.push(entity);
+                    }
+                }
+                scene.entities.retain(|e| !remove.contains(&e.id));
+                if !ids.is_empty() {
+                    self.scene = scene;
+                    self.next_id = next_id;
+                    self.bump();
+                }
+                ids.sort_unstable(); ids.dedup();
+                Ok(json!({"ids": ids, "revision": self.revision}))
+            }
             Command::SpawnPrimitive {
                 name,
                 kind,

@@ -13,6 +13,7 @@ use std::time::Duration;
 
 mod swarm;
 pub mod http;
+mod blender;
 
 pub struct Engine {
     pub world: World,
@@ -20,6 +21,7 @@ pub struct Engine {
     pub pipeline: AssetPipeline,
     pub assets_dir: PathBuf,
     swarm: swarm::Swarm,
+    pub blender: asset_pipeline::bridge::BlenderBridge,
 }
 
 impl Engine {
@@ -33,6 +35,7 @@ impl Engine {
             pipeline: AssetPipeline::new(&assets_dir),
             assets_dir,
             swarm: swarm::Swarm::default(),
+            blender: asset_pipeline::bridge::BlenderBridge::default(),
         }
     }
 
@@ -164,6 +167,22 @@ impl Engine {
         let expected = expected_rev(args);
         let r = (|| -> anyhow::Result<Value> {
             match name {
+                "blender_status" => {
+                    Ok(text_result(match self.blender.request(json!({"command":"ping"})) {
+                        Ok(info) => json!({"connected":true, "info":info}),
+                        Err(error) => json!({"connected":false, "help":error.to_string()}),
+                    }.to_string()))
+                }
+                "blender_start" => {
+                    let executable = self.pipeline.blender_path().ok_or_else(|| anyhow::anyhow!("Blender not found; install Blender or add blender to PATH"))?;
+                    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("blender/ai_engine_bridge.py");
+                    Ok(text_result(self.blender.start(executable, &script)?.to_string()))
+                }
+                "blender_exec" => {
+                    let code = args["code"].as_str().ok_or_else(|| anyhow::anyhow!("blender_exec requires string 'code'"))?;
+                    Ok(text_result(self.blender.request(json!({"command":"exec", "code":code}))?.to_string()))
+                }
+                "blender_scene_info" => Ok(text_result(self.blender.request(json!({"command":"scene_info"}))?.to_string())),
                 "get_scene_state" => Ok(text_result(
                     serde_json::to_string_pretty(&self.world.scene)?,
                 )),

@@ -30,6 +30,15 @@ fn ids(args: &Value, key: &str) -> Result<Vec<u64>, String> {
 }
 
 impl Engine {
+    pub(crate) fn check_entity_locks(&self, ids: &[u64], agent: &str) -> Result<(), String> {
+        for id in ids {
+            if let Some((owner, expiry)) = self.swarm.locks.get(id) {
+                if owner != agent && *expiry > Instant::now() { return Err(format!("entity {id} locked by {owner}")); }
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn handle_agent(&mut self, name: &str, args: &Value) -> Result<Value, String> {
         if !args.is_object() {
             return Err("tool arguments must be a JSON object".into());
@@ -140,8 +149,12 @@ impl Engine {
         } else {
             vec![]
         };
-        let result = self.handle_tool(name, args)?;
+        let result = if name == "blender_sync" { self.sync_blender(args, agent)? } else { self.handle_tool(name, args)? };
         if self.world.revision > before && name != "apply_batch" {
+            if name == "blender_sync" {
+                let summary: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).map_err(|e| e.to_string())?;
+                affected = summary["ids"].as_array().unwrap().iter().filter_map(Value::as_u64).collect();
+            }
             if global {
                 affected.extend(self.world.scene.entities.iter().map(|e| e.id));
             }

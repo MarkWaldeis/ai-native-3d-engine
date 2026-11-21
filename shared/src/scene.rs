@@ -84,7 +84,13 @@ pub struct Entity {
     pub color: [f32; 4],
     #[serde(default = "default_true")]
     pub visible: bool,
+    #[serde(default)]
+    pub source_uid: Option<String>,
+    #[serde(default = "empty_props")]
+    pub props: serde_json::Value,
 }
+
+fn empty_props() -> serde_json::Value { serde_json::json!({}) }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct Camera {
