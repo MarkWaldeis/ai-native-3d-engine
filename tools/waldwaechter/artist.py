@@ -63,7 +63,7 @@ rig.name = 'Forstläuferin-Rig'
 rig['ai_uid'] = 'wald-player-rig'
 rig.location = (0, 0, .75)
 player['ai_ui'] = json.dumps({'title': 'Waldwächter', 'score_label': 'Relikte', 'collectible_tag': 'relic', 'hud_keys': ['score', 'Erwischt'], 'action_label': 'SPRINGEN', 'sky_color': '#b3c9c0', 'mission': 'Fünf Relikte. Ein Waldpfad. Bleib den Wächtern fern.', 'intro_title': 'Der Wald erinnert sich.', 'intro_text': 'Sammle fünf goldene Relikte entlang der Wegsteine. Die Wächter patrouillieren nördlich des Pfades. Halte Abstand! Nach dem dritten Relikt schützt dich ein Wald-Anker. Erwischt? Du kehrst dorthin zurück, ohne Relikte zu verlieren. Joystick oder WASD/Pfeile; Springen mit Aktion/Leertaste.', 'win_text': 'Alle fünf Relikte sind geborgen. Der Wald ist wieder im Gleichgewicht!', 'win_badge': 'HÜTERIN DES WALDES', 'badge': 'WALDWÄCHTER · EIN WALDABENTEUER'}, ensure_ascii=False)
-player['ai_world'] = json.dumps({'chunk_size': 128, 'radius': 2, 'unload_radius': 3})
+player['ai_world'] = json.dumps({'chunk_size': 128, 'radius': 2, 'unload_radius': 3, 'camera_distance': 18})
 
 guard_mat = material('Wächtermantel', (.6, .24, .12))
 for index, x in enumerate((0, 16, 32)):

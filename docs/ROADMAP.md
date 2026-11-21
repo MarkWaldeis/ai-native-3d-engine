@@ -26,6 +26,15 @@ Stand: **21. November 2026**, [`3ae0be5`](https://github.com/MarkWaldeis/ai-nati
 
 Der Windows-Flake im Mock-Blender-Socket des Projekt-Recovery-Tests ist mit [`3ae0be5`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/3ae0be5) behoben. Das ist eine Test-Fixture-Korrektur, keine Änderung der Navigations- oder Renderinglogik.
 
+### Waldwächter: Portrait-Nacharbeit
+
+Der nähere Follow-Ausschnitt ist ausschließlich als `ai_world.camera_distance:18`
+im Spiel, Blender-Original und Inhaltsrezept hinterlegt; Spieler-/Kameracode
+bleibt unverändert. Chromium und WebKit auf iPhone-/iPad-Profilen prüfen weiterhin
+Sieg, Neustart und native/WASM-Parität. **Bewusst verschoben:** Abstand zwischen
+„BEWEGEN“ und Footer-Hilfe bleibt bei Touch-/Layout-PR **#57** (auch #48 besitzt
+die Stylesheet-Datei); kein konkurrierender CSS-Fix. Physische Geräte bleiben offen.
+
 ## Vorschlag: nächste Meilensteine M11+
 
 Priorisierungsvorschlag aus den dokumentierten Grenzen, **keine bereits zugesagten oder abgeschlossenen Features**. Renderingqualität bleibt ein eigener Arbeitsstrang.

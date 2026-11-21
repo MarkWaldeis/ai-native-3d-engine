@@ -6,6 +6,22 @@ use std::path::Path;
 mod parity;
 
 #[test]
+fn showcase_follow_framing_survives_blender_round_trip() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/waldwaechter/scene.json");
+    let scene: Scene = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let player = scene
+        .entities
+        .iter()
+        .find(|e| e.tags.iter().any(|t| t == "player"))
+        .unwrap();
+    for props in [&player.props, &player.props["_blender_props"]] {
+        let config: serde_json::Value =
+            serde_json::from_str(props["ai_world"].as_str().unwrap()).unwrap();
+        assert_eq!(config["camera_distance"], 18);
+    }
+}
+
+#[test]
 fn showcase_victory_capture_and_checkpoint_preserve_collections() {
     let cases = parity::run().unwrap();
     assert!(cases["forest_win"]["win_tick"].is_u64());
