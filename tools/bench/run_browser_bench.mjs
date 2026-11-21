@@ -142,7 +142,9 @@ async function runProfile(browser, name, config, url, output) {
       const resources = performance.getEntriesByType('resource');
       const sum = entries=>entries.reduce((n,e)=>n+e.transferSize,0);
       const load = Object.fromEntries(['wasmInitialized','sceneFetched','webGameLoaded','assetsReady'].map(k=>[`${k}Ms`,marks[k]-marks.bootStart]));
-      return {marks,load,loadAssetsReadyMs:load.assetsReadyMs,renderer:__aiEngineBench.stats(),
+      const stats=window.__engineStats;
+      const terrain=window.__aiTerrain ? {loadedTiles:stats.terrainTilesLoaded,visibleTiles:stats.terrainTilesVisible,triangles:stats.terrainTriangles,bytesFetched:stats.terrainBytesFetched,pendingFetches:stats.terrainPendingFetches} : null;
+      return {marks,load,loadAssetsReadyMs:load.assetsReadyMs,renderer:__aiEngineBench.stats(),terrain,
         navigation:{ttfbMs:navigation.responseStart-navigation.requestStart,domContentLoadedMs:navigation.domContentLoadedEventEnd,
           transferredBytes:{scene:sum(resources.filter(e=>new URL(e.name).pathname.endsWith('/scene.json'))),wasm:sum(resources.filter(e=>new URL(e.name).pathname.endsWith('.wasm'))),total:sum(resources)+navigation.transferSize}}};
     }));
@@ -164,7 +166,12 @@ export function summary(results, baseline) {
     const old=baseline?.profiles?.[name];
     lines.push(`| ${name} | ${p.cpuThrottleRate}× | ${number(p.loadAssetsReadyMs)} | ${number(p.frames?.avgFps)} | ${[p.frames?.p50Ms,p.frames?.p95Ms,p.frames?.p99Ms].map(number).join(' / ')} | ${number(p.frames?.maxMs)} | ${number(p.frames?.over33_3MsPercent)} / ${number(p.frames?.over50MsPercent)} | ${number(p.tick?.meanMs)} | ${number(p.memory?.ready?.jsHeapUsedSize/1048576)} / ${number(p.memory?.end?.jsHeapUsedSize/1048576)} |${baseline?` ${delta(p.loadAssetsReadyMs,old?.loadAssetsReadyMs)} | ${delta(p.frames?.avgFps,old?.frames?.avgFps)} | ${delta(p.memory?.end?.jsHeapUsedSize/1048576,old?.memory?.end?.jsHeapUsedSize/1048576)} |`:''}`);
   }
-  lines.push('','Tick time includes the WASM simulation and snapshot serialization; heap excludes total process memory. Mobile uses Chromium with iPhone emulation, not Safari.', '', '## Violations',...(results.violations.length?results.violations.map(v=>`- ${v}`):['None.']),'');
+  lines.push('', '## Terrain', '', '| Profile | Loaded tiles (decoded LRU) | Visible tiles | Terrain triangles | Fetched bytes | Pending fetches |', '|---|---:|---:|---:|---:|---:|');
+  for(const [name,p] of Object.entries(results.profiles)) {
+    const t=p.terrain;
+    lines.push(`| ${name} | ${number(t?.loadedTiles)} | ${number(t?.visibleTiles)} | ${number(t?.triangles)} | ${number(t?.bytesFetched)} | ${number(t?.pendingFetches)} |`);
+  }
+  lines.push('','Terrain counters are end-of-run snapshots; fetched bytes include manifest/coarse/tile payloads, not HTTP overhead. Missing terrain is shown as —.', '', 'Tick time includes the WASM simulation and snapshot serialization; heap excludes total process memory. Mobile uses Chromium with iPhone emulation, not Safari.', '', '## Violations',...(results.violations.length?results.violations.map(v=>`- ${v}`):['None.']),'');
   return lines.join('\n');
 }
 
@@ -179,7 +186,7 @@ export async function main(args) {
   try {gitSha=execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8',stdio:['ignore','pipe','ignore']}).trim();} catch {}
   const flags=config.swiftshader?['--use-angle=swiftshader','--enable-unsafe-swiftshader','--ignore-gpu-blocklist']:[];
   const results={schemaVersion:1,timestamp:new Date().toISOString(),gitSha,config,flags,
-    scene:{name:scene.name,entities:scene.entities.length,colliders:scene.entities.filter(e=>e.collider).length,kinds:scene.entities.reduce((counts,e)=>(counts[e.kind]=(counts[e.kind]||0)+1,counts),{})},profiles:{},violations:[]};
+    scene:{name:scene.name,entities:scene.entities.length,colliders:scene.entities.filter(e=>e.collider).length,terrain:scene.entities.filter(e=>e.props?.ai_terrain).length,kinds:scene.entities.reduce((counts,e)=>(counts[e.kind]=(counts[e.kind]||0)+1,counts),{})},profiles:{},violations:[]};
   const server=await serve(config.site);
   let browser;
   try {

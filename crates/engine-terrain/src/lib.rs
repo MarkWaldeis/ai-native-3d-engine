@@ -3,6 +3,7 @@ use anyhow::{bail, ensure, Result};
 use serde::{Deserialize, Serialize};
 use shared::mesh::{MeshData, Vertex};
 use std::{fs, path::Path};
+pub mod web;
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
