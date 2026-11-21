@@ -34,7 +34,7 @@ const defaults = () => ({
     action: [key('Space'), button(0)], fire: [button(7)],
     reload: [key('KeyR'), button(2)], sprint: [key('ShiftLeft'), key('ShiftRight'), button(10)],
     pause: [key('Escape'), button(9)], look_x: [axis(2, 1)], look_y: [axis(3, 1)],
-  }, deadzone: 0.15, look_sensitivity: 1, invert_y: false,
+  }, deadzone: 0.15, look_sensitivity: 1, invert_y: false, haptics: { enabled: true, strength: 1 },
 });
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const finite = value => typeof value === 'number' && Number.isFinite(value);
@@ -56,6 +56,13 @@ export function parseInputConfig(value) {
     try { value = JSON.parse(value); } catch { return { config, warnings: ['ai_input: ungültiges JSON'] }; }
   }
   if (!object(value)) return { config, warnings: ['ai_input: Objekt erwartet'] };
+  if (value.haptics !== undefined) {
+    if (!object(value.haptics)) warnings.push('ai_input.haptics: Objekt erwartet');
+    else for (const name of ['enabled', 'strength']) if (value.haptics[name] !== undefined) {
+      const valid = name === 'enabled' ? typeof value.haptics[name] === 'boolean' : finite(value.haptics[name]) && value.haptics[name] >= 0 && value.haptics[name] <= 1;
+      if (valid) config.haptics[name] = value.haptics[name]; else warnings.push(`ai_input.haptics.${name}: ungültiger Wert`);
+    }
+  }
   for (const name of ['deadzone', 'look_sensitivity', 'invert_y']) {
     if (!(name in value)) continue;
     const valid = name === 'invert_y' ? typeof value[name] === 'boolean'
@@ -142,15 +149,15 @@ export class InputSystem {
   sampleGamepads(pads) { return sampleGamepads(pads, this.config); }
   sample({ keys = new Set(), pads = [], touch = {} } = {}) {
     const result = this.sampleGamepads(pads), actions = { ...result.actions };
+    const digital = emptyActions();
     for (const action of ACTIONS) {
-      if (this.config.bindings[action].some(binding => binding.type === 'key' && keys.has(binding.code))) actions[action] = 1;
+      digital[action] = this.config.bindings[action].some(binding => binding.type === 'key' && keys.has(binding.code)) || number(touch.actions?.[action]) > 0.5 ? 1 : 0;
+      if (digital[action]) actions[action] = 1;
     }
-    const keyboard = emptyActions();
-    for (const action of ACTIONS) keyboard[action] = this.config.bindings[action].some(binding => binding.type === 'key' && keys.has(binding.code)) ? 1 : 0;
-    const move = clampVector(result.move_x + keyboard.move_right - keyboard.move_left + number(touch.x), result.move_z + keyboard.move_back - keyboard.move_forward + number(touch.z));
+    const move = clampVector(result.move_x + digital.move_right - digital.move_left + number(touch.x), result.move_z + digital.move_back - digital.move_forward + number(touch.z));
     return { ...result, actions, move_x: move.x, move_z: move.y,
-      look_x: result.look_x + keyboard.look_x * this.config.look_sensitivity,
-      look_y: result.look_y + keyboard.look_y * this.config.look_sensitivity * (this.config.invert_y ? -1 : 1) };
+      look_x: result.look_x + digital.look_x * this.config.look_sensitivity,
+      look_y: result.look_y + digital.look_y * this.config.look_sensitivity * (this.config.invert_y ? -1 : 1) };
   }
 }
 

@@ -84,7 +84,7 @@ export class HudLayout {
     const style = getComputedStyle(this.root);
     const insets = Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [side, parseFloat(style.getPropertyValue(`padding-${side}`)) || 0]));
     const touch = matchMedia('(pointer: coarse)').matches || document.body.classList.contains('touch-input');
-    const controls = ['joystick', 'action'].map(id => document.getElementById(id)).filter(node => node && node.getClientRects().length).map(node => node.getBoundingClientRect().top);
+    const controls = [...document.querySelectorAll('#joystick,#action,.fps-fire,.fps-reload-button,[data-touch-action]')].filter(node => node.getClientRects().length).map(node => node.getBoundingClientRect().top);
     const widgets = resolveHudWidgets(this.config.widgets, innerWidth).filter(w => !this.nodes.get(w.id).node.hidden);
     const viewport = { width: innerWidth, height: innerHeight, insets, touch, controlsTop: controls.length ? Math.min(...controls) : undefined };
     let heights = Object.fromEntries(widgets.filter(w => this.nodes.get(w.id).node.style.width).map(w => [w.id, this.nodes.get(w.id).node.scrollHeight + 2]));
