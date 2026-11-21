@@ -70,6 +70,29 @@ fn lab_reset_restores_the_target_to_its_authored_pose() {
 }
 
 #[test]
+fn nav_bake_connects_a_ramp_across_its_compound_part_seam() {
+    let scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"two-part ramp","kind":"box","size":[1,1,1],
+         "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
+            {"shape":"box","half_extents":[2,0.2,2],"position":[-1.7320508,1,0],"rotation_deg":[0,0,30]},
+            {"shape":"box","half_extents":[2,0.2,2],"position":[1.7320508,3,0],"rotation_deg":[0,0,30]}
+         ]}}}}
+    ]})).unwrap();
+    let params = shared::navigation::NavParams {
+        cell_size: 1.0,
+        ..Default::default()
+    };
+    let (mesh, _) =
+        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
+    let path = engine_runtime::navigation::query(&mesh, [-1.5, 1.4, 0.5], [1.5, 3.1, 0.5]).unwrap();
+    assert!(
+        path.windows(2)
+            .any(|edge| edge[0][0] < 0.0 && edge[1][0] > 0.0),
+        "{path:?}"
+    );
+}
+
+#[test]
 fn nav_bake_does_not_treat_a_wall_as_part_of_the_supporting_floor() {
     let scene = serde_json::from_value(json!({"entities":[
         {"id":1,"name":"floor and wall","kind":"box","size":[1,1,1],

@@ -53,6 +53,12 @@ pub(crate) struct RayHit {
     pub damage_multiplier: f64,
 }
 
+pub(crate) struct NavSurface {
+    pub y: f32,
+    pub collider: ColliderHandle,
+    pub normal: Vector<Real>,
+}
+
 fn pose(t: &Transform) -> Isometry<Real> {
     Isometry::from_parts(
         Translation::from(vector![t.position[0], t.position[1], t.position[2]]),
@@ -232,14 +238,21 @@ impl Physics {
         }).collect()
     }
 
-    pub(crate) fn nav_surfaces(&self, x:f32,z:f32,top:f32,bottom:f32,slope:f32) -> Vec<(f32,ColliderHandle)> {
+    pub(crate) fn nav_surfaces(&self, x:f32,z:f32,top:f32,bottom:f32,slope:f32) -> Vec<NavSurface> {
         let ray=Ray::new(point![x,top,z],vector![0.0,-1.0,0.0]);
         let mut hits=vec![];
         self.query.intersections_with_ray(&self.bodies,&self.colliders,&ray,top-bottom,true,QueryFilter::new().exclude_sensors(),|handle,hit|{
-            if hit.normal.y >= slope { hits.push((top-hit.time_of_impact,handle)); } true
+            if hit.normal.y >= slope {
+                hits.push(NavSurface { y: top - hit.time_of_impact, collider: handle, normal: hit.normal });
+            }
+            true
         });
-        hits.sort_by(|a,b|a.0.total_cmp(&b.0).then_with(||a.1.into_raw_parts().cmp(&b.1.into_raw_parts())));
+        hits.sort_by(|a,b|a.y.total_cmp(&b.y).then_with(||a.collider.into_raw_parts().cmp(&b.collider.into_raw_parts())));
         hits
+    }
+
+    pub(crate) fn nav_same_body(&self, a: ColliderHandle, b: ColliderHandle) -> bool {
+        self.colliders[a].parent().is_some_and(|parent| self.colliders[b].parent() == Some(parent))
     }
 
     pub(crate) fn nav_clear(&self,x:f32,y:f32,z:f32,half:f32,height:f32,supports:&[ColliderHandle]) -> bool {

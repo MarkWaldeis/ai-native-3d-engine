@@ -142,7 +142,7 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
             let compound = matches!(&collider, crate::physics_config::Geometry::Compound { .. });
             e.props["ai_physics"] = json!({"collider":collider});
             if compound {
-                json!([e.props["ai_physics"], "independent_compound_parts"])
+                json!([e.props["ai_physics"], "compound_part_support_slopes"])
             } else {
                 e.props["ai_physics"].clone()
             }
@@ -268,11 +268,12 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
             let z = (cell[1] as f32 + 0.5) * s;
             let surfaces = physics.nav_surfaces(x, z, high + 1.0, low - 1.0, slope);
             let mut last = None;
-            for (y, handle) in surfaces {
+            for surface in surfaces {
+                let y = surface.y;
                 if last.is_some_and(|v: f32| (v - y).abs() < 0.01) {
                     continue;
                 }
-                let mut supports = vec![handle];
+                let mut supports = vec![surface.collider];
                 let mut corners = [y; 4];
                 let mut valid = true;
                 for (i, [dx, dz]) in [[-1.0, -1.0], [1.0, -1.0], [1.0, 1.0], [-1.0, 1.0]]
@@ -282,22 +283,35 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
                     let d = s * 0.5 + params.radius;
                     let hits =
                         physics.nav_surfaces(x + dx * d, z + dz * d, high + 1.0, low - 1.0, slope);
-                    if let Some((h, owner)) = hits
+                    if let Some(corner) = hits
                         .into_iter()
-                        .min_by(|a, b| (a.0 - y).abs().total_cmp(&(b.0 - y).abs()))
-                        .filter(|(h, owner)| {
-                            (h - y).abs()
-                                <= if *owner == handle {
-                                    params
-                                        .step
-                                        .max(params.max_slope_deg.to_radians().tan() * d * 1.415)
-                                } else {
-                                    params.step
-                                } + 0.01
+                        .min_by(|a, b| (a.y - y).abs().total_cmp(&(b.y - y).abs()))
+                        .filter(|corner| {
+                            let rise = corner.y - y;
+                            let step = params.step + 0.01;
+                            let slope_limit = params.max_slope_deg.to_radians().tan() * d * 1.415 + 0.01;
+                            if rise.abs() <= step {
+                                return true;
+                            }
+                            if rise.abs() > slope_limit {
+                                return false;
+                            }
+                            if corner.collider == surface.collider {
+                                return true;
+                            }
+                            if !physics.nav_same_body(surface.collider, corner.collider) {
+                                return false;
+                            }
+                            let slope_rise = |normal: rapier3d::prelude::Vector<f32>| {
+                                -(normal.x * dx + normal.z * dz) * d / normal.y
+                            };
+                            let a = slope_rise(surface.normal);
+                            let b = slope_rise(corner.normal);
+                            (a.min(b) - step..=a.max(b) + step).contains(&rise)
                         })
                     {
-                        supports.push(owner);
-                        corners[i] = y + (h - y) * (s * 0.5 / d);
+                        supports.push(corner.collider);
+                        corners[i] = y + (corner.y - y) * (s * 0.5 / d);
                     } else {
                         valid = false;
                         break;
