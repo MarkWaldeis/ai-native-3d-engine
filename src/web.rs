@@ -13,6 +13,7 @@ use std::{
 };
 
 const PLAYER_FILES: &[(&str, &str)] = &[
+    ("audio.js", include_str!("../crates/engine-web/player/audio.js")),
     ("animation.js", include_str!("../crates/engine-web/player/animation.js")),
     ("favicon.svg", include_str!("../crates/engine-web/favicon.svg")),
     ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),
