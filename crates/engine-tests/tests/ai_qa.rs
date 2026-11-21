@@ -157,10 +157,9 @@ fn intentional_floating_triggers_scripts_and_dynamic_bodies_are_not_flagged() {
 #[test]
 fn typo_suggestions_cover_tools_primitives_query_and_assertions() {
     let mut e = host(json!({"entities":[box_entity(1,"player",[0.0,0.5,0.0])]}));
-    error(
-        call(&mut e, "get_screensho", json!({})),
-        "did you mean 'get_screenshot'",
-    );
+    let unknown = engine_mcp::handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_screensho"}}"#, &mut e).unwrap();
+    assert_eq!(unknown["error"]["code"], -32602);
+    assert!(unknown["error"]["message"].as_str().unwrap().contains("did you mean 'get_screenshot'"));
     error(
         call(&mut e, "spawn_primitive", json!({"kind":"spher"})),
         "did you mean 'sphere'",

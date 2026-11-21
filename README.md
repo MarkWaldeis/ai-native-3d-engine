@@ -1,5 +1,70 @@
 # ai-native-3d-engine
 
+## Mit Claude Code / Devin / Cursor verbinden
+
+```sh
+cargo build
+./target/debug/ai-engine init ../mein-spiel --template sky_garden
+# Alternativen: --template coin_game (Standard) oder --template empty
+```
+
+Der Zielordner muss neu oder leer sein. Enthalten sind `scene.json`, `scripts/`,
+`assets/`, Projekt-`AGENTS.md`, `.mcp.json` für Claude Code und `.cursor/mcp.json`
+für Cursor. Spielvorlagen enthalten `validation.json`; Himmelsgarten zusätzlich
+das portable Blender-Rezept `blender_scene.py`, das eine lokale `.blend` speichert.
+Szenen-/Skript-/Assetpfade werden auf das neue Projekt umgeschrieben.
+
+**Claude Code:** im Projektordner starten und den Projekt-MCP-Server aus `.mcp.json`
+bestätigen. Alternativ auf einer Zeile:
+`claude mcp add --scope project ai-engine -- /absolut/ai-engine --project /absolut/mein-spiel`.
+**Cursor:** Projekt öffnen, unter MCP den generierten Server aktivieren.
+**Devin:** in der MCP-Konfiguration denselben stdio-Eintrag verwenden: absoluter
+Binary-Pfad als Command, `--project /absolut/mein-spiel` als Args; alternativ die
+unten beschriebene HTTP-URL bei einem vom Client erreichbaren lokalen Server.
+Konfigurationspfade sind absolut; beim Verschieben von Binary/Projekt aktualisieren.
+`--project` lädt die Szene beim Start und setzt das Arbeitsverzeichnis zuverlässig.
+
+Erste Nachricht: **„Lies engine://guide und engine://scene. Baue ein kleines Spiel
+Blender-first; beweise Sieg und Sturz/Rettung mit simulate, prüfe validate_scene und
+Screenshots, dann export_web.“** Die Ressourcen enthalten eine Deutsch/English-
+Anleitung und den aus `tools/list` generierten Werkzeugkatalog. Prompts:
+`build_game {idea}`, `qa_pass`, `swarm_lead {goal}` (via `prompts/get`).
+`engine://scene` ist die aktuelle Authoring-Szene; Spielzustand: `get_sim_state`.
+
+Für mehrere Agenten **einen gemeinsamen HTTP-Server** starten (separate stdio-
+Prozesse haben separate Welten):
+
+```sh
+/absolut/ai-engine --project /absolut/mein-spiel --serve 127.0.0.1:7777
+# Claude Code: claude mcp add --transport http ai-engine http://127.0.0.1:7777/mcp
+```
+
+Streamable HTTP: `POST /mcp`, `Accept: application/json, text/event-stream`,
+`Content-Type: application/json`. Der Server antwortet JSON, ohne SSE;
+`GET /mcp` liefert 405. `initialize` handelt `2024-11-05`, `2025-03-26` oder
+`2025-06-18` aus (unbekannte Version → neueste unterstützte Version). Den dort
+ausgegebenen `Mcp-Session-Id` bei Folgeaufrufen mitsenden, ebenso
+`MCP-Protocol-Version`; Benachrichtigungen erhalten 202 ohne Body. `DELETE /mcp`
+beendet eine Sitzung; unbekannte/beendete IDs ergeben 404. SDK-basierte MCP-Clients
+erledigen den Handshake und die Header automatisch.
+
+Nur **vertrauenswürdige lokale Clients**: Blender-Python und Dateitools haben
+lokalen Rechnerzugriff. Session-IDs sind keine Authentifizierung; Server nicht
+ungeschützt öffentlich freigeben. Fremde Browser-Origins werden abgewiesen.
+Tool-Annotations (`readOnlyHint`, `destructiveHint`) sind Hinweise, keine Rechte.
+Web-Export benötigt weiterhin Engine-Quellcheckout, Rust-WASM-Target und
+wasm-bindgen CLI; das exportierte Spiel benötigt nur einen statischen Host.
+
+Optionaler Client-Smoke-Test mit dem offiziellen Inspector (Node/npm):
+
+```sh
+npx --yes @modelcontextprotocol/inspector --cli --config /absolut/mein-spiel/.mcp.json --server ai-engine --method tools/list
+npx --yes @modelcontextprotocol/inspector --cli --config /absolut/mein-spiel/.mcp.json --server ai-engine --method tools/call --tool-name get_revision
+npx --yes @modelcontextprotocol/inspector --cli --config /absolut/mein-spiel/.mcp.json --server ai-engine --method resources/read --uri engine://guide
+# Für HTTP stattdessen: --config ... --server ... durch
+# http://127.0.0.1:7777/mcp --transport http ersetzen.
+```
+
 ## M6 · Himmelsgarten: Blender-first HTTP swarm
 
 `examples/sky_garden/` is a floating-island platformer: steer Milo with the touch
@@ -186,7 +251,7 @@ are needed. The Windows-GNU linker setting is target-scoped and remains in
 `.cargo/config.toml`. GPU tests print `SKIP` if no renderer is available.
 
 HTTP accepts one JSON-RPC request per `POST /mcp` and returns one JSON response
-(`null` for notifications). Multiple clients share one engine, with calls
+(202 with an empty body for notifications). Multiple clients share one engine, with calls
 serialized on a dedicated engine thread (including GPU work). Supply an optional
 `agent` string in tool arguments or an `X-Agent-Id` HTTP header; the argument
 wins, otherwise identity defaults to `anonymous`. Use distinct identities per
@@ -194,8 +259,14 @@ worker. This is coordination, not authentication: bind to localhost on trusted
 machines; do not expose the server publicly.
 
 ```bash
-curl http://127.0.0.1:7777/mcp -H 'X-Agent-Id: level-designer' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"spawn_primitive","arguments":{"kind":"box"}}}'
+# First initialize and copy Mcp-Session-Id from the response headers:
+curl -i http://127.0.0.1:7777/mcp -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1"}}}'
+curl http://127.0.0.1:7777/mcp -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' -H 'Mcp-Session-Id: COPY_SESSION_ID' \
+  -H 'MCP-Protocol-Version: 2025-06-18' -H 'X-Agent-Id: level-designer' \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"spawn_primitive","arguments":{"kind":"box"}}}'
 ```
 
 Locks reject edits/removal by other agents, including batch commands. Replacing

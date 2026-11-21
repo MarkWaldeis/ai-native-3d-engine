@@ -11,7 +11,30 @@ use serde_json::Value;
 use std::io::{BufRead, Write};
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("init") {
+        let result = (|| -> anyhow::Result<Value> {
+            let dir = args.get(2).ok_or_else(|| anyhow::anyhow!("usage: ai-engine init <dir> [--template coin_game|sky_garden|empty]"))?;
+            let template = match args.len() {
+                3 => "coin_game",
+                5 if args[3] == "--template" => &args[4],
+                _ => anyhow::bail!("usage: ai-engine init <dir> [--template coin_game|sky_garden|empty]"),
+            };
+            ai_engine::project::initialize(std::path::Path::new(dir), template)
+        })();
+        match result {
+            Ok(value) => println!("{value}"),
+            Err(error) => { eprintln!("project init failed: {error:#}"); std::process::exit(1); }
+        }
+        return;
+    }
+    let project = args.iter().position(|arg| arg == "--project").map(|pos| {
+        let path = args.get(pos+1).ok_or_else(|| anyhow::anyhow!("--project requires a directory"))?;
+        let path = std::path::Path::new(path).canonicalize()?;
+        std::env::set_current_dir(&path)?;
+        args.drain(pos..pos+2);
+        Ok::<_, anyhow::Error>(path)
+    }).transpose().unwrap_or_else(|error| { eprintln!("project failed: {error:#}"); std::process::exit(1); });
 
     if let Some(pos) = args.iter().position(|a| a == "--export-web") {
         let result = (|| -> anyhow::Result<()> {
@@ -27,7 +50,7 @@ fn main() {
 
     if let Some(pos) = args.iter().position(|a| a == "--serve") {
         let result = args.get(pos + 1).ok_or_else(|| anyhow::anyhow!("usage: ai-engine --serve 127.0.0.1:7777"))
-            .and_then(|addr| ai_engine::http::serve_addr(addr));
+            .and_then(|addr| ai_engine::http::serve_project_addr(addr, project));
         if let Err(e) = result { eprintln!("HTTP server failed: {e:#}"); std::process::exit(1); }
         return;
     }
@@ -45,7 +68,8 @@ fn main() {
         });
     }
 
-    let mut engine = Engine::new();
+    let mut engine = project.map(|path| Engine::from_project(&path)).unwrap_or_else(|| Ok(Engine::new()))
+        .unwrap_or_else(|error| { eprintln!("project failed: {error:#}"); std::process::exit(1); });
     eprintln!(
         "[ai-engine] MCP stdio server ready (blender: {:?}, assets: {})",
         engine.pipeline.blender_path(),

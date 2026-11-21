@@ -18,6 +18,7 @@ mod runtime;
 mod qa;
 mod authoring;
 pub mod web;
+pub mod project;
 
 pub struct Engine {
     pub world: World,
@@ -31,6 +32,15 @@ pub struct Engine {
 }
 
 impl Engine {
+    pub fn from_project(path: &Path) -> anyhow::Result<Self> {
+        let root = path.canonicalize()?;
+        let mut engine = Self::new();
+        engine.assets_dir = root.join("assets");
+        engine.pipeline = AssetPipeline::new(&engine.assets_dir);
+        engine.world.load(&root.join("scene.json"))?;
+        Ok(engine)
+    }
+
     pub fn new() -> Self {
         let assets_dir = std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
@@ -165,6 +175,9 @@ impl Engine {
 }
 
 impl ToolHandler for Engine {
+    fn scene(&self) -> Result<Value, String> {
+        serde_json::to_value(&self.world.scene).map_err(|error| error.to_string())
+    }
     fn handle(&mut self, name: &str, args: &Value) -> Result<Value, String> {
         self.handle_agent(name, args)
     }

@@ -188,5 +188,5 @@ fn batch_applies_commands_atomically() {
 fn unknown_tool_is_error() {
     let mut e = Engine::new();
     let r = call(&mut e, "does_not_exist", json!({}));
-    assert_eq!(r["result"]["isError"], true);
+    assert_eq!(r["error"]["code"], -32602);
 }

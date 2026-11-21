@@ -3,12 +3,18 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 
 fn rpc(addr: &str, agent: &str, tool: &str, args: Value) -> Value {
+    let initialize = json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"swarm-test","version":"1"}}}).to_string();
+    let mut stream = TcpStream::connect(addr).unwrap();
+    write!(stream,"POST /mcp HTTP/1.1\r\nHost: {addr}\r\nAccept: application/json, text/event-stream\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{initialize}", initialize.len()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    let session = response.lines().find_map(|line| line.split_once(':').filter(|(name,_)| name.eq_ignore_ascii_case("Mcp-Session-Id")).map(|(_,value)|value.trim().to_owned())).unwrap();
     let body = json!({"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":tool, "arguments":args}}).to_string();
     let mut stream = TcpStream::connect(addr).unwrap();
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(10)))
         .unwrap();
-    write!(stream, "POST /mcp HTTP/1.1\r\nHost: {addr}\r\nX-Agent-Id: {agent}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+    write!(stream, "POST /mcp HTTP/1.1\r\nHost: {addr}\r\nAccept: application/json, text/event-stream\r\nContent-Type: application/json\r\nMcp-Session-Id: {session}\r\nMCP-Protocol-Version: 2025-06-18\r\nX-Agent-Id: {agent}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     let (_, body) = response.split_once("\r\n\r\n").unwrap();
@@ -257,7 +263,6 @@ fn stdio_protocol_keeps_anonymous_and_explicit_identity() {
         call("spawn_primitive", json!({"kind":"cube"})),
         "valid kinds: box, plane, sphere, cylinder, wall_with_door, gltf",
     );
-    error(call("task_list", json!([])), "JSON object");
     data(call("claim_entities", json!({"ids":[]})));
     data(call("release_entities", json!({"ids":[]})));
     assert_eq!(data(call("apply_batch", json!({"commands":[]}))), json!([]));
@@ -269,6 +274,8 @@ fn stdio_protocol_keeps_anonymous_and_explicit_identity() {
     let journal = data(call("get_changes_since", json!({"revision":0})));
     assert_eq!(journal["entries"][0]["agent"], "anonymous");
     assert_eq!(journal["entries"][1]["agent"], "batch-agent");
+    let invalid = engine_mcp::handle_line(r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"task_list","arguments":[]}}"#, &mut engine).unwrap();
+    assert_eq!(invalid["error"]["code"], -32602);
     let tools = engine_mcp::handle_line(
         r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
         &mut engine,

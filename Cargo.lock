@@ -32,6 +32,7 @@ dependencies = [
  "engine-mcp",
  "engine-render",
  "engine-runtime",
+ "getrandom",
  "serde_json",
  "shared",
  "tiny_http",

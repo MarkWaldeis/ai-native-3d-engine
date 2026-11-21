@@ -50,13 +50,29 @@ class Swarm:
         self.tasks_ready = threading.Event()
         self.tasks = {}
         self.reports = {}
+        self.sessions = {}
 
     def call(self, agent, tool, args=None):
         args = args or {}
+        with self.lock:
+            if agent not in self.sessions:
+                payload = {"jsonrpc": "2.0", "id": next(self.ids), "method": "initialize",
+                           "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                                      "clientInfo": {"name": "swarm-demo", "version": "1"}}}
+                headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+                req = urllib.request.Request(self.url, json.dumps(payload).encode(), headers)
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    session = response.headers["Mcp-Session-Id"]
+                    json.load(response)
+                headers.update({"Mcp-Session-Id": session, "MCP-Protocol-Version": "2025-06-18"})
+                note = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+                with urllib.request.urlopen(urllib.request.Request(self.url, json.dumps(note).encode(), headers), timeout=30) as response:
+                    response.read()
+                self.sessions[agent] = headers
         payload = {"jsonrpc": "2.0", "id": next(self.ids), "method": "tools/call",
                    "params": {"name": tool, "arguments": args}}
         req = urllib.request.Request(self.url, json.dumps(payload).encode(),
-              {"Content-Type": "application/json", "X-Agent-Id": agent})
+              {**self.sessions[agent], "X-Agent-Id": agent})
         with urllib.request.urlopen(req, timeout=240) as response:
             response = json.load(response)
         result = response.get("result", {})
