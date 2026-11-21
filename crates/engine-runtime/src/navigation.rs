@@ -290,10 +290,7 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
                             let rise = corner.y - y;
                             let step = params.step + 0.01;
                             let slope_limit = params.max_slope_deg.to_radians().tan() * d * 1.415 + 0.01;
-                            if rise.abs() <= step {
-                                return true;
-                            }
-                            if rise.abs() > slope_limit {
+                            if rise.abs() > step.max(slope_limit) {
                                 return false;
                             }
                             if corner.collider == surface.collider {
@@ -301,8 +298,8 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
                             }
                             physics.nav_seam_step(
                                 [surface.collider, corner.collider],
-                                [x, z],
-                                [x + dx * d, z + dz * d],
+                                [x, y, z],
+                                [x + dx * d, corner.y, z + dz * d],
                                 [high + 1.0, low - 1.0],
                                 slope,
                             ).is_some_and(|seam| seam <= step)

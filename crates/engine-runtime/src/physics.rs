@@ -253,19 +253,19 @@ impl Physics {
     pub(crate) fn nav_seam_step(
         &self,
         parts: [ColliderHandle; 2],
-        from: [f32; 2],
-        to: [f32; 2],
+        from: [f32; 3],
+        to: [f32; 3],
         ray_range: [f32; 2],
         slope: f32,
     ) -> Option<f32> {
         let [a, b] = parts.map(|handle| &self.colliders[handle]);
         if a.parent().is_none() || a.parent() != b.parent() {
-            return None;
+            return Some((to[1] - from[1]).abs());
         }
         let [top, bottom] = ray_range;
-        let delta = [to[0] - from[0], to[1] - from[1]];
+        let delta = [to[0] - from[0], to[2] - from[2]];
         let ray_at = |t: f32| Ray::new(
-            point![from[0] + t * delta[0], top, from[1] + t * delta[1]],
+            point![from[0] + t * delta[0], top, from[2] + t * delta[1]],
             vector![0.0, -1.0, 0.0],
         );
         let cast = |collider: &Collider, t| {
