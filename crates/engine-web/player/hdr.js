@@ -60,10 +60,38 @@ const scatter = /* glsl */`
   }
 `;
 
+const meter = /* glsl */`
+  uniform sampler2D image;
+  uniform sampler2D history;
+  uniform vec2 limits;
+  uniform vec2 speeds;
+  uniform float elapsed;
+  uniform bool initialized;
+  void main() {
+    float sum = 0.0;
+    for (int y = 0; y < 8; ++y) {
+      for (int x = 0; x < 8; ++x) {
+        vec2 uv = (vec2(x, y) + 0.5) / 8.0;
+        float luma = dot(max(texture2D(image, uv).rgb, 0.0), vec3(0.2126, 0.7152, 0.0722));
+        sum += log2(clamp(luma, 0.001, 64.0));
+      }
+    }
+    float ev = clamp(log2(0.18) - sum / 64.0, limits.x, limits.y);
+    if (initialized) {
+      float last = texture2D(history, vec2(0.5)).r;
+      ev = mix(last, ev, 1.0 - exp(-elapsed * (ev > last ? speeds.x : speeds.y)));
+    }
+    gl_FragColor = vec4(ev, 0.0, 0.0, 1.0);
+  }
+`;
+
 const composite = /* glsl */`
   #include <common>
   #include <dithering_pars_fragment>
   uniform sampler2D image;
+  #ifdef AUTO_EXPOSURE
+  uniform sampler2D exposureMeter;
+  #endif
   #ifdef BLOOM
   uniform sampler2D bloom;
   uniform float strength;
@@ -114,6 +142,9 @@ const composite = /* glsl */`
     #endif
     color += glow * strength;
     #endif
+    #ifdef AUTO_EXPOSURE
+    color *= exp2(texture2D(exposureMeter, vec2(0.5)).r);
+    #endif
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
@@ -132,30 +163,66 @@ function target(depthBuffer, depthTexture = null) {
   return new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer, depthTexture });
 }
 
+class ExposureMeter {
+  constructor(image, {minEV, maxEV, brightenSpeed, darkenSpeed}) {
+    this.buffers = [target(false), target(false)];
+    this.next = 0;
+    this.material = pass(meter, {
+      image: {value: image}, history: {value: null},
+      limits: {value: new THREE.Vector2(minEV, maxEV)},
+      speeds: {value: new THREE.Vector2(brightenSpeed, darkenSpeed)},
+      elapsed: {value: 0}, initialized: {value: false},
+    });
+  }
+
+  render(draw, elapsed) {
+    const {uniforms} = this.material;
+    uniforms.history.value = this.buffers[1 - this.next].texture;
+    uniforms.elapsed.value = elapsed;
+    const output = this.buffers[this.next];
+    draw(this.material, output);
+    this.next = 1 - this.next;
+    uniforms.initialized.value = true;
+    return output.texture;
+  }
+
+  reset() { this.material.uniforms.initialized.value = false; }
+
+  dispose() {
+    for (const buffer of this.buffers) buffer.dispose();
+    this.material.dispose();
+  }
+}
+
 export class HDRPipeline {
   constructor(renderer, config) {
     this.renderer = renderer;
     this.supported = renderer.extensions.has('EXT_color_buffer_float');
     this.strength = config.bloomStrength;
     this.threshold = config.bloomThreshold;
+    this.renderScale = config.renderScale ?? 1;
     this.scatterRatio = config.bloomScatter ?? 0;
     this.edgeAA = config.hdrAntialias !== false;
     this.contactConfig = config;
-    this.contactSupported = renderer.capabilities.isWebGL2 && !renderer.capabilities.logarithmicDepthBuffer;
+    this.exposureConfig = config.autoExposure;
+    this.meterSupported = renderer.capabilities.isWebGL2;
+    this.contactSupported = renderer.capabilities.isWebGL2;
     this.size = new THREE.Vector2();
   }
 
   resize(level, width, height, pixelRatio) {
+    const meterEnabled = !!(level > 0 && this.supported && this.meterSupported && this.exposureConfig);
     const settings = hdrSettings(level, this.supported, this.strength, width, height, pixelRatio, this.edgeAA,
-      this.contactSupported && this.contactConfig.contactStrength > 0);
+      this.contactSupported && this.contactConfig.contactStrength > 0, meterEnabled);
     const wideBloom = settings.bloom && level === 2 && this.scatterRatio > 0;
-    if (!settings.enabled || !!this.contact !== settings.contact || !!this.wide !== wideBloom) this.release();
-    if (settings.enabled && !this.sceneTarget && !this.init(settings.bloom, settings.contact, wideBloom)) {
+    if (!settings.enabled || !!this.contact !== settings.contact || !!this.wide !== wideBloom
+      || !!this.exposureMeter !== meterEnabled) this.release();
+    if (settings.enabled && !this.sceneTarget && !this.init(settings.bloom, settings.contact, wideBloom, meterEnabled)) {
       this.resize(level, width, height, pixelRatio);
       return;
     }
     const renderer = this.renderer;
-    renderer.setPixelRatio(this.sceneTarget ? settings.pixelRatio : pixelRatio);
+    renderer.setPixelRatio((this.sceneTarget ? settings.pixelRatio : pixelRatio) * this.renderScale);
     renderer.setSize(width, height, false);
     if (!this.sceneTarget) return;
     renderer.getDrawingBufferSize(this.size);
@@ -179,24 +246,29 @@ export class HDRPipeline {
     }
   }
 
-  init(bloomEnabled, contactEnabled, wideBloom) {
+  init(bloomEnabled, contactEnabled, wideBloom, meterEnabled) {
     const renderer = this.renderer, gl = renderer.getContext();
     const depth = contactEnabled ? new THREE.DepthTexture(1, 1) : null;
     const texel = {value: new THREE.Vector2()};
     this.sceneTarget = target(true, depth);
-    if (depth) this.contact = new ContactOcclusion(pass, depth, texel, this.contactConfig);
+    if (depth) this.contact = new ContactOcclusion(pass, depth, texel, this.contactConfig, renderer.capabilities.logarithmicDepthBuffer);
+    if (meterEnabled) this.exposureMeter = new ExposureMeter(this.sceneTarget.texture, this.exposureConfig);
     const prev = renderer.getRenderTarget();
     const complete = renderTarget => {
       renderer.setRenderTarget(renderTarget);
       return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     };
     let supported;
+    let meterComplete = true;
     try {
       supported = complete(this.sceneTarget) && (!this.contact || complete(this.contact.target));
+      if (supported && meterEnabled) meterComplete = this.exposureMeter.buffers.every(complete);
     } finally { renderer.setRenderTarget(prev); }
-    if (!supported) {
-      if (contactEnabled) this.contactSupported = false;
+    if (!supported || !meterComplete) {
+      if (!meterComplete) this.meterSupported = false;
+      else if (contactEnabled) this.contactSupported = false;
       else this.supported = false;
+      this.exposureMeter?.dispose(); this.exposureMeter = null;
       this.contact?.dispose(); this.contact = null;
       this.sceneTarget.dispose(); this.sceneTarget = null;
       return false;
@@ -215,11 +287,13 @@ export class HDRPipeline {
     this.composite = pass(composite, {
       image: {value: this.sceneTarget.texture}, bloom: {value: this.bright?.texture},
       wideBloom: {value: this.wide?.texture}, scatterRatio: {value: this.scatterRatio},
-      strength: {value: this.strength}, texel, ...this.contact?.compositeUniforms(this.contactConfig.contactStrength),
+      strength: {value: this.strength}, texel, exposureMeter: {value: null},
+      ...this.contact?.compositeUniforms(this.contactConfig.contactStrength),
     }, true);
     if (bloomEnabled) this.composite.defines.BLOOM = 1;
     if (wideBloom) this.composite.defines.BLOOM_SCATTER = 1;
     if (contactEnabled) this.composite.defines.CONTACT_OCCLUSION = 1;
+    if (meterEnabled) this.composite.defines.AUTO_EXPOSURE = 1;
     this.quadScene = new THREE.Scene(); this.camera = new THREE.Camera();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
@@ -234,11 +308,14 @@ export class HDRPipeline {
     for (const resource of [this.sceneTarget, this.bright, this.scratch, this.wide,
       this.prefilter, this.blur, this.scatter, this.composite, this.quad.geometry]) resource?.dispose();
     this.contact?.dispose(); this.contact = null;
+    this.exposureMeter?.dispose(); this.exposureMeter = null;
     this.sceneTarget = this.bright = this.scratch = this.wide = null;
     this.quadScene = this.camera = this.quad = this.prefilter = this.blur = this.scatter = this.composite = null;
   }
 
-  render(scene, camera) {
+  resetExposure() { this.exposureMeter?.reset(); }
+
+  render(scene, camera, elapsed = 0) {
     const renderer = this.renderer;
     if (!this.sceneTarget) { renderer.render(scene, camera); return; }
     const previous = renderer.getRenderTarget(), autoReset = renderer.info.autoReset;
@@ -251,6 +328,7 @@ export class HDRPipeline {
     };
     try {
       renderer.setRenderTarget(this.sceneTarget); renderer.render(scene, camera);
+      if (this.exposureMeter) this.composite.uniforms.exposureMeter.value = this.exposureMeter.render(draw, elapsed);
       this.contact?.render(draw, camera);
       if (this.bright) {
         draw(this.prefilter, this.bright);

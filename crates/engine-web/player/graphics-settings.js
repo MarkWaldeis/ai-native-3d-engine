@@ -39,11 +39,22 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
   const skyDefaults = skyPresets[value?.sky_preset] || skyPresets[value?.sky];
   const config = {...daylightDefaults(value?.time_of_day),...skyDefaults,...value};
   if (skyPresets[value?.sky]) config.sky = skyDefaults.sky;
-  const foliage = object(config.foliage), water = object(config.water);
+  const foliage = object(config.foliage), water = object(config.water), clouds = object(config.sky_clouds);
+  const atmosphere = object(config.sky_atmosphere);
   return {
     quality,
     sky: hex(config.sky, '#4d88cb'),
+    skyClouds: config.sky_clouds === true || clouds ? {
+      coverage: bounded(clouds?.coverage, 0.45, 0, 1),
+      scale: bounded(clouds?.scale, 1, 0.25, 4),
+      opacity: bounded(clouds?.opacity, 0.85, 0, 1),
+      seed: Math.trunc(bounded(clouds?.seed, 0, 0, 65535)),
+    } : null,
     horizon: hex(config.horizon, hex(skyColor, '#b8cddd')),
+    skyAtmosphere: config.sky_atmosphere === true || atmosphere ? {
+      strength: bounded(atmosphere?.strength, 1, 0, 1),
+      haze: bounded(atmosphere?.haze, 0.35, 0, 1),
+    } : null,
     ground: hex(config.ground, '#626457'),
     sunColor: hex(config.sun_color, '#ffe5c1'),
     sunDirection: direction(config.sun_direction),
@@ -54,7 +65,10 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     environmentBackground: config.environment_background !== false,
     environmentRotation: Number.isFinite(config.environment_rotation_deg) ? config.environment_rotation_deg % 360 : 0,
     exposure: bounded(config.exposure, 1, 0.1, 4),
+    autoExposure: autoExposureSettings(config.auto_exposure),
     toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
+    logarithmicDepth: config.logarithmic_depth === true,
+    renderScale: bounded(config.render_scale, 1, 0.5, 1),
     hdrAntialias: config.hdr_antialias !== false,
     contactStrength: bounded(config.contact_occlusion, 0, 0, 1),
     contactRadius: bounded(config.contact_radius, 1.2, 0.1, 3),
@@ -72,10 +86,21 @@ export function sunShadowSettings(authored) {
   return { castShadow: value?.cast !== false, receiveShadow: value?.receive !== false };
 }
 
-export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false) {
+function autoExposureSettings(authored) {
+  const value = object(authored);
+  if (authored !== true && !value) return null;
+  return {
+    minEV: bounded(value?.min_ev, -2, -4, 0),
+    maxEV: bounded(value?.max_ev, 2, 0, 4),
+    brightenSpeed: bounded(value?.brighten_speed, 1.25, 0.1, 8),
+    darkenSpeed: bounded(value?.darken_speed, 3, 0.1, 8),
+  };
+}
+
+export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false, autoExposure = false) {
   const bloom = level > 0 && supported && strength > 0;
   const contact = level === 2 && supported && contactOcclusion;
-  const enabled = bloom || contact || (level === 2 && supported && antialias);
+  const enabled = bloom || contact || (supported && ((level === 2 && antialias) || (level > 0 && autoExposure)));
   return {
     enabled, bloom, contact,
     pixelRatio: enabled ? Math.min(pixelRatio, Math.sqrt(2_600_000 / (width * height))) : pixelRatio,
@@ -83,15 +108,31 @@ export function hdrSettings(level, supported, strength, width, height, pixelRati
   };
 }
 
-export function materialSettings(authored) {
+export function materialMapSettings(authored) {
+  const value = object(authored);
+  if (!value) return null;
+  const path = key => typeof value[key] === 'string' && /^assets\/material\/\d+\.png$/.test(value[key]) ? value[key] : null;
+  const map = path('base_color_map'), normalMap = path('normal_map'), ormMap = path('orm_map');
+  if (!map && !normalMap && !ormMap) return null;
+  const repeat = value.uv_repeat;
+  return {
+    map, normalMap, ormMap,
+    repeat: Array.isArray(repeat) && repeat.length === 2
+      ? repeat.map(n => bounded(n, 1, 1 / 16, 64)) : [1, 1],
+    normalScale: normalMap ? bounded(value.normal_scale, 1, 0, 2) : 1,
+  };
+}
+
+export function materialSettings(authored, packedOrm = false) {
   const value = object(authored);
   const anisotropy = bounded(value?.anisotropy, 0, 0, 1);
   const sheen = bounded(value?.sheen, 0, 0, 1);
   const iridescence = bounded(value?.iridescence, 0, 0, 1);
+  const transmission = bounded(value?.transmission, 0, 0, 1);
   const film = bounded(value?.iridescence_thickness_nm, 400, 100, 1200);
   return {
-    roughness: bounded(value?.roughness, 0.55, 0, 1),
-    metalness: bounded(value?.metalness, 0.08, 0, 1),
+    roughness: bounded(value?.roughness, packedOrm ? 1 : 0.55, 0, 1),
+    metalness: bounded(value?.metalness, packedOrm ? 1 : 0.08, 0, 1),
     emissive: hex(value?.emissive, '#000000').toLowerCase(),
     emissiveIntensity: bounded(value?.emissive_intensity, 1, 0, 32),
     clearcoat: bounded(value?.clearcoat, 0, 0, 1),
@@ -107,6 +148,13 @@ export function materialSettings(authored) {
     ...(iridescence > 0 ? {
       iridescence, iridescenceIOR: bounded(value.iridescence_ior, 1.3, 1, 2.5),
       iridescenceThicknessRange: [film, film],
+    } : {}),
+    ...(transmission > 0 ? {
+      transmission, ior: bounded(value.ior, 1.5, 1, 2.333),
+      thickness: bounded(value.thickness, 0.25, 0, 50),
+      attenuationColor: hex(value.attenuation_color, '#ffffff').toLowerCase(),
+      ...(Number.isFinite(value.attenuation_distance)
+        ? {attenuationDistance: bounded(value.attenuation_distance, 1, 0.01, 1000)} : {}),
     } : {}),
   };
 }

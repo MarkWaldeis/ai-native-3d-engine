@@ -1,8 +1,18 @@
 import * as THREE from 'three';
 
+const readDepth = /* glsl */`
+  uniform mat4 inverseProjection;
+  uniform float logFar;
+  float viewZ(float depth) {
+    if (logFar > 0.0) return 1.0 - exp2(depth * logFar);
+    vec4 pos = inverseProjection * vec4(0.0, 0.0, depth * 2.0 - 1.0, 1.0);
+    return pos.z / pos.w;
+  }
+`;
+
 export const contactFragment = /* glsl */`
   uniform sampler2D sceneDepth;
-  uniform mat4 inverseProjection;
+  ${readDepth}
   uniform vec2 projectionScale;
   uniform vec2 texel;
   uniform float radius;
@@ -11,6 +21,10 @@ export const contactFragment = /* glsl */`
 
   vec3 positionAt(vec2 uv, float depth) {
     vec2 pixelCenter = (floor(clamp(uv, texel * 0.5, 1.0 - texel * 0.5) / texel) + 0.5) * texel;
+    if (logFar > 0.0) {
+      vec3 ray = (inverseProjection * vec4(pixelCenter * 2.0 - 1.0, 0.0, 1.0)).xyz;
+      return ray * (viewZ(depth) / ray.z);
+    }
     vec4 pos = inverseProjection * vec4(pixelCenter * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
     return pos.xyz / pos.w;
   }
@@ -61,11 +75,7 @@ export const contactComposite = /* glsl */`
   uniform vec2 contactSize;
   uniform float contactStrength;
   uniform float contactRadius;
-  uniform mat4 inverseProjection;
-  float viewZ(float depth) {
-    vec4 pos = inverseProjection * vec4(0.0, 0.0, depth * 2.0 - 1.0, 1.0);
-    return pos.z / pos.w;
-  }
+  ${readDepth}
   float contactAt(vec2 uv, float centerZ, float weight, inout float totalWeight) {
     float depth = texture2D(sceneDepth, uv).r;
     if (depth >= 1.0) return 0.0;
@@ -91,7 +101,8 @@ export const contactComposite = /* glsl */`
 `;
 
 export class ContactOcclusion {
-  constructor(pass, sceneDepth, texel, config) {
+  constructor(pass, sceneDepth, texel, config, logarithmicDepth) {
+    this.logarithmicDepth = logarithmicDepth;
     this.target = new THREE.WebGLRenderTarget(1, 1, {
       depthBuffer: false, format: THREE.RedFormat,
       minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
@@ -100,13 +111,14 @@ export class ContactOcclusion {
     this.uniforms = {
       sceneDepth: {value: sceneDepth}, texel,
       inverseProjection: {value: new THREE.Matrix4()}, projectionScale: {value: new THREE.Vector2()},
-      radius: {value: config.contactRadius}, perspective: {value: true},
+      radius: {value: config.contactRadius}, perspective: {value: true}, logFar: {value: 0},
     };
     this.material = pass(contactFragment, this.uniforms);
   }
   compositeUniforms(strength) {
     return {
       sceneDepth: this.uniforms.sceneDepth, inverseProjection: this.uniforms.inverseProjection,
+      logFar: this.uniforms.logFar,
       contactRadius: this.uniforms.radius, contactStrength: {value: strength},
       contactMap: {value: this.target.texture}, contactSize: {value: this.size},
     };
@@ -120,6 +132,8 @@ export class ContactOcclusion {
     this.uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
     this.uniforms.projectionScale.value.set(projection[0], projection[5]);
     this.uniforms.perspective.value = !!camera.isPerspectiveCamera;
+    // Three.js stores log2(1 - viewZ) / log2(1 + far) for perspective cameras.
+    this.uniforms.logFar.value = this.logarithmicDepth && camera.isPerspectiveCamera ? Math.log2(1 + camera.far) : 0;
     draw(this.material, this.target);
   }
   dispose() {

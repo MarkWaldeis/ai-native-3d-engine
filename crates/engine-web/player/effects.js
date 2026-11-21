@@ -97,7 +97,7 @@ export class GameEffects {
     if (this.nature && this.nature.level !== this.level) this.nature.setQuality(this.level);
   }
   render(camera) {
-    if (this.hdr) this.hdr.render(this.scene, camera);
+    if (this.hdr) this.hdr.render(this.scene, camera, this.frameDelta);
     else this.renderer.render(this.scene, camera);
   }
   decorate(group) {
@@ -113,11 +113,13 @@ export class GameEffects {
     this.particles = this.particles.slice(-96);
   }
   reset() {
+    this.hdr?.resetExposure();
     this.localLights?.reset();
     this.nature?.clearTiles();
     this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = this.fast = 0;
   }
   update(elapsed, objects, camera, active, frameElapsed = elapsed, shadowTarget) {
+    this.frameDelta = Math.min(frameElapsed, 0.25);
     this.time += elapsed;
     if (this.level > 0 || ++this.shadowFrame % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
     for (const [id, group] of objects) {
