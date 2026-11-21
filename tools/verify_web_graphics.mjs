@@ -45,6 +45,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const renderer = new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: false });
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       const pipeline = new HDRPipeline(renderer, { bloomStrength: 0.75, bloomThreshold: 1.1 });
+      const noBloom = new HDRPipeline(renderer, { bloomStrength: 0, bloomThreshold: 1.1 });
       const gl = renderer.getContext();
       const pixels = new Uint8Array(4);
       function sample(level, size, intensity) {
@@ -67,6 +68,14 @@ export async function verifyGraphics(browser, base, errors, shots) {
         }
         return { intermediate, center };
       }
+      function filmic(level, mapping) {
+        renderer.toneMapping = mapping;
+        noBloom.resize(level, 192, 192, 1);
+        noBloom.render(scene, camera);
+        gl.readPixels(96, 96, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return { rgb: Array.from(pixels.slice(0, 3)), hdr: !!noBloom.sceneTarget,
+          bloom: !!noBloom.bright, calls: renderer.info.render.calls };
+      }
       try {
         const high = sample(2, 192, 6), low = sample(0, 192, 6), dim = sample(1, 128, 0.1);
         const panel = scene.children[0];
@@ -80,9 +89,12 @@ export async function verifyGraphics(browser, base, errors, shots) {
         material.emissive.setHex(0xff4200);
         pipeline.release(); pipeline.supported = false;
         const unsupported = sample(2, 192, 6);
-        return { high, low, dim, sharp, smoothed, balanced, unsupported, glError: gl.getError() };
+        const aces = filmic(2, THREE.ACESFilmicToneMapping);
+        const agx = filmic(2, THREE.AgXToneMapping);
+        const directAgx = filmic(0, THREE.AgXToneMapping);
+        return { high, low, dim, sharp, smoothed, balanced, unsupported, aces, agx, directAgx, glError: gl.getError() };
       } finally {
-        pipeline.release(); geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
+        noBloom.release(); pipeline.release(); geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
       }
     });
     assert.equal(result.glError, 0, 'postprocessing must not generate WebGL errors');
@@ -93,6 +105,9 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.smoothed.intermediate > result.sharp.intermediate + 100, JSON.stringify(result));
     assert.equal(result.smoothed.center, result.sharp.center, 'edge filtering leaves the uniform interior unchanged');
     assert.deepEqual(result.balanced, result.sharp, 'the balanced tier does not run edge filtering');
+    assert.ok(result.agx.hdr && !result.agx.bloom && result.agx.calls === 2, JSON.stringify(result));
+    assert.ok(result.agx.rgb.some((channel, i) => Math.abs(channel - result.aces.rgb[i]) > 20), 'AgX changes the highlight response');
+    assert.ok(result.agx.rgb.every((channel, i) => Math.abs(channel - result.directAgx.rgb[i]) <= 2), 'direct and HDR compositing apply AgX once');
     console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
 
     const studio = `${base}/material_studio`;
@@ -155,6 +170,16 @@ export async function verifyGraphics(browser, base, errors, shots) {
       callback(scene);
       await route.fulfill({ response, json: scene });
     };
+    const agxToneMapping = patchScene(scene => {
+      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.tone_mapping = 'agx';
+    });
+    await page.route(background, agxToneMapping);
+    const agxStudio = await render();
+    await page.screenshot({ path: `${shots}/material-studio-agx.png` });
+    await page.unroute(background, agxToneMapping);
+    assert.equal(agxStudio.error, 0);
+    assert.notDeepEqual(agxStudio.pixels, reflected.pixels, 'the exported ai_graphics setting selects AgX');
+    console.log('PASS filmic output: authored AgX on WebGL, direct/HDR parity and bloom-free Ultra compositing');
     const noLights = patchScene(scene => {
       for (const entity of scene.entities) delete entity.props?.ai_light;
     });

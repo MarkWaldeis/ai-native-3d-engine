@@ -41,7 +41,8 @@ export class GameEffects {
     gradient.addColorStop(1, graphics?.ground || '#f1d7b0'); context.fillStyle = gradient; context.fillRect(0, 0, 16, 256);
     scene.background = new THREE.CanvasTexture(canvas); scene.background.colorSpace = THREE.SRGBColorSpace;
     scene.fog = new THREE.Fog(graphics?.horizon || skyColor || '#b6ced8', 12, 55);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = graphics?.exposure ?? 1.12;
+    renderer.toneMapping = graphics?.toneMapping === 'agx' ? THREE.AgXToneMapping : THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = graphics?.exposure ?? 1.12;
     if (graphics) this.hdr = new HDRPipeline(renderer, graphics);
     scene.add(new THREE.HemisphereLight(graphics?.sky || 0xd9f4ff, graphics?.ground || 0x546445, graphics ? 1.25 : 2));
     this.sun = new THREE.DirectionalLight(graphics?.sunColor || 0xffe6b5, graphics?.sunIntensity ?? 3.2); this.sun.castShadow = this.sun.intensity > 0;

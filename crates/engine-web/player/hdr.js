@@ -44,10 +44,14 @@ const blur = /* glsl */`
 `;
 
 const composite = /* glsl */`
+  #include <common>
+  #include <dithering_pars_fragment>
   uniform sampler2D image;
+  #ifdef BLOOM
   uniform sampler2D bloom;
-  uniform vec2 texel;
   uniform float strength;
+  #endif
+  uniform vec2 texel;
   varying vec2 vUv;
   #ifdef EDGE_AA
   float perceptualLuma(vec3 color) {
@@ -78,15 +82,19 @@ const composite = /* glsl */`
     #ifdef EDGE_AA
     color = smoothEdges(color);
     #endif
-    gl_FragColor = vec4(color + texture2D(bloom, vUv).rgb * strength, 1.0);
+    #ifdef BLOOM
+    color += texture2D(bloom, vUv).rgb * strength;
+    #endif
+    gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
+    #include <dithering_fragment>
   }
 `;
 
 function pass(fragmentShader, uniforms, toneMapped = false) {
   return new THREE.ShaderMaterial({
-    vertexShader, fragmentShader, uniforms, toneMapped,
+    vertexShader, fragmentShader, uniforms, toneMapped, dithering: toneMapped,
     depthTest: false, depthWrite: false, blending: THREE.NoBlending,
   });
 }
@@ -106,8 +114,8 @@ export class HDRPipeline {
   }
 
   resize(level, width, height, pixelRatio) {
-    const settings = hdrSettings(level, this.supported, this.strength, width, height, pixelRatio);
-    if (settings.enabled && !this.sceneTarget) this.init();
+    const settings = hdrSettings(level, this.supported, this.strength, width, height, pixelRatio, this.edgeAA);
+    if (settings.enabled && !this.sceneTarget) this.init(settings.bloom);
     if (!settings.enabled) this.release();
     const renderer = this.renderer;
     renderer.setPixelRatio(this.sceneTarget ? settings.pixelRatio : pixelRatio);
@@ -116,17 +124,20 @@ export class HDRPipeline {
     renderer.getDrawingBufferSize(this.size);
     const w = Math.max(1, this.size.x), h = Math.max(1, this.size.y);
     this.sceneTarget.setSize(w, h);
-    this.prefilter.uniforms.texel.value.set(1 / w, 1 / h);
+    this.composite.uniforms.texel.value.set(1 / w, 1 / h);
     const edgeAA = this.edgeAA && level === 2;
     if (edgeAA !== ('EDGE_AA' in this.composite.defines)) {
-      this.composite.defines = edgeAA ? { EDGE_AA: 1 } : {};
+      if (edgeAA) this.composite.defines.EDGE_AA = 1;
+      else delete this.composite.defines.EDGE_AA;
       this.composite.needsUpdate = true;
     }
-    const bw = Math.max(1, Math.ceil(w * settings.bloomScale)), bh = Math.max(1, Math.ceil(h * settings.bloomScale));
-    this.bright.setSize(bw, bh); this.scratch.setSize(bw, bh);
+    if (settings.bloom) {
+      const bw = Math.max(1, Math.ceil(w * settings.bloomScale)), bh = Math.max(1, Math.ceil(h * settings.bloomScale));
+      this.bright.setSize(bw, bh); this.scratch.setSize(bw, bh);
+    }
   }
 
-  init() {
+  init(bloomEnabled) {
     const renderer = this.renderer, gl = renderer.getContext();
     this.sceneTarget = target(true);
     const prev = renderer.getRenderTarget();
@@ -140,26 +151,30 @@ export class HDRPipeline {
       this.sceneTarget.dispose(); this.sceneTarget = null;
       return;
     }
-    this.bright = target(false); this.scratch = target(false);
-    this.prefilter = pass(prefilter, {
-      image: {value: this.sceneTarget.texture}, texel: {value: new THREE.Vector2()}, threshold: {value: this.threshold},
-    });
-    this.blur = pass(blur, { image: {value: null}, stepSize: {value: new THREE.Vector2()} });
+    const texel = {value: new THREE.Vector2()};
+    if (bloomEnabled) {
+      this.bright = target(false); this.scratch = target(false);
+      this.prefilter = pass(prefilter, {
+        image: {value: this.sceneTarget.texture}, texel, threshold: {value: this.threshold},
+      });
+      this.blur = pass(blur, { image: {value: null}, stepSize: {value: new THREE.Vector2()} });
+    }
     this.composite = pass(composite, {
-      image: {value: this.sceneTarget.texture}, bloom: {value: this.bright.texture},
-      strength: {value: this.strength}, texel: this.prefilter.uniforms.texel,
+      image: {value: this.sceneTarget.texture}, bloom: {value: this.bright?.texture},
+      strength: {value: this.strength}, texel,
     }, true);
+    if (bloomEnabled) this.composite.defines.BLOOM = 1;
     this.quadScene = new THREE.Scene(); this.camera = new THREE.Camera();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
-    this.quad = new THREE.Mesh(geometry, this.prefilter);
+    this.quad = new THREE.Mesh(geometry, this.composite);
     this.quad.frustumCulled = false;
     this.quadScene.add(this.quad);
   }
 
   release() {
     if (!this.sceneTarget) return;
-    for (const resource of [this.sceneTarget, this.bright, this.scratch, this.prefilter, this.blur, this.composite, this.quad.geometry]) resource.dispose();
+    for (const resource of [this.sceneTarget, this.bright, this.scratch, this.prefilter, this.blur, this.composite, this.quad.geometry]) resource?.dispose();
     this.sceneTarget = this.bright = this.scratch = null;
     this.quadScene = this.camera = this.quad = this.prefilter = this.blur = this.composite = null;
   }
@@ -177,13 +192,15 @@ export class HDRPipeline {
     };
     try {
       renderer.setRenderTarget(this.sceneTarget); renderer.render(scene, camera);
-      draw(this.prefilter, this.bright);
-      this.blur.uniforms.image.value = this.bright.texture;
-      this.blur.uniforms.stepSize.value.set(1 / this.bright.width, 0);
-      draw(this.blur, this.scratch);
-      this.blur.uniforms.image.value = this.scratch.texture;
-      this.blur.uniforms.stepSize.value.set(0, 1 / this.bright.height);
-      draw(this.blur, this.bright);
+      if (this.bright) {
+        draw(this.prefilter, this.bright);
+        this.blur.uniforms.image.value = this.bright.texture;
+        this.blur.uniforms.stepSize.value.set(1 / this.bright.width, 0);
+        draw(this.blur, this.scratch);
+        this.blur.uniforms.image.value = this.scratch.texture;
+        this.blur.uniforms.stepSize.value.set(0, 1 / this.bright.height);
+        draw(this.blur, this.bright);
+      }
       draw(this.composite, previous);
     } finally {
       renderer.setRenderTarget(previous);

@@ -25,7 +25,8 @@ The sun direction points **from the scene to the sun**, in engine X/Y/Z
 coordinates (Y up). The horizon color also sets the fog color. The sky generates
 a prefiltered environment map for diffuse and specular lighting on PBR
 materials, including existing GLBs. Zero environment intensity disables
-the environment lighting; zero bloom strength disables the post-process.
+the environment lighting. Zero bloom strength skips all bloom passes and
+allocates no bloom targets; Ultra can still run edge smoothing.
 
 For authored reflections, set `environment_map` in `ai_graphics` to a
 project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
@@ -61,7 +62,11 @@ to disable this filter; it is not used on lower tiers or in direct rendering.
 All enhanced tiers align the moving sun shadow map to its texel grid, reducing
 shadow shimmer as the camera follows the player.
 If HDR targets aren't supported, the player uses direct rendering and
-standard lighting without HDR bloom. ACES tone mapping outputs to sRGB.
+standard lighting without HDR bloom. ACES is the default tone mapper. Set
+`tone_mapping: "agx"` inside `ai_graphics` to apply a softer highlight rolloff
+to bright saturated materials and lights. Both curves respect `exposure` and
+work on direct and HDR paths. The HDR composite dithers the final sRGB output
+to reduce visible banding in gradients.
 
 For primitives, set `props.ai_material` (object or JSON string) to supply
 `roughness`, `metalness`, `clearcoat`, and `clearcoat_roughness` (all 0–1).

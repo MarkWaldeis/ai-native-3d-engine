@@ -43,6 +43,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     environmentMap: config.environment_map === 'assets/environment.hdr' ? config.environment_map : null,
     environmentBackground: config.environment_background !== false,
     exposure: bounded(config.exposure, 1, 0.1, 4),
+    toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
     hdrAntialias: config.hdr_antialias !== false,
     bloomStrength: bounded(config.bloom_strength, 0.22, 0, 2),
     bloomThreshold: bounded(config.bloom_threshold, 1.1, 0, 8),
@@ -52,10 +53,11 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
   };
 }
 
-export function hdrSettings(level, supported, strength, width, height, pixelRatio) {
-  const enabled = level > 0 && supported && strength > 0;
+export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false) {
+  const bloom = level > 0 && supported && strength > 0;
+  const enabled = bloom || (level === 2 && supported && antialias);
   return {
-    enabled,
+    enabled, bloom,
     pixelRatio: enabled ? Math.min(pixelRatio, Math.sqrt(2_600_000 / (width * height))) : pixelRatio,
     bloomScale: level === 2 ? 0.5 : 0.25,
   };
