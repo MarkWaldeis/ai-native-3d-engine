@@ -301,14 +301,41 @@ def build(scene, rng, density, with_terrain_entity):
         E.asset(name, label, x, z, yaw, collider={"shape": "mesh"}, tags=["cover"])
         covers.append((x, z))
 
+    def blast_prop(name, label, x, z, yaw=0.0):
+        barrel = label == "barrel"
+        half = [0.33, 0.47, 0.33] if barrel else [0.60, 0.60, 0.60]
+        e = E.asset(name, label, x, z, yaw, tags=["blast_prop"],
+                    rigidbody={"type": "dynamic", "mass": 9 if barrel else 12, "friction": 0.7},
+                    props={"ai_physics": {"collider": {"shape": "compound", "parts": [
+                        {"shape": "box", "half_extents": half, "position": [0, half[1], 0]},
+                    ]}, "ccd": True}})
+        if barrel:
+            e["props"]["ai_health"] = 25
+            e["script"] = f"{GAME}/scripts/barrel.rhai"
+
     enemies = []
 
     def soldier(name, x, z, group, extra_tags=()):
         e = E.asset(name, "soldier", x, z, rng.uniform(0, 360), lift=0.0,
                     tags=["enemy", "soldier", f"grp_{group}", *extra_tags],
                     script=f"{GAME}/scripts/soldier.rhai",
-                    collider={"shape": "capsule", "radius": 0.4, "half_height": 0.5},
-                    rigidbody={"type": "kinematic", "mass": 80})
+                    color=[0.49, 0.52, 0.32, 1],
+                    rigidbody={"type": "kinematic", "mass": 80},
+                    props={"ai_physics": {
+                        "collider": {"shape": "compound", "parts": [
+                            {"shape": "capsule", "radius": 0.29, "half_height": 0.59,
+                             "position": [0, 0.89, 0]},
+                        ]},
+                        "hitboxes": [
+                            {"name": "head", "shape": {"shape": "sphere", "radius": 0.185},
+                             "position": [0, 1.66, 0], "damage_multiplier": 2},
+                            {"name": "torso", "shape": {"shape": "box", "half_extents": [0.32, 0.29, 0.27]},
+                             "position": [0, 1.19, 0.075]},
+                            {"name": "pelvis", "shape": {"shape": "box", "half_extents": [0.25, 0.43, 0.18]},
+                             "position": [0, 0.47, 0]},
+                        ],
+                        "ragdoll": {"preset": "humanoid", "offset": [0, 0.91, 0], "activate_on_death": True},
+                    }})
         enemies.append(e)
 
     def drone(name, x, z, group):
@@ -335,9 +362,9 @@ def build(scene, rng, density, with_terrain_entity):
             a = k / 10 * math.tau
             cover(f"{label}-sandbags-{k}", "sandbags", cx + 42 * math.cos(a), cz + 42 * math.sin(a), -math.degrees(a) + 90)
         for k in range(8):
-            cover(f"{label}-crate-{k}", "crate", cx + rng.uniform(-25, 25), cz + rng.uniform(-25, 25), rng.uniform(0, 90))
+            blast_prop(f"{label}-crate-{k}", "crate", cx + rng.uniform(-25, 25), cz + rng.uniform(-25, 25), rng.uniform(0, 90))
         for k in range(5):
-            E.asset(f"{label}-barrel-{k}", "barrel", cx + rng.uniform(-28, 28), cz + rng.uniform(-28, 28), 0.0)
+            blast_prop(f"{label}-barrel-{k}", "barrel", cx + rng.uniform(-28, 28), cz + rng.uniform(-28, 28))
         for k in range(soldiers):
             a = k / soldiers * math.tau + 0.3
             soldier(f"{label}-soldier-{k}", cx + 20 * math.cos(a), cz + 20 * math.sin(a), label)
@@ -352,7 +379,7 @@ def build(scene, rng, density, with_terrain_entity):
     # Landing zone Echo.
     E.asset("lz-jeep", "jeep_wreck", LZ[0] - 8, LZ[1] + 4, 35.0, collider={"shape": "mesh"})
     for k in range(4):
-        cover(f"lz-crate-{k}", "crate", LZ[0] + 5 + k * 1.4, LZ[1] - 6, 0.0)
+        blast_prop(f"lz-crate-{k}", "crate", LZ[0] + 5 + k * 1.4, LZ[1] - 6)
     pickup("ammo", LZ[0] + 4, LZ[1] + 8)
     pickup("health", LZ[0] + 8, LZ[1] + 4)
 
@@ -469,6 +496,7 @@ def build(scene, rng, density, with_terrain_entity):
                         collider={"shape": "mesh"}, tags=["cover"] if rock_i % 4 == 0 else None)
                 rock_i += 1
     landing_jungle(E)
+    blast_prop("lz-barrel", "barrel", LZ[0] + 10, LZ[1] - 3)
     for label, x, z in [("bridge", river_x(-1700.0) + 90.0, -1700.0),
                          ("alpha", -300.0, -2100.0),
                          ("town", 900.0, -400.0),

@@ -100,13 +100,21 @@ omitted, an impulse is derived from the hit's normal and damage.
 ## Humanoid ragdoll
 
 Set `ai_physics.ragdoll: {"preset":"humanoid"}` on a root entity at pelvis
-height. Options: `scale` (uniform preset scale), `start_active` (default
+height. A feet-origin model can set `offset` to the local position of the
+pelvis (default `[0,0,0]`). Options: `scale` (uniform preset scale), `start_active` (default
 false), and `activate_on_death` (default true). The preset uses 11 Rapier
 capsule bodies with limited joints. Activation swaps out the root collider
 and transfers linear velocity to the limbs. The pelvis drives the root
 transform and ray hits use the root entity ID and part name. Deactivation
-removes the limbs and restores the original root collider at the pelvis with
-its pre-ragdoll orientation and zero velocity.
+removes the limbs and restores the original root collider relative to the
+pelvis, accounting for the offset, with its pre-ragdoll orientation and zero velocity.
+Loading a save rebuilds ragdolls that activate on death in a lying pose at
+their saved pelvis position, rather than restoring individual limb poses.
+Deactivating one of these rebuilt ragdolls restores the authored root transform
+if it exists.
+
+`ctx.apply_impulse(vector)` pushes the script's own body;
+`ctx.apply_impulse(id, vector)` pushes another body.
 
 In Rhai, `ctx.set_ragdoll(true)` or `ctx.set_ragdoll(id, true)` queues
 activation; pass `false` to deactivate. `ctx.ragdoll_active(id)` reads the

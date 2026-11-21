@@ -4,7 +4,10 @@ use anyhow::{ensure, Context, Result};
 use rapier3d::prelude::*;
 use serde::Serialize;
 use serde_json::{json, Value};
-use shared::{components::RigidBody as BodyConfig, scene::Entity};
+use shared::{
+    components::RigidBody as BodyConfig,
+    scene::{Entity, Transform},
+};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 const MAX_PHYSICS_EVENTS: usize = 256;
@@ -37,6 +40,7 @@ struct Rig {
     groups: InteractionGroups,
     parts: Vec<(RigidBodyHandle, ColliderHandle)>,
     upright: Rotation<Real>,
+    reset_pose: Option<Isometry<Real>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -187,6 +191,7 @@ impl Physics {
                     groups: config.groups.into(),
                     parts: vec![],
                     upright: pose(&entity.transform).rotation,
+                    reset_pose: None,
                 },
             );
             if start_active {
@@ -252,6 +257,21 @@ impl Physics {
             .is_some_and(|rig| rig.config.activate_on_death)
     }
 
+    pub(crate) fn restore_dead_ragdoll(
+        &mut self,
+        id: u64,
+        transform: &mut Transform,
+        authored: Option<&Transform>,
+    ) -> Result<()> {
+        self.set_ragdoll(id, true)?;
+        let rig = self.gameplay.rigs.get_mut(&id).expect("activated rig");
+        rig.reset_pose = authored.map(pose);
+        rig.upright = Rotation::identity();
+        let yaw = authored.map_or(0.0, |transform| transform.rotation_deg[1]);
+        transform.rotation_deg = [90.0, yaw, 0.0];
+        Ok(())
+    }
+
     pub(super) fn set_ragdoll(&mut self, id: u64, active: bool) -> Result<()> {
         let rig = self
             .gameplay
@@ -263,18 +283,19 @@ impl Physics {
         }
         let root = self.handles[&id];
         if !active {
-            let position = *self.bodies[rig.parts[0].0].translation();
-            let upright = rig.upright;
+            let reset_pose = rig.reset_pose.take().unwrap_or_else(|| {
+                let upright = rig.upright;
+                let position = self.bodies[rig.parts[0].0].translation()
+                    - upright * Vector::from(rig.config.offset);
+                Isometry::from_parts(Translation::from(position), upright)
+            });
             for (body, collider) in std::mem::take(&mut rig.parts) {
                 self.gameplay.hitboxes.remove(&collider);
                 self.remove_body(body);
             }
             self.gameplay.active_rigs -= 1;
             let root = &mut self.bodies[root];
-            root.set_position(
-                Isometry::from_parts(Translation::from(position), upright),
-                true,
-            );
+            root.set_position(reset_pose, true);
             root.set_linvel(Vector::zeros(), true);
             root.set_angvel(Vector::zeros(), true);
             set_body_enabled(root, &mut self.colliders, true);
@@ -288,6 +309,9 @@ impl Physics {
         let root_body = &mut self.bodies[root];
         let (position, velocity) = (*root_body.position(), *root_body.linvel());
         rig.upright = position.rotation;
+        let position = position * Isometry::translation(
+            rig.config.offset[0], rig.config.offset[1], rig.config.offset[2],
+        );
         root_body.set_enabled(false);
         for part in parts {
             let body = self.bodies.insert(

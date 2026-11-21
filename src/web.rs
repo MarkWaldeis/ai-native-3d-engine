@@ -13,9 +13,12 @@ use std::{
 };
 
 const PLAYER_FILES: &[(&str, &str)] = &[
+    ("audio.js", include_str!("../crates/engine-web/player/audio.js")),
     ("net.js", include_str!("../crates/engine-web/player/net.js")),
     ("input.js", include_str!("../crates/engine-web/player/input.js")),
     ("input-settings.js", include_str!("../crates/engine-web/player/input-settings.js")),
+    ("ui-nav.js", include_str!("../crates/engine-web/player/ui-nav.js")),
+    ("ui-navigation.js", include_str!("../crates/engine-web/player/ui-navigation.js")),
     ("touch.js", include_str!("../crates/engine-web/player/touch.js")),
     ("touch-controls.js", include_str!("../crates/engine-web/player/touch-controls.js")),
     ("animation.js", include_str!("../crates/engine-web/player/animation.js")),
@@ -318,6 +321,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
             entity.props["ai_viewmodel"] = json!(assets[&original]);
         }
     }
+    let audio_assets = bundle_audio(&mut scene, &root, &mut files)?;
     let has_environment = bundle_environment(&mut scene, &root, &mut files)?;
     let material_maps = bundle_material_maps(&mut scene, &root, &mut files)?;
     if let Some(mesh)=&scene.navmesh {files.insert("navigation.nav.json".into(),serde_json::to_vec(mesh)?);}
@@ -336,8 +340,54 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
         std::fs::write(path, bytes)?;
     }
     Ok(
-        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":content.values().map(Vec::len).sum::<usize>() + usize::from(has_environment) + material_maps,"terrain":terrains.len(),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
+        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":content.values().map(Vec::len).sum::<usize>() + usize::from(has_environment) + material_maps,"audio":audio_assets,"terrain":terrains.len(),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
     )
+}
+
+fn bundle_audio(scene: &mut Scene, root: &Path, files: &mut BTreeMap<String, Vec<u8>>) -> Result<usize> {
+    let mut paths = BTreeMap::<String, String>::new();
+    let mut targets = Vec::<String>::new();
+    let mut rewrite = |config: &mut Value| -> Result<()> {
+        let Some(src) = config.get_mut("src") else { return Ok(()); };
+        let original = src.as_str().context("audio src must be a project-relative audio path")?.to_owned();
+        if let Some(target) = paths.get(&original) { *src = json!(target); return Ok(()); }
+        let path = Path::new(&original);
+        anyhow::ensure!(
+            !original.is_empty() && path.is_relative() && !original.contains(':') && !original.contains('\\') && !original.starts_with('/'),
+            "audio src must be a project-relative audio path (no URLs or absolute paths): {original}"
+        );
+        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        anyhow::ensure!(matches!(extension.as_str(), "ogg" | "mp3" | "wav" | "m4a" | "opus" | "flac" | "webm" | "aac"), "unsupported audio extension: {original}");
+        let file = engine_core::project_path(root, path).with_context(|| format!("invalid audio src: {original}"))?;
+        let bytes = std::fs::read(file).with_context(|| format!("missing audio asset: {original}"))?;
+        let target = if let Some(target) = targets.iter().find(|target| files[*target] == bytes) {
+            target.clone()
+        } else {
+            let target = format!("audio/{}.{}", targets.len(), extension);
+            files.insert(target.clone(), bytes);
+            targets.push(target.clone());
+            target
+        };
+        paths.insert(original, target.clone());
+        *src = json!(target);
+        Ok(())
+    };
+    for entity in &mut scene.entities {
+        for key in ["ai_sound", "ai_audio"] {
+            if key == "ai_audio" && !entity.tags.iter().any(|tag| tag == "player") { continue; }
+            let Some(authored) = entity.props.get_mut(key) else { continue; };
+            let was_string = authored.is_string();
+            let mut config = if let Some(text) = authored.as_str() {
+                serde_json::from_str(text).with_context(|| format!("invalid {key} JSON on {}", entity.name))?
+            } else { authored.clone() };
+            if key == "ai_sound" { rewrite(&mut config)?; }
+            else if let Some(layers) = config.pointer_mut("/music/layers") {
+                for layer in layers.as_array_mut().context("ai_audio.music.layers must be an array")? { rewrite(layer)?; }
+            }
+            *authored = if was_string { Value::String(serde_json::to_string(&config)?) } else { config };
+        }
+    }
+    Ok(targets.len())
 }
 
 fn bundle_material_maps(

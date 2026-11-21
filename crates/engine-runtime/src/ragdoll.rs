@@ -9,6 +9,7 @@ pub(crate) struct Config {
     pub start_active: bool,
     pub activate_on_death: bool,
     pub scale: f32,
+    pub offset: [f32; 3],
 }
 
 #[derive(Clone, Deserialize)]
@@ -24,6 +25,7 @@ impl Default for Config {
             start_active: false,
             activate_on_death: true,
             scale: 1.0,
+            offset: [0.0; 3],
         }
     }
 }
@@ -33,6 +35,10 @@ impl Config {
         ensure!(
             self.scale.is_finite() && (0.1..=10.0).contains(&self.scale),
             "ragdoll scale must be in [0.1, 10]"
+        );
+        ensure!(
+            self.offset.into_iter().all(|value| value.is_finite() && value.abs() <= 1.0e6),
+            "invalid ragdoll offset"
         );
         Ok(match self.preset {
             Preset::Humanoid => &HUMANOID,

@@ -26,7 +26,7 @@ function setup(pathname = '/game/') {
     return elements.get(id);
   };
   const context = vm.createContext({
-    window, location: { pathname }, ready: true, netEndpoint: null, console, $, setTimeout: () => 1, clearTimeout() {},
+    window, location: { pathname }, ready: true, netEndpoint: null, inputSettings: { open: false }, console, $, setTimeout: () => 1, clearTimeout() {},
     game: { save_game: () => '{"version":1}' },
     localStorage: { setItem: (k, v) => values.set(k, v), getItem: k => values.get(k) ?? null },
     restart: async save => loaded.push(save), startRunning: () => loaded.push('running'),
@@ -125,4 +125,13 @@ test('multiplayer pause menu disables both save controls with a German hint', ()
   vm.runInContext('updateSaveMenu()', context);
   assert.equal($('save-game').disabled, false);
   assert.equal($('load-game').disabled, false);
+});
+
+test('save hotkeys do not dismiss an open settings dialog or navigate the browser', async () => {
+  const { context, window, loaded, values } = setup();
+  context.inputSettings.open = true;
+  let prevented = 0;
+  for (const code of ['F5', 'F9']) window.keydown({ code, repeat: false, preventDefault: () => prevented++ });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(prevented, 2); assert.equal(values.size, 0); assert.deepEqual(loaded, []);
 });
