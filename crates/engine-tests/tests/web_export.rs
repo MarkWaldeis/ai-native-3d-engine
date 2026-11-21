@@ -79,6 +79,8 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "index.html",
         "favicon.svg",
         "player.js",
+        "input.js",
+        "input-settings.js",
         "nature.js",
         "nature-settings.js",
         "streaming.js",
