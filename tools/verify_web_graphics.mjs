@@ -356,14 +356,21 @@ export async function verifyGraphics(browser, base, errors, shots) {
         };
       });
     };
+    const materialImages = new Map();
+    const collectMaterial = response => {
+      if (response.url().startsWith(`${studio}/assets/material/`)) materialImages.set(response.url(), response.status());
+    };
+    page.on('response', collectMaterial);
     const [loaded, floor, reflected] = await Promise.all([
       page.waitForResponse(map), page.waitForResponse(response => response.url().startsWith(studio) && response.url().endsWith('.glb')), render(),
     ]);
+    page.off('response', collectMaterial);
     await page.screenshot({ path: `${shots}/material-studio-contact.png` });
     assert.equal(loaded.status(), 200, 'the exported panorama is loaded from its bundle');
     assert.equal(floor.status(), 200, 'the textured floor loads from a bundled GLB');
     assert.equal(reflected.title, 'Materiallabor');
     assert.equal(reflected.error, 0);
+    assert.deepEqual([...materialImages.values()], [200, 200, 200], 'studio loads the three bundled wall images');
     if (reflected.maximumAnisotropy > 1) {
       assert.ok(reflected.sampledAnisotropy.includes(Math.min(8, reflected.maximumAnisotropy)), 'the Ultra studio applies anisotropy to its WebGL sampler');
       console.log('PASS GLB textures: bundled textured floor applies the supported Ultra anisotropy');
@@ -386,6 +393,16 @@ export async function verifyGraphics(browser, base, errors, shots) {
       callback(scene);
       await route.fulfill({ response, json: scene });
     };
+    const noMaterialMaps = patchScene(scene => {
+      delete scene.entities.find(entity => entity.name === 'rear-wall').props.ai_material;
+    });
+    await page.route(background, noMaterialMaps);
+    const flatWall = await render();
+    await page.unroute(background, noMaterialMaps);
+    assert.equal(flatWall.error, 0);
+    const materialDelta = reflected.pixels.reduce((sum, value, i) => sum + Math.abs(value - flatWall.pixels[i]), 0);
+    assert.ok(materialDelta > 1000, `bundled primitive maps change the image: ${materialDelta}`);
+    console.log('PASS primitive maps: bundled sRGB, normal and ORM images shade the tiled studio wall');
     const noContact = patchScene(scene => {
       scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.contact_occlusion = 0;
     });

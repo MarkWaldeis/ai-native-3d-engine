@@ -73,15 +73,30 @@ export function hdrSettings(level, supported, strength, width, height, pixelRati
   };
 }
 
-export function materialSettings(authored) {
+export function materialMapSettings(authored) {
+  const value = object(authored);
+  if (!value) return null;
+  const path = key => typeof value[key] === 'string' && /^assets\/material\/\d+\.png$/.test(value[key]) ? value[key] : null;
+  const map = path('base_color_map'), normalMap = path('normal_map'), ormMap = path('orm_map');
+  if (!map && !normalMap && !ormMap) return null;
+  const repeat = value.uv_repeat;
+  return {
+    map, normalMap, ormMap,
+    repeat: Array.isArray(repeat) && repeat.length === 2
+      ? repeat.map(n => bounded(n, 1, 1 / 16, 64)) : [1, 1],
+    normalScale: normalMap ? bounded(value.normal_scale, 1, 0, 2) : 1,
+  };
+}
+
+export function materialSettings(authored, packedOrm = false) {
   const value = object(authored);
   const anisotropy = bounded(value?.anisotropy, 0, 0, 1);
   const sheen = bounded(value?.sheen, 0, 0, 1);
   const iridescence = bounded(value?.iridescence, 0, 0, 1);
   const film = bounded(value?.iridescence_thickness_nm, 400, 100, 1200);
   return {
-    roughness: bounded(value?.roughness, 0.55, 0, 1),
-    metalness: bounded(value?.metalness, 0.08, 0, 1),
+    roughness: bounded(value?.roughness, packedOrm ? 1 : 0.55, 0, 1),
+    metalness: bounded(value?.metalness, packedOrm ? 1 : 0.08, 0, 1),
     emissive: hex(value?.emissive, '#000000').toLowerCase(),
     emissiveIntensity: bounded(value?.emissive_intensity, 1, 0, 32),
     clearcoat: bounded(value?.clearcoat, 0, 0, 1),

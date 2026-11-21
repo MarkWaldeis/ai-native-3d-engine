@@ -108,6 +108,30 @@ with up to 4× and 8× anisotropic filtering respectively, within GPU limits.
 The filtering is fixed at the starting tier so automatic quality changes don't
 re-upload textures. Nearest-filtered, low and legacy assets keep their sampling.
 
+### Textures on primitives
+
+Use local material maps without converting a primitive into a GLB:
+
+```json
+{"ai_material":{"base_color_map":"assets/stone-color.png","normal_map":"assets/stone-normal.png","orm_map":"assets/stone-orm.png","uv_repeat":[4,2]}}
+```
+
+Base color is sRGB and multiplied by the entity's linear `color`. The other
+maps are linear data: `normal_map` uses tangent-space +Y (OpenGL), with optional
+`normal_scale` (0–2, default 1). Pack ambient occlusion, roughness, and metalness
+into the red, green, and blue channels of `orm_map`. An ORM map sets the
+default roughness and metalness multipliers to 1; explicit scalars still apply.
+Maps use the primitive's UVs; `uv_repeat` gives the U/V tile counts (1/16–64,
+default [1,1]). Base color alpha does not enable transparency.
+
+The offline exporter validates and bundles project-relative, static 8-bit
+PNGs (up to 4096×4096 and 16 MiB each). Unique maps can total up to 128 MiB
+and 32 Mi pixels. Instances with different maps or repeats use distinct batches
+but share image pixels. If a bundled image is unavailable at runtime, the
+material uses its remaining maps and scalar values. GLB materials are unchanged.
+The [material studio](web_material_maps.png) uses a tiled slate wall generated
+by its map generator.
+
 To light nearby surfaces (rather than just glow), give an entity a point light
 with `props.ai_light` (object or JSON string) in an enhanced scene:
 

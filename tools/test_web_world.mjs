@@ -6,9 +6,49 @@ registerHooks({resolve(specifier,context,nextResolve) {
   return nextResolve(specifier === 'three' ? new URL('../crates/engine-web/player/vendor/three.module.js',import.meta.url).href : specifier,context);
 }});
 const THREE = await import('three');
-const {StreamingWorld} = await import('../crates/engine-web/player/world.js');
+const {StreamingWorld,WebAssets} = await import('../crates/engine-web/player/world.js');
 const {worldConfig} = await import('../crates/engine-web/player/streaming.js');
 const {batchKey} = await import('../crates/engine-web/player/streaming.js');
+const {primitiveMaterial} = await import('../crates/engine-web/player/materials.js');
+
+test('primitive maps share source pixels, distinguish UV variants, and work in streaming templates', async () => {
+  const surface = 'assets/material/0.png', packed = 'assets/material/1.png', calls = [];
+  const scene = new THREE.Scene(), assets = new WebAssets(4);
+  const material = {base_color_map:surface, normal_map:surface, orm_map:packed, uv_repeat:[3,2], normal_scale:9};
+  const box = {kind:'box', size:[1,1,1], props:{ai_material:material}};
+  const tiled = {...box, props:{ai_material:{...material, uv_repeat:[4,2], metalness:0.35}}};
+  const model = {kind:'gltf', props:{ai_material:{base_color_map:'assets/material/2.png'}}};
+  const invalid = {...box, props:{ai_material:{base_color_map:'https://example.invalid/color.png'}}};
+  await assets.preloadMaterialMaps([box, tiled, model, invalid], { async loadAsync(path) {
+    calls.push(path);
+    return new THREE.Texture();
+  } });
+  assert.deepEqual(calls, [surface, packed]);
+  const regular = primitiveMaterial(box, assets), alternative = primitiveMaterial(tiled, assets);
+  assert.equal(regular.map.colorSpace, THREE.SRGBColorSpace);
+  assert.equal(regular.normalMap.colorSpace, THREE.NoColorSpace);
+  assert.equal(regular.map.source, regular.normalMap.source);
+  assert.equal(regular.map.source, alternative.map.source);
+  assert.notEqual(regular.map, alternative.map);
+  assert.deepEqual(regular.map.repeat.toArray(), [3,2]);
+  assert.deepEqual(alternative.map.repeat.toArray(), [4,2]);
+  assert.equal(regular.map.wrapS, THREE.RepeatWrapping);
+  assert.equal(regular.map.anisotropy, 4);
+  assert.equal(regular.map.userData.shared, true);
+  assert.deepEqual(regular.normalScale.toArray(), [2,2]);
+  assert.equal(regular.aoMap, regular.roughnessMap);
+  assert.equal(regular.roughnessMap, regular.metalnessMap);
+  assert.equal(regular.roughness, 1);
+  assert.equal(regular.metalness, 1);
+  assert.equal(alternative.metalness, 0.35);
+  const world = new StreamingWorld(scene, {}, worldConfig([{tags:['player'],props:{ai_world:{}}}]), assets);
+  assert.equal((await world.template(box, 0))[0].material.map, regular.map);
+  assert.equal((await world.template(tiled, 1))[0].material.map, alternative.map);
+  assert.notEqual(batchKey(box), batchKey(tiled));
+  const explicitDefaults = {...box, props:{ai_material:{...material, metalness:0.08}}};
+  assert.notEqual(batchKey(box), batchKey(explicitDefaults));
+  assert.equal(primitiveMaterial(box, new WebAssets()).metalness, 0.08, 'use scalar defaults if the image is missing');
+});
 
 function glb(scale) {
   const document={asset:{version:'2.0'},buffers:[{byteLength:36}],bufferViews:[{buffer:0,byteLength:36}],accessors:[{bufferView:0,componentType:5126,count:3,type:'VEC3',min:[0,0,0],max:[scale,scale,0]}],meshes:[{primitives:[{attributes:{POSITION:0}}]}],nodes:[{mesh:0}],scenes:[{nodes:[0]}],scene:0};

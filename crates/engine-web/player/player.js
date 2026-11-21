@@ -83,7 +83,7 @@ function fail(error) {
 }
 
 function mesh(geometry, entity) {
-  const result = new THREE.Mesh(geometry, primitiveMaterial(entity));
+  const result = new THREE.Mesh(geometry, primitiveMaterial(entity, assets));
   return Object.assign(result, sunShadowSettings(entity.props?.ai_sun_shadow));
 }
 
@@ -506,8 +506,8 @@ async function boot() {
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   const preset = new URLSearchParams(location.search).get('quality');
   effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
-  await effects.prepareEnvironment();
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
+  await Promise.all([effects.prepareEnvironment(), assets.preloadMaterialMaps(source.entities)]);
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config,assets);

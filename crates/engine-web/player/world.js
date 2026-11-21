@@ -3,13 +3,15 @@ import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
 import { isCollectible } from './presentation.js';
 import { primitiveMaterial, tuneAssetTextures } from './materials.js';
-import { sunShadowSettings } from './graphics-settings.js';
+import { materialMapSettings, sunShadowSettings } from './graphics-settings.js';
 
 export class WebAssets {
   constructor(anisotropy = 1) {
     this.anisotropy = anisotropy;
     this.cache = new Map();
     this.loader = new GLTFLoader();
+    this.materialSources = new Map();
+    this.materialVariants = new Map();
   }
   load(path) {
     if (!this.cache.has(path)) this.cache.set(path, this.loader.loadAsync(path).then(gltf => {
@@ -17,6 +19,36 @@ export class WebAssets {
       return gltf;
     }));
     return this.cache.get(path);
+  }
+  async preloadMaterialMaps(entities, loader = new THREE.TextureLoader()) {
+    const paths = new Set();
+    for (const entity of entities) {
+      if (entity.kind === 'gltf') continue;
+      const maps = materialMapSettings(entity.props?.ai_material);
+      if (maps) for (const path of [maps.map, maps.normalMap, maps.ormMap]) {
+        if (path) paths.add(path);
+      }
+    }
+    await Promise.all([...paths].map(async path => {
+      try { this.materialSources.set(path, await loader.loadAsync(path)); }
+      catch (error) { console.warn(`Material texture unavailable: ${path}`, error); }
+    }));
+  }
+  materialTexture(path, repeat, colorSpace = THREE.NoColorSpace) {
+    const source = this.materialSources.get(path);
+    if (!source) return null;
+    const key = JSON.stringify([path, repeat, colorSpace]);
+    if (!this.materialVariants.has(key)) {
+      const texture = source.clone();
+      texture.colorSpace = colorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.fromArray(repeat);
+      texture.anisotropy = this.anisotropy;
+      texture.userData.shared = true;
+      texture.needsUpdate = true;
+      this.materialVariants.set(key, texture);
+    }
+    return this.materialVariants.get(key);
   }
 }
 
@@ -49,7 +81,7 @@ export class StreamingWorld {
         case 'cylinder': geometry = new THREE.CylinderGeometry(e.radius,e.radius,e.height,segments); break;
         default: return [];
       }
-      return [{geometry,material:primitiveMaterial(e),matrix:new THREE.Matrix4()}];
+      return [{geometry,material:primitiveMaterial(e,this.assets),matrix:new THREE.Matrix4()}];
     })();
     this.templates.set(key,promise); return promise;
   }
