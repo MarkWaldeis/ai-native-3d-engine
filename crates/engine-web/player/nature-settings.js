@@ -61,8 +61,8 @@ export function foliageExclusion(entities, jungle=false) {
   const cells=new Map(),size=32;
   for(const e of entities) {
     const t=e.transform;
-    if(!t?.position?.every(Number.isFinite))continue;
-    const road=e.kind==='box'&&e.tags?.includes('road')&&Array.isArray(e.size)&&e.size.every(Number.isFinite);
+    if(!Array.isArray(t?.position)||t.position.length!==3||!t.position.every(Number.isFinite))continue;
+    const road=e.kind==='box'&&e.tags?.includes('road')&&Array.isArray(e.size)&&e.size.length===3&&e.size.every(Number.isFinite);
     const tree=jungle&&e.tags?.includes('tree');
     const meshBounds=e.props?.web_mesh_bounds;
     const bounds=jungle&&e.tags?.some(tag=>tag==='building'||tag==='bridge'||tag==='cover')&&
