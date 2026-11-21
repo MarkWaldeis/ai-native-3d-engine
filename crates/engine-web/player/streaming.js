@@ -16,6 +16,12 @@ export function batchKey(e) {
   return JSON.stringify([e.kind,e.size,e.radius,e.height,e.width,e.door_width,e.door_height,e.color,e.segments]);
 }
 
+export function entityRadius(e) {
+  const scale = e.transform?.scale || [1,1,1], bounds = e.props?.web_mesh_bounds;
+  if (bounds) return Math.hypot(...bounds[0].map((min,i) => Math.max(Math.abs(min),Math.abs(bounds[1][i])) * Math.abs(scale[i])));
+  return Math.max(typeof e.size === 'number' ? e.size : Math.hypot(...e.size || [1,1,1]),e.radius || 0,e.height || 0) * Math.max(...scale.map(Math.abs));
+}
+
 export function isStatic(e) {
   return !e.script && !['dynamic','kinematic'].includes(e.rigidbody?.type) && !(e.tags || []).some(t => ['player','trigger','coin','crystal','portal'].includes(t));
 }

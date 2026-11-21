@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ChunkGrid,selectLOD,batchKey,isStatic,worldConfig} from '../crates/engine-web/player/streaming.js';
+import {ChunkGrid,selectLOD,batchKey,entityRadius,isStatic,worldConfig} from '../crates/engine-web/player/streaming.js';
 const config = {chunk_size:128,stream_radius:128,draw_distance:480,lod_distances:[100,260],hysteresis:16};
 test('chunk load/unload hysteresis, movement, removal and empty grid', () => {
   assert.equal(new ChunkGrid().config.chunk_size,128);
@@ -19,6 +19,18 @@ test('bounding radii keep large props loaded across chunk boundaries', () => {
   grid.register(1,[10,0,10],200);
   assert.deepEqual(grid.update([400,0,10]).load,['0,0']);
   assert.deepEqual(grid.update([490,0,10]).unload,['0,0']);
+});
+test('GLB radius covers offset bounds from the scaled entity origin', () => {
+  const bounds = [[300,-2,-4],[320,2,4]], scale = [-2,3,-4];
+  const radius = entityRadius({kind:'gltf',transform:{scale},props:{web_mesh_bounds:bounds}});
+  assert.equal(radius,Math.hypot(640,6,16));
+  for (const x of [300,320]) for (const y of [-2,2]) for (const z of [-4,4]) assert.ok(Math.hypot(x*scale[0],y*scale[1],z*scale[2]) <= radius);
+  const grid = new ChunkGrid(config);
+  grid.register(1,[0,0,0],radius);
+  assert.deepEqual(grid.update([700,0,0]).load,['0,0']);
+  assert.deepEqual(grid.update([1000,0,0]).unload,['0,0']);
+  assert.equal(entityRadius({kind:'box',size:[1,2,3]}),Math.hypot(1,2,3));
+  assert.equal(entityRadius({kind:'sphere',radius:2,transform:{scale:[-3,-2,-1]}}),6);
 });
 test('LOD transitions retain previous level within hysteresis', () => {
   assert.deepEqual([0,150,300,600].map(d => selectLOD(d,undefined,config)),[0,1,2,3]);
