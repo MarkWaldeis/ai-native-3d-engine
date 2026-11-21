@@ -1,5 +1,8 @@
 # ai-native-3d-engine
 
+44-km²-Web-Baseline (FPS, Speicher, Ladezeiten; Desktop/Mobile):
+[Benchmark-Anleitung und Referenzwerte](docs/BENCHMARK.md).
+
 ## Mit Claude Code / Devin / Cursor verbinden
 
 ```sh

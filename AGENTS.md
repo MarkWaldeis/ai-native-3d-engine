@@ -208,6 +208,30 @@ und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt
 - Test: `cargo test -p engine-tests --test ai_qa -- --nocapture`.
   Sichtgeprüftes Beispiel-Kontaktblatt: `docs/contact_sheet.png`.
 
+## Large-World-Benchmark
+
+- Anleitung/Referenz: `docs/BENCHMARK.md`; Generator: `tools/bench/gen_large_world.py`.
+  Standard: 6633×6633 m, 14997 Entities, 4096 statische Boden-Collider.
+  `MAX_ENTITIES` ist 32768, auch für Skript-Spawns; Dichte nicht heimlich reduzieren.
+- Setup: `rustup target add wasm32-unknown-unknown`,
+  `cargo install wasm-bindgen-cli --version 0.2.100 --locked`,
+  `npm ci --prefix tools/bench`, `npx --prefix tools/bench playwright install chromium`.
+- `bash tools/bench/run.sh --channel chromium --swiftshader --duration 20`:
+  generiert, leert nur `target/bench/site/large_world`, exportiert und misst beide
+  Profile. Exportziel muss neu/leer und projekt-relativ sein, nicht `/tmp/...`.
+  System-Chrome: `--channel chrome`; Mobile ist Chromium-Emulation mit 4× CPU,
+  kein Safari-Test. SwiftShader setzt `--use-angle=swiftshader`,
+  `--enable-unsafe-swiftshader`, `--ignore-gpu-blocklist`.
+- `?bench` aktiviert `window.__aiEngineBench` (`ready`, `marks`, `stats()`).
+  Marks: `bootStart`, `sceneFetched`, `wasmInitialized`, `webGameLoaded`,
+  `assetsReady`, `firstFrameAfterStart` (`ai-engine:`-Präfix in Performance API).
+- Ergebnisse: `target/bench/results/{results.json,summary.md,desktop.png,mobile.png}`;
+  Log: `target/bench/pipeline.log`. Baseline: `--baseline <results.json>`;
+  Budgets: `tools/bench/budgets.json` sind Smoke-Untergrenzen, später verschärfen.
+  `.github/workflows/bench.yml` lädt Artefakte auch bei Fehlern hoch.
+- Checks: `npm --prefix tools/bench test`, `node --test tools/test_web_*.mjs`,
+  `python3 -m unittest discover -s tools/bench -p 'test_*.py'` sowie Runtime-/Web-Export-Tests.
+
 ## Crates (Übersicht)
 
 | Crate | Aufgabe |

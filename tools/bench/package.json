@@ -1,0 +1,12 @@
+{
+  "name": "ai-engine-browser-bench",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bench": "node run_browser_bench.mjs",
+    "test": "node --test test_browser_bench.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.65.1"
+  }
+}

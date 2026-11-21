@@ -19,6 +19,27 @@ let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const loader = new GLTFLoader();
 const loading = new Set();
+const benchMarks = {};
+function mark(name) {
+  if (benchMarks[name] !== undefined) return;
+  benchMarks[name] = performance.mark(`ai-engine:${name}`).startTime;
+}
+if (new URLSearchParams(location.search).has('bench')) {
+  window.__aiEngineBench = {
+    get ready() { return ready; },
+    marks: benchMarks,
+    stats() {
+      return {
+        drawCalls: renderer?.info.render.calls ?? 0,
+        triangles: renderer?.info.render.triangles ?? 0,
+        geometries: renderer?.info.memory.geometries ?? 0,
+        textures: renderer?.info.memory.textures ?? 0,
+        entities: objects.size,
+        simTicks: latest?.tick ?? 0,
+      };
+    },
+  };
+}
 const followTarget = new THREE.Vector3();
 const cameraOffset = new THREE.Vector3();
 const lookDirection = new THREE.Vector3();
@@ -259,7 +280,9 @@ async function restart() {
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
-  apply(JSON.parse(game.load(JSON.stringify(source), JSON.stringify(scripts))));
+  const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
+  mark('webGameLoaded');
+  apply(JSON.parse(initial));
   await Promise.all([...loading]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
   const player = latest.transforms.find(e => e.tags.includes('player'));
@@ -270,6 +293,7 @@ async function restart() {
   }
   camera.position.fromArray(source.camera.position); camera.lookAt(...source.camera.target); updateCamera(true);
   accumulator = 0; previous = performance.now(); ready = true;
+  mark('assetsReady');
 }
 
 function startRunning() {
@@ -378,6 +402,7 @@ function frame(now) {
     }
     updateCamera(false, elapsed); effects.update(elapsed, objects, camera, running, rawElapsed);
     updateShadows(); updateObjective(); renderer.render(world, camera);
+    if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
 }
 
@@ -399,6 +424,7 @@ function updateObjective() {
 
 async function fetchJson(path) { const response = await fetch(path); if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`); return response.json(); }
 async function boot() {
+  mark('bootStart');
   $('game').addEventListener('webglcontextlost', event => {
     event.preventDefault(); fail(new Error('Die Grafikverbindung wurde unterbrochen. Bitte lade die Seite neu.'));
   });
@@ -409,7 +435,10 @@ async function boot() {
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
   world = new THREE.Scene();
-  [source, scripts] = await Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json'), init()]);
+  [[source, scripts]] = await Promise.all([
+    Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json')]).then(result => { mark('sceneFetched'); return result; }),
+    init().then(result => { mark('wasmInitialized'); return result; }),
+  ]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
   const authoredUI = source.entities.find(e => e.tags?.includes('player'))?.props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
