@@ -81,6 +81,25 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   Screenshots nach `docs/web_*.png`. Headless-Chrome in GPU-losen macOS-VMs
   benötigt ggf. `--use-angle=swiftshader --enable-unsafe-swiftshader`.
 
+## Große Web-Welten / Streaming
+
+- Optionales Player-Prop `ai_world` (Objekt oder JSON-String): `chunk_size` (128 m),
+  `stream_radius` (512 m), `draw_distance` (480 m), `lod_distances` ([100,260] m),
+  `hysteresis` (16 m), `instancing` (true). Automatisch aktiv ab >1000 Entities
+  oder Koordinaten >1 km; kleine Release-Demos bleiben unverändert.
+- Chunks werden aus dem Szenengraphen entfernt, statische Props pro Chunk gebündelt;
+  reduzierte Primitive und gerenderte GLB-Billboards sparen ferne Dreiecke.
+  Spielregeln/Physik bleiben vollständig in Rust/Rhai. WASM-Ticks liefern nur
+  geänderte Transforms, `load` weiterhin alle.
+- `sim_radius` (256 m), `sim_hysteresis` (32 m): ferne Scripts pausieren,
+  dynamische/kinematische Rapier-Körper werden deaktiviert und zustandserhaltend
+  reaktiviert. Statische Collider bleiben; Tags `player`/`always_active` laufen
+  überall. Native Simulation ohne aktive Region bleibt unverändert.
+- `?stats=1`: FPS, Draw Calls, Dreiecke, geladene Chunks und Instanzen;
+  dieselben Werte stehen immer in `window.__engineStats`.
+- `python3 tools/gen_large_world.py target/large_world.json` erzeugt die große
+  Demo (nicht einchecken); danach regulär mit `--export-web` exportieren.
+
 ## Swarm-Server
 
 `ai-engine --serve 127.0.0.1:7777`: JSON-RPC per `POST /mcp`, eine gemeinsame
