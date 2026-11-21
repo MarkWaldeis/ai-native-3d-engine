@@ -93,6 +93,8 @@ export class NatureVisuals {
     if(config.foliage?.jungle) {
       this.canopyGeometries=[canopyGeometry(false),canopyGeometry(true)];
       this.canopyFade={value:0};
+      this.canopyFrustum=new T.Frustum();
+      this.canopyView=new T.Matrix4();
       const shadeCanopy=shader=>{
         Object.assign(shader.uniforms,{canopyViewer:this.viewer,canopyFade:this.canopyFade});
         shader.vertexShader='uniform vec3 canopyViewer; uniform float canopyFade;\n'+shader.vertexShader;
@@ -196,7 +198,8 @@ export class NatureVisuals {
       for(const mesh of this.canopyMeshes||[]){mesh.removeFromParent();mesh.dispose();}
       this.canopyMeshes=this.canopyGeometries.slice(0,1+this.canopySettings.palm).flatMap((geometry,i)=>Array.from({length:4},()=>{
         const mesh=new T.InstancedMesh(geometry,this.canopyMaterials[i],this.canopySettings.budget);
-        mesh.count=0;mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);this.root.add(mesh);return mesh;
+        mesh.count=0;mesh.frustumCulled=false;
+        mesh.instanceMatrix.setUsage(T.DynamicDrawUsage);this.root.add(mesh);return mesh;
       }));
     }
     this.clearTiles();
@@ -231,7 +234,11 @@ export class NatureVisuals {
   updateCanopy(camera) {
     if(!this.canopyMeshes||!this.canopySample)return;
     const x=Math.round(camera.position.x/8)*8,z=Math.round(camera.position.z/8)*8,key=`${x},${z},${this.canopyVersion()}`;
-    if(key===this.canopyKey)return;
+    if(key!==this.canopyKey) this.rebuildCanopy(x,z,key);
+    this.canopyFrustum.setFromProjectionMatrix(this.canopyView.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+    for(const mesh of this.canopyMeshes) mesh.visible=mesh.count>0&&this.canopyFrustum.intersectsBox(mesh.boundingBox);
+  }
+  rebuildCanopy(x,z,key) {
     this.canopyKey=key;
     const placements=junglePlacements(x,z,{...this.canopySettings,sample:this.canopySample,exclude:this.canopyExclude,water:this.config.water?.level});
     const dummy=new T.Object3D(),color=new T.Color();
@@ -245,7 +252,7 @@ export class NatureVisuals {
       mesh.setColorAt(mesh.count++,color.setRGB(.79+p.hue*.19,.79+p.hue*.2,.76+p.hue*.24));
     }
     for(const mesh of this.canopyMeshes) if(mesh.count) {
-      mesh.instanceMatrix.needsUpdate=true;mesh.instanceColor.needsUpdate=true;mesh.computeBoundingSphere();
+      mesh.instanceMatrix.needsUpdate=true;mesh.instanceColor.needsUpdate=true;mesh.computeBoundingBox();
     }
   }
   update(elapsed,camera) {

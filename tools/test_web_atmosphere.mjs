@@ -93,6 +93,11 @@ test('jungle canopy uses frustum-culled unshadowed batches and resets on terrain
   assert.ok(high>jungleSettings(1).budget&&high<=jungleSettings(2).budget);
   assert.equal(fx.canopyMeshes.length,8);
   assert.ok(fx.canopyMeshes.every(mesh=>mesh.isInstancedMesh&&!mesh.castShadow&&!mesh.receiveShadow));
+  const facing=fx.canopyMeshes.map(mesh=>mesh.visible);
+  assert.ok(facing.some(Boolean)&&facing.some(visible=>!visible));
+  camera.rotation.y=Math.PI;camera.updateMatrixWorld();fx.update(.016,camera);
+  assert.notDeepEqual(fx.canopyMeshes.map(mesh=>mesh.visible),facing);
+  assert.equal(fx.stats().canopyInstances,high);
   assert.ok(fx.canopyMeshes.reduce((n,m)=>n+m.count*m.geometry.attributes.position.count/3,0)<=20020);
   const mat=fx.canopyMaterials[0],shader={uniforms:{},vertexShader:'#include <begin_vertex>'};
   mat.onBeforeCompile(shader);
