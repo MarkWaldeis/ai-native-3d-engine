@@ -94,13 +94,13 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
   const queue = new TileQueue(fetchBytes), maps = new Map(), chunks = [], decoded = new Map(), indices = new Map(), layers = [];
   const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
   let occluder, occludedTerrainTiles=0;
-  let lastPoll = -Infinity, terrainBuilds=0, terrainActivations=0;
+  let lastPoll = -Infinity, terrainBuilds=0, terrainActivations=0, heightVersion=0;
   const fog=world.fog, authoredFog=fog && {density:fog.density,near:fog.near,far:fog.far};
   let visualsTarget, visualsSetter;
   function connectVisuals() {
     const visuals = window.__aiEngineVisuals;
     if (typeof visuals?.setHeightSampler === 'function' && (visuals !== visualsTarget || visuals.setHeightSampler !== visualsSetter)) {
-      visuals.setHeightSampler(heightAt);
+      visuals.setHeightSampler(heightAt, plantedHeightAt, ()=>heightVersion);
       visualsTarget = visuals; visualsSetter = visuals.setHeightSampler;
     }
   }
@@ -148,7 +148,11 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
   function tileData(map, x, z, bytes) {
     const id = key(map,x,z);
     let data = decoded.get(id);
-    if (!data) { const n = map.manifest.config.samples + 2; data = decodeHeights(bytes,'AITT',[n,n],map.manifest.height_range); }
+    if (!data) {
+      const n = map.manifest.config.samples + 2;
+      data = decodeHeights(bytes,'AITT',[n,n],map.manifest.height_range);
+      heightVersion++;
+    }
     decoded.delete(id); decoded.set(id,data);
     while (decoded.size > 96) decoded.delete(decoded.keys().next().value);
     return data;
@@ -320,6 +324,20 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     }
     const first=chunks[0];
     return first ? first.offset[1]+coarseHeight(first.map,x-first.offset[0],z-first.offset[2]) : 0;
+  }
+  function plantedHeightAt(x,z) {
+    let best=NaN;
+    for(const {map,offset} of layers) {
+      const c=map.manifest.config,lx=x-offset[0],lz=z-offset[2];
+      if(lx<0||lz<0||lx>c.size_m[0]||lz>c.size_m[1]) continue;
+      const [cols,rows]=map.manifest.grid,tx=Math.min(cols-1,Math.floor(lx/c.tile_m)),tz=Math.min(rows-1,Math.floor(lz/c.tile_m));
+      const data=decoded.get(key(map,tx,tz));
+      if(data) {
+        const y=offset[1]+sampleTile(data,c,tx,tz,lx,lz);
+        if(!(y<=best)) best=y;
+      }
+    }
+    return best;
   }
   function occluderHeightAt(x,z) {
     let best=NaN;

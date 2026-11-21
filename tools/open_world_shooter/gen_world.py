@@ -244,7 +244,7 @@ def build(scene, rng, density, with_terrain_entity):
               "ai_fps": {"eye_height": 0.75, "move_speed": 5.5, "sprint_speed": 9.0, "jump_speed": 5.0, "mouse_sens": 0.0022},
               "ai_viewmodel": f"{ASSETS}/rifle_viewmodel.glb",
               "ai_graphics": {"sky": "tropical", "time_of_day": 16.5,
-                              "foliage": {"trees": 0, "distance": 112},
+                              "foliage": {"trees": 0, "distance": 112, "jungle": True},
                               "clouds": {"coverage": 0.48}, "haze": {"density": 0.002, "height": 18, "falloff": 0.045},
                               "shadow_extent": {"low": 24, "balanced": 64, "ultra": 144},
                               "shadow_map_size": {"low": 512, "balanced": 1024, "ultra": 4096},

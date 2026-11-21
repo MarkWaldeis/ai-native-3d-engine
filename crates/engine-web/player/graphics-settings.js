@@ -86,7 +86,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     bloomStrength: bounded(config.bloom_strength, 0.22, 0, 2),
     bloomThreshold: bounded(config.bloom_threshold, 1.1, 0, 8),
     bloomScatter: bounded(config.bloom_scatter, 0, 0, 1),
-    foliage: config.foliage === true || foliage ? {density:bounded(foliage?.density,1,0,4),trees:bounded(foliage?.trees,1,0,1),distance:bounded(foliage?.distance,112,16,128)} : false,
+    foliage: config.foliage === true || foliage ? {density:bounded(foliage?.density,1,0,4),trees:bounded(foliage?.trees,1,0,1),distance:bounded(foliage?.distance,112,16,128),jungle:foliage?.jungle === true} : false,
     clouds: config.clouds === true || object(config.clouds) ? {coverage:bounded(object(config.clouds)?.coverage,0.48,0,1)} : false,
     haze: config.haze === true || object(config.haze) ? {density:bounded(object(config.haze)?.density,0.002,0,0.02),height:bounded(object(config.haze)?.height,18,-1000,10000),falloff:bounded(object(config.haze)?.falloff,0.045,0.001,1)} : false,
     water: water ? {level:bounded(water.level,0,-10000,10000),color:hex(water.color,'#126e61')} : false,
