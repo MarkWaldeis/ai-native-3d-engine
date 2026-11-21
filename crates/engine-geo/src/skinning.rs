@@ -14,6 +14,10 @@ fn attribute(
     types: &[DataType],
 ) -> Result<()> {
     ensure!(
+        accessor.view().is_some(),
+        "native accessors require a buffer view"
+    );
+    ensure!(
         accessor.dimensions() == dimensions && types.contains(&accessor.data_type()),
         "unsupported accessor type"
     );

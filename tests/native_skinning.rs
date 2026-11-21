@@ -126,6 +126,13 @@ fn malformed_missing_external_and_unsupported_animation_data_fail_closed() {
     let (document, bin) = rig();
     let cases: Vec<Box<dyn Fn(&mut Value)>> = vec![
         Box::new(|d| {
+            d["accessors"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({"componentType":5126,"count":2,"type":"MAT4"}));
+            d["skins"][0]["inverseBindMatrices"] = json!(5);
+        }),
+        Box::new(|d| {
             d["bufferViews"][0]["byteStride"] = json!(4);
         }),
         Box::new(|d| {
