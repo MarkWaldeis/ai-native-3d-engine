@@ -1,3 +1,16 @@
+export function bindActivation(button,activate,enabled=()=>true) {
+  let busy=false;
+  const handle=async event=>{
+    if(busy||button.disabled||!enabled()||(event.type==='pointerup'&&event.button!==0))return;
+    const touch=event.changedTouches?.[0];
+    if(touch){const r=button.getBoundingClientRect();if(touch.clientX<r.left||touch.clientX>r.right||touch.clientY<r.top||touch.clientY>r.bottom)return;}
+    event.preventDefault();busy=true;
+    try {await activate(event);}finally{busy=false;}
+  };
+  for(const type of ['pointerup','touchend','click'])button.addEventListener(type,handle,{passive:false});
+  return ()=>{for(const type of ['pointerup','touchend','click'])button.removeEventListener(type,handle);};
+}
+
 export class ActionLatch {
   held = new Set();
   queued = false;
