@@ -35,6 +35,23 @@ fn applied_force_is_cleared_after_one_tick() {
 }
 
 #[test]
+fn ray_only_hitbox_does_not_trigger_an_overlapping_sensor() {
+    let mut simulation = sim(json!([
+        {"id":1,"name":"target","kind":"box","size":[1,1,1],"collider":{"shape":"box"},
+         "props":{"ai_physics":{"hitboxes":[{"name":"offset","position":[3,0,0],
+         "shape":{"shape":"box","half_extents":[0.5,0.5,0.5]}}]}}},
+        {"id":2,"name":"sensor","kind":"box","size":[1,1,1],"transform":{"position":[3,0,0]},
+         "collider":{"shape":"box"},"rigidbody":{"type":"dynamic"},"props":{"ai_physics":{"sensor":true}}}
+    ]));
+    simulation.step(1, &[]).unwrap();
+    assert_eq!(simulation.take_events()["events"], json!([]));
+    let hit = simulation.physics_query("raycast", &json!({
+        "origin":[3,0,-2],"direction":[0,0,1],"distance":4
+    })).unwrap();
+    assert_eq!(hit["hitbox"], "offset");
+}
+
+#[test]
 fn contacts_sensors_filters_and_joints_are_deterministic() {
     let scene = json!([
         {"id":1,"name":"floor","kind":"box","size":[20,1,20],"transform":{"position":[0,-0.5,0]},

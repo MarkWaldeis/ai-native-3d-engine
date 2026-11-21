@@ -335,6 +335,11 @@ impl Physics {
 
     pub(super) fn update_collision_events(&mut self) -> Vec<Value> {
         let pair = |first, second, sensor| {
+            if [first, second].into_iter().any(|handle| {
+                self.gameplay.hitboxes.get(&handle).is_some_and(|region| region.ray_only)
+            }) {
+                return None;
+            }
             let (a, b) = (self.owner(first), self.owner(second));
             (a != b).then_some(Pair {
                 a: a.min(b),
