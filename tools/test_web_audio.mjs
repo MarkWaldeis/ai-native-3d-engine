@@ -104,6 +104,18 @@ test('decoded cache deduplicates fetches, touches LRU and evicts unused bytes un
   audio.config.memory_budget_mb = 0; audio.evict(); assert.equal(audio.bufferBytes(), 0);
 }));
 
+test('failed nearest emitters cannot starve playable voices or keep a slot', () => mock(async () => {
+  const audio = new SpatialAudio();
+  audio.configure(scene([entity(1, 1, { src: 'bad', stream: true }), entity(2, 3)], { max_voices: 1 }));
+  audio.unlock(); audio.update(listen()); await settle();
+  const failed = audio.voices.get(1); assert.ok(failed.media);
+  audio.failures.add('bad'); audio.update(listen());
+  assert.equal(audio.voices.has(1), false); assert.equal(failed.media.playing, false);
+  assert.equal(audio.voices.get(2).source.frequency.value, 60);
+  assert.equal(audio.stats().audioVirtualVoices, 0);
+  audio.clear();
+}));
+
 test('zones fade at borders, scale entity volumes and choose highest-weight preset lazily', () => mock(async () => {
   const zone = { shape: 'box', position: [0, 0, 0], size: [20, 20, 20], wet: 1, fade: 4 };
   assert.equal(zoneWeight(zone, [10, 0, 0]), 0); assert.equal(zoneWeight(zone, [8, 0, 0]), 0.5);

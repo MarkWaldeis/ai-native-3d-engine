@@ -202,7 +202,7 @@ export class SpatialAudio {
     if (this.zone) this.reverb(this.zone.preset);
     for (const [preset, r] of this.reverbs) r.gain.gain.setTargetAtTime(this.zone && (presets[this.zone.preset] ? this.zone.preset : 'room') === preset ? this.zone.weight : 0, this.clock, 0.15);
     this.dry.gain.setTargetAtTime(1 - (this.zone?.weight || 0) * 0.5, this.clock, 0.15);
-    const candidates = [...this.entities.values()].filter(e => e.props?.ai_sound && !e.finished).map(e => ({ entity: e, sound: { loop: true, autoplay: true, ...audioObject(e.props.ai_sound) }, distance: Math.hypot(...position(e).map((v, i) => v - p[i])) }));
+    const candidates = [...this.entities.values()].filter(e => e.props?.ai_sound && !e.finished).map(e => ({ entity: e, sound: { loop: true, autoplay: true, ...audioObject(e.props.ai_sound) }, distance: Math.hypot(...position(e).map((v, i) => v - p[i])) })).filter(e => !this.failures.has(e.sound.src || e.sound.synth));
     this.virtual = candidates.filter(e => e.sound.autoplay && (e.sound.src || e.sound.synth)).length;
     const selected = candidates.filter(e => e.sound.autoplay && (e.sound.src || e.sound.synth) && e.distance <= this.config.stream_radius + (this.voices.has(e.entity.id) ? this.config.hysteresis : 0)).sort((a, b) => a.distance - b.distance).slice(0, Math.max(0, this.config.max_voices));
     const wanted = new Set([...selected.map(e => e.entity.id), ...this.layers.map(e => e.id)]);
