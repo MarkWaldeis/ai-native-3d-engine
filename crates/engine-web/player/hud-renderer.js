@@ -51,8 +51,9 @@ export class HudLayout {
         const record = this.nodes.get(widget.id), { node, label } = record;
         const value = this.state[widget.bind];
         if (widget.type === 'toast') {
-          if (record.initialized && !Object.is(record.value, value)) record.until = now + 2000;
-          record.value = value; record.initialized = true;
+          const key = value !== null && typeof value === 'object' ? JSON.stringify(value) : value;
+          if (record.initialized && !Object.is(record.value, key)) record.until = now + 2000;
+          record.value = key; record.initialized = true;
         }
         const hidden = !!widget.hidden || !hudVisible(widget, this.state) || (widget.type === 'toast' && now >= record.until);
         if (node.hidden !== hidden) node.hidden = hidden;
