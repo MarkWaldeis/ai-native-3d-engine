@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import {mkdir,writeFile} from 'node:fs/promises';
+import {setTimeout as delay} from 'node:timers/promises';
 const {chromium}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const url=process.env.GAME_URL || 'http://127.0.0.1:8000/net_arena_ws/?net=ws://127.0.0.1:7790';
 const shots=path.resolve(process.env.SHOTS_DIR || 'target/net-shots');
@@ -32,7 +33,19 @@ try {
   await pages[1].keyboard.up('KeyS');
   await pages[0].waitForFunction(({id,start})=>window.__engineNet.positions[id][2]-start>0.8,{id:b,start:startB[2]});
   for(const page of pages)await page.waitForFunction(()=>window.__engineNet.spawned>=1 && window.__engineNet.removed>=1);
-  const after=await Promise.all(pages.map(page=>page.evaluate(()=>structuredClone(window.__engineNet))));
+  let after,previous,settled=false;
+  const deadline=Date.now()+10000,ids=[a,b,6];
+  const distance=(a,b)=>Math.hypot(...a.map((v,i)=>v-b[i]));
+  do {
+    after=await Promise.all(pages.map(page=>page.evaluate(()=>structuredClone(window.__engineNet))));
+    const converged=ids.every(id=>distance(after[0].positions[id],after[1].positions[id])<0.35);
+    const stationary=previous && after.every((state,i)=>ids.every(id=>distance(state.positions[id],previous[i].positions[id])<0.01));
+    settled=converged && stationary;
+    if(settled)break;
+    previous=after;
+    await delay(100);
+  } while(Date.now()<deadline);
+  assert.ok(settled,'released players and crate must settle and converge within 10 seconds');
   assert.ok(Math.abs(after[0].positions[6][0]-crateBefore[0])>0.1,'crate must be pushed authoritatively');
   for(const id of [a,b,6]) {
     const delta=Math.hypot(...after[0].positions[id].map((v,i)=>v-after[1].positions[id][i]));

@@ -3,6 +3,11 @@ export const FX_KINDS = ['muzzle', 'tracer', 'impact', 'blood', 'explosion'];
 export const PITCH_LIMIT = 1.45;
 const DEFAULTS = { eye_height: 0.75, move_speed: 5, sprint_speed: 8.5, jump_speed: 5.5, mouse_sens: 0.0022 };
 
+export function travelSpeedInput(search) {
+  const value = Number(new URLSearchParams(search).get('speed'));
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
 function parse(value) {
   if (typeof value !== 'string') return value;
   try { return JSON.parse(value); } catch { return null; }

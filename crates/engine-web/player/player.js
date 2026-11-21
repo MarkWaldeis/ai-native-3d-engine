@@ -9,11 +9,13 @@ import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
+import { travelSpeedInput } from './fps_core.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
+import { HudLayout } from './hud-renderer.js';
 import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
 import { InputSettings } from './input-settings.js';
 
@@ -22,6 +24,7 @@ const modal = $('modal');
 const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
+const travelSpeed = travelSpeedInput(location.search);
 const input = new InputSystem(), inputEdges = new InputEdges();
 let inputSettings, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
 const touchMode = () => document.body.classList.contains('touch-input');
@@ -46,12 +49,13 @@ const animations = new Animations();
 window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
+const ragdolls = new Map();
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
-let terrain, occluder;
+let terrain, occluder, hudLayout;
 let net, netEndpoint;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0,assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -115,7 +119,9 @@ function mesh(geometry, entity) {
 function createObject(entity) {
   if (entity.props?.ai_terrain) return;
   if (replacesWater(entity, effects.graphics)) return;
-  if (streaming?.batched(entity)) { streaming.add(entity); return; }
+  const config = entity.props?.ai_physics;
+  const physics = typeof config === 'string' ? JSON.parse(config) : config;
+  if (!physics?.ragdoll && streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
   switch (entity.kind) {
@@ -141,6 +147,22 @@ function createObject(entity) {
     }
     case 'gltf': {
       object = new THREE.Group();
+      if(streaming) {
+        const container=object;
+        group.userData.streamedGltf=(gltf,parts)=>{
+          animations.remove(entity.id);
+          container.traverse(child=>{if(child.isSkinnedMesh) child.skeleton.dispose();});
+          container.clear();
+          if(gltf) {
+            const model=cloneSkinned(gltf.scene,gltf.animations), flags=sunShadowSettings(entity.props?.ai_sun_shadow);
+            model.traverse(child=>{child.userData.sharedAsset=true;if(child.isMesh) Object.assign(child,flags);});
+            container.add(model); animations.add(entity,model,model.animations);
+          } else for(const part of parts) {
+            const placeholder=new THREE.Mesh(part.geometry,part.material); placeholder.userData.sharedAsset=true; container.add(placeholder);
+          }
+        };
+        break;
+      }
       const task = assets.load(entity.path).then(gltf => {
         const model = cloneSkinned(gltf.scene,gltf.animations), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
         model.traverse(child => { if (child.isMesh) Object.assign(child, flags); });
@@ -153,12 +175,14 @@ function createObject(entity) {
     default: throw new Error(`Unbekannte Geometrie: ${entity.kind}`);
   }
   group.add(object); group.visible = entity.visible !== false;
+  group.userData.authoredVisible = group.visible;
+  group.userData.color = entity.color;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
   effects.decorate(group);
   if (group.userData.tags.some(tag => ['player','portal','goal'].includes(tag)) || isCollectible(group.userData, ui.collectible_tag)) objectives.set(entity.id,group);
   streaming?.add(entity,group);
   if (group.userData.tags.includes('enemy')) enemies.set(entity.id, group);
-  group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
+  group.userData.support = !!(entity.collider || physics?.collider) && !physics?.sensor && !physics?.ragdoll && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
   if (group.userData.tags.includes('player')) {
     playerId = entity.id;
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), new THREE.MeshBasicMaterial({
@@ -169,8 +193,40 @@ function createObject(entity) {
   }
 }
 
+function applyRagdolls(states = []) {
+  const active = new Set(states.map(rig => rig.id));
+  for (const [id, group] of ragdolls) {
+    if (active.has(id)) continue;
+    disposeObject(group);
+    ragdolls.delete(id);
+    const root = objects.get(id);
+    if (root) root.visible = root.userData.authoredVisible;
+  }
+  for (const rig of states) {
+    const root = objects.get(rig.id);
+    if (!root) continue;
+    let group = ragdolls.get(rig.id);
+    if (!group) {
+      group = new THREE.Group();
+      for (const part of rig.parts) {
+        group.add(mesh(new THREE.CapsuleGeometry(part.radius, 2 * part.half_height, 5, 10), {color:root.userData.color}));
+      }
+      world.add(group);
+      ragdolls.set(rig.id, group);
+    }
+    group.visible = root.userData.authoredVisible && rig.enabled;
+    root.visible = false;
+    rig.parts.forEach((part, i) => {
+      const object = group.children[i];
+      object.position.fromArray(part.position);
+      object.rotation.set(...part.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
+    });
+  }
+}
+
 function apply(result) {
   if (netEndpoint && result.my_entity != null) playerId = result.my_entity;
+  hudLayout?.update(result);
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
     const object = objects.get(id);
@@ -192,6 +248,7 @@ function apply(result) {
     object.position.fromArray(transform.position); object.scale.fromArray(transform.scale);
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
+  applyRagdolls(result.ragdolls);
   fps?.apply(result, objects.get(playerId));
   if (feedback.collect) {
     audio.play('collect');
@@ -222,7 +279,7 @@ function apply(result) {
   if (netEndpoint) {
     $('state').textContent = `${result.connected ? `Spieler ${result.player_number}` : 'Verbinde …'} · ${Math.round(result.stats?.rtt_ms || 0)} ms · ${result.players || 0} Spieler verbunden`;
   }
-  $('logs').textContent = [...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
+  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -251,7 +308,7 @@ function localMovement() {
 }
 
 function controls() {
-  if (fps) return fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions);
+  if (fps) return { ...fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions), travel_speed: travelSpeed };
   const move = movement();
   const pressed = actionInput.sample();
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
@@ -327,6 +384,8 @@ async function restart(save = null) {
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   animations.clear();
+  hudLayout?.reset(source.entities);
+  applyRagdolls();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
@@ -495,6 +554,7 @@ function showNetworkDisconnect() {
 
 function frame(now) {
   requestAnimationFrame(frame);
+  hudLayout?.frame(now);
   if (!renderer || !ready) return;
   try {
     const rawElapsed = (now - previous) / 1000;
@@ -537,6 +597,10 @@ function frame(now) {
     updateCamera(false, elapsed);
     occluder?.beginFrame();
     streaming?.update(camera);
+    for (const id of ragdolls.keys()) {
+      const root = objects.get(id);
+      if (root) root.visible = false;
+    }
     terrain?.update(camera, now);
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
@@ -558,12 +622,13 @@ function frame(now) {
     Object.assign(stats,streaming?.hlod?.stats() || {hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0});
     stats.occludedChunks=streaming?.occludedChunks || 0; stats.occlusionTests=occluder?.tests || 0;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
+    Object.assign(stats,streaming?.assetStream.stats() || {assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0});
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
-      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · assets ${stats.assetsQueued} queued/${stats.assetsLoading} loading/${stats.assetsLoaded} ready · ${stats.assetMB.toFixed(1)} MB · uploads ${stats.textureUploadsPending} · evictions ${stats.assetEvictions} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
@@ -610,6 +675,7 @@ async function boot() {
   netEndpoint = netURL(location.href, props?.ai_net);
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
+  hudLayout = new HudLayout(props?.ai_hud, source.entities);
   const title = ui.title || (source.entities.some(e => e.tags?.includes('coin')) ? 'Münzenpfad' : source.name || 'Web-Spiel');
   inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp);
   const preset = new URLSearchParams(location.search).get('quality');
@@ -622,6 +688,7 @@ async function boot() {
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
   world = new THREE.Scene();
   effects = new GameEffects(renderer, world, ui.sky_color, graphics);
+  world.userData.terrainQuality=()=>effects.level;
   effects.nature?.setExclusions(source.entities);
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
   await Promise.all([effects.prepareEnvironment(), assets.preloadMaterialMaps(source.entities)]);

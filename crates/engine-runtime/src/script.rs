@@ -69,6 +69,13 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
         .set_max_variables(256)
         .set_max_functions(128);
     crate::combat::register(&mut engine);
+    engine.register_fn("collision_events", |ctx: &mut Context| -> ScriptResult<Dynamic> {
+        let events = ctx.physics.borrow().collision_events(ctx.id);
+        rhai::serde::to_dynamic(events).map_err(|e| e.to_string().into())
+    });
+    engine.register_fn("set_ragdoll", |ctx: &mut Context, active: bool| set_ragdoll(ctx, ctx.id, active));
+    engine.register_fn("set_ragdoll", |ctx: &mut Context, id: INT, active: bool| set_ragdoll(ctx, id as u64, active));
+    engine.register_fn("ragdoll_active", |ctx: &mut Context, id: INT| ctx.physics.borrow().ragdoll_active(id as u64));
     // Only deterministic primitives and the explicit Context API are exposed.
     for symbol in ["eval", "sleep", "timestamp", "elapsed"] {
         engine.disable_symbol(symbol);
@@ -171,6 +178,12 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
         |ctx: &mut Context, value: Array| -> ScriptResult<()> {
             let value = vector(value)?;
             queue_force(ctx, Force::Impulse(ctx.id, value))
+        },
+    );
+    engine.register_fn(
+        "apply_force",
+        |ctx: &mut Context, value: Array| -> ScriptResult<()> {
+            queue_force(ctx, Force::Applied(ctx.id, vector(value)?))
         },
     );
     engine.register_fn(
@@ -290,12 +303,23 @@ fn queue_force(ctx: &mut Context, force: Force) -> ScriptResult<()> {
         .iter()
         .find(|e| e.id == ctx.id)
         .ok_or("entity not found")?;
-    if entity.rigidbody.is_none() && entity.collider.is_none() {
+    if entity.rigidbody.is_none() && entity.collider.is_none() && entity.props.get("ai_physics").is_none() {
         return Err("impulse/velocity needs a rigidbody".into());
     }
+    push_force(&mut data, force)
+}
+
+fn push_force(data: &mut Data, force: Force) -> ScriptResult<()> {
     if data.forces.len() >= 4096 {
-        return Err("at most 4096 impulse/velocity calls per tick".into());
+        return Err("at most 4096 physics commands per tick".into());
     }
     data.forces.push(force);
     Ok(())
+}
+
+fn set_ragdoll(ctx: &Context, id: u64, active: bool) -> ScriptResult<()> {
+    if !ctx.physics.borrow().has_ragdoll(id) {
+        return Err("entity has no ragdoll preset".into());
+    }
+    push_force(&mut ctx.data.borrow_mut(), Force::Ragdoll(id, active))
 }

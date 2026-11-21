@@ -15,6 +15,7 @@ mod netcode;
 pub mod terrain;
 pub mod animation;
 pub mod navigation;
+mod physics;
 pub use discovery::agent_guide;
 
 /// Implemented by the host (main.rs) — executes one MCP tool call and returns
@@ -109,7 +110,8 @@ fn dispatch(req: &JsonRpcRequest, handler: &mut dyn ToolHandler) -> Value {
             if !args.is_object() {
                 return error(id, -32602, "arguments must be an object");
             }
-            if !builtin_tools().iter().any(|tool| tool.name == name) && !terrain::NAMES.contains(&name) && !savegame::NAMES.contains(&name) && name != "net_simulate" {
+            if !builtin_tools().iter().any(|tool| tool.name == name) && !terrain::NAMES.contains(&name)
+                && !physics::NAMES.contains(&name) && !savegame::NAMES.contains(&name) && name != "net_simulate" {
                 return error(
                     id,
                     -32602,
@@ -117,7 +119,9 @@ fn dispatch(req: &JsonRpcRequest, handler: &mut dyn ToolHandler) -> Value {
                         "unknown tool: {name}{}",
                         shared::suggestions::hint(
                             name,
-                            builtin_tools().iter().map(|tool| tool.name).chain(terrain::NAMES.iter().copied()).chain(std::iter::once("net_simulate"))
+                            builtin_tools().iter().map(|tool| tool.name)
+                                .chain(terrain::NAMES.iter().chain(physics::NAMES).chain(savegame::NAMES).copied())
+                                .chain(std::iter::once("net_simulate"))
                         )
                     ),
                 );

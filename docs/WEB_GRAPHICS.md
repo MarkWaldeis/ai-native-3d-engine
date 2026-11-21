@@ -1,5 +1,25 @@
 # Browser graphics
 
+## Hintergrund-Assets
+
+Nur mit Welt-Streaming lädt die pfadbasierte GLB-Warteschlange nach nächster
+Chunk-Distanz, pro Frame neu sortiert (`asset_concurrency:4`). Chunks bauen ohne
+Netzwerkwarten: Bounds-Boxen dienen als Platzhalter, fehlende Bounds bleiben leer.
+Autoren-LODs laden zuerst in der gröbsten Stufe, danach in der gewünschten Stufe.
+Ohne Autoren-Fern-LOD werden die bisherigen Billboards erst nach Texturfreigabe
+erstellt und mit dem Quellasset wieder verworfen.
+`texture_uploads_per_frame:2` begrenzt explizite GPU-Texturinitialisierungen;
+erst danach wird das Modell sichtbar. Ein einzelner Upload/GLB-Decode kann dennoch
+teuer sein; dies ist kein Worker-Decoder oder Byte-Budget.
+
+`asset_cache_mb:256` ist ein geschätztes LRU-Ziel aus Geometriepuffern und
+Bildgrößen. Nicht mehr geladene Chunks geben ihre Pins frei; Überbudget-Assets
+werden inklusive Geometrien, Materialien und Texturen entsorgt und bei Bedarf
+erneut geladen. Aktive Assets dürfen das Ziel überschreiten. Fehler behalten den
+Platzhalter bis zum erneuten Anfordern nach Freigabe. Kleine Demos ohne Streaming
+bleiben unverändert. Stats, Overlay und Benchmark melden `assetsQueued`,
+`assetsLoading`, `assetsLoaded`, `assetMB`, `textureUploadsPending`, `assetEvictions`.
+
 ## Hierarchische Fern-LOD
 
 `ai_world.hlod` ist bei Welt-Streaming standardmäßig aktiv. `hlod_cluster:4`
@@ -84,6 +104,25 @@ range from 0 to 1. Use `true` for strength 1 and haze 0.35. The sky and its
 prefiltered reflections are baked once at load, with no per-frame pass.
 The authored horizon fog and direct lighting are unchanged. An authored
 HDRI still takes precedence for reflections and, if enabled, the background.
+
+Set `ai_graphics.height_fog: true` for ground mist that thins with altitude.
+An object can set `density` (0–0.2 m⁻¹, default 0.018), `base_height`
+(world Y in metres, default 0), `falloff` (1–1000 m, default 18), and
+`color` (defaults to the horizon color). Density is constant below the base
+and decays exponentially above it.
+Balanced and Ultra use height fog instead of distance fog, in the existing HDR
+resolve pass. Sky pixels are unchanged; transparent surfaces that do not write
+depth inherit the fog at the background depth. Auto exposure meters the fogged
+scene when both options are on. Low and unsupported GPUs keep the existing
+distance fog. Use `density: 0` to turn off both kinds of fog on supported
+Balanced and Ultra renders without allocating a depth texture for fog.
+
+Use `ai_graphics.color_grade: {"saturation":0.8,"contrast":1.25}` for a muted,
+higher-contrast look. Both controls range from 0 to 2; 1 is neutral and
+saturation 0 is monochrome. Grading runs after tone mapping in Balanced and
+Ultra, without an extra pass when HDR is already active. It does not change
+HDR bloom, exposure metering, the separate first-person 3D overlay, the HTML
+HUD, or the Low and legacy paths.
 
 For authored reflections, set `environment_map` in `ai_graphics` to a
 project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
