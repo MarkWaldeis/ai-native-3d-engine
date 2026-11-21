@@ -64,8 +64,28 @@ test('touch placement reserves radar, health, ammo, compass, HUD widgets and foo
     assert.ok(box.x + box.width <= b.x || b.x + b.width <= box.x || box.y + height <= b.y || b.y + b.height <= box.y);
   }
   assert.deepEqual(obstacles, copy, 'reserved rectangles are not mutated');
-  assert.deepEqual(layoutTouch(config, { width: 844, height: 390, obstacles: [{ x: 0, y: 0, width: 844, height: 390 }] }), []);
+  const blocked = layoutTouch(config, { width: 844, height: 390, obstacles: [{ x: 0, y: 0, width: 844, height: 390 }] });
+  assert.equal(blocked.length, 1); assert.equal(blocked[0].id, 'joystick'); assert.equal(blocked[0].width, 80);
   assert.deepEqual(layoutTouch(config, { width: 844, height: 390, obstacles: [{ x: NaN }] }), layoutTouch(config, { width: 844, height: 390 }));
+});
+
+test('portrait 320x568 to landscape 568x320 retries an 80px joystick and never retains an off-screen position', () => {
+  const config = parseTouchConfig({ joystick: { size: 130 } }).config;
+  const portrait = layoutTouch(config, { width: 320, height: 568, fps: true })[0];
+  const obstacles = [
+    { x: 20, y: 96, width: 110, height: 110 },
+    { x: 85, y: 92, width: 397, height: 58 },
+    { x: 420, y: 96, width: 124, height: 48 },
+    { x: 182, y: 246, width: 204, height: 28 },
+    { x: 24, y: 284, width: 520, height: 28 },
+  ];
+  const landscape = layoutTouch(config, { width: 568, height: 320, fps: true, obstacles })[0];
+  assert.equal(landscape.id, 'joystick'); assert.equal(landscape.width, 80);
+  assert.ok(portrait.y > 320); assert.ok(landscape.y < portrait.y);
+  assert.ok(landscape.x >= 0 && landscape.y >= 0 && landscape.x + landscape.width <= 568 && landscape.y + landscape.height <= 320);
+  for (const b of obstacles) assert.ok(landscape.x + 80 <= b.x || b.x + b.width <= landscape.x || landscape.y + 102 <= b.y || b.y + b.height <= landscape.y);
+  const fallback = layoutTouch(config, { width: 568, height: 320, fps: true, obstacles: [{ x: 0, y: 0, width: 568, height: 320 }] })[0];
+  assert.equal(fallback.width, 80); assert.ok(fallback.x >= 0 && fallback.x + 80 <= 568 && fallback.y >= 0 && fallback.y + 80 <= 320);
 });
 
 test('custom touch actions share InputSystem movement/analog look and action sampling', () => {

@@ -69,6 +69,10 @@ export function layoutTouch(config, { width, height, insets = {}, fps = false, o
       const distance = (x - tx) ** 2 + (y - ty) ** 2;
       if (distance < score) { best = rect; score = distance; }
     }
+    if (!best && entry.id === 'joystick') {
+      if (size > 80) return layoutTouch({ ...config, joystick: { ...config.joystick, size: 80 } }, { width, height, insets, fps, obstacles });
+      best = { id: 'joystick', x: Math.max(0, Math.min(tx, width - size)), y: Math.max(0, Math.min(ty, height - size)), width: size, height: size };
+    }
     if (best) { result.push(best); occupied.push({ ...best, height: occupiedHeight }); }
   }
   return result;
