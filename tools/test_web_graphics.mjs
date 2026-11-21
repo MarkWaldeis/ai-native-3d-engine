@@ -290,3 +290,29 @@ test('procedural sky stores linear HDR radiance and moves the solar highlight wi
   assert.ok(red(width / 2, height * 0.75) > 2, 'the +X 45° sun is HDR');
   assert.ok(red(0, height * 0.75) < 1, 'opposite side has no glare');
 });
+
+test('procedural clouds are bounded, deterministic and leave the lower hemisphere untouched', () => {
+  const render = sky_clouds => {
+    const config = graphicsConfig({sky_clouds}, 'ultra');
+    return skyTexture(config, new THREE.Vector3(...config.sunDirection));
+  };
+  assert.equal(graphicsConfig({}, 'ultra').skyClouds, null);
+  assert.deepEqual(graphicsConfig({sky_clouds:{coverage:4, opacity:-1, scale:0, seed:100000}}, 'ultra').skyClouds,
+    {coverage:1, opacity:0, scale:0.25, seed:65535});
+  const clear = render(false), noCover = render({coverage:0}), cloudy = render(true);
+  const seeded = render({seed:456}), repeated = render({seed:456});
+  try {
+    assert.deepEqual(noCover.image.data, clear.image.data);
+    assert.deepEqual(seeded.image.data, repeated.image.data);
+    assert.notDeepEqual(seeded.image.data, cloudy.image.data);
+    const halfway = clear.image.data.length / 2;
+    assert.deepEqual(cloudy.image.data.subarray(0, halfway), clear.image.data.subarray(0, halfway));
+    let changed = 0;
+    for (let i = halfway; i < clear.image.data.length; i += 4) {
+      if (cloudy.image.data[i] !== clear.image.data[i]) changed += 1;
+    }
+    assert.ok(changed > 1000 && changed < halfway / 4, changed);
+  } finally {
+    for (const texture of [clear, noCover, cloudy, seeded, repeated]) texture.dispose();
+  }
+});

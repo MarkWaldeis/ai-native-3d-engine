@@ -151,6 +151,53 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.agx.rgb.every((channel, i) => Math.abs(channel - result.directAgx.rgb[i]) <= 2), 'direct and HDR compositing apply AgX once');
     console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
 
+    const clouds = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {applySky} = await import('./sky.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      const gl = renderer.getContext(), pixels = new Uint8Array(96 * 64 * 4);
+      const camera = new THREE.PerspectiveCamera(65, 1.5, 0.1, 50);
+      const geometry = new THREE.SphereGeometry(0.5, 24, 16);
+      const material = new THREE.MeshStandardMaterial({metalness:1, roughness:0.13, color:0xffffff});
+      const mirror = new THREE.Mesh(geometry, material);
+      const scene = new THREE.Scene();
+      scene.add(mirror);
+      renderer.setSize(96, 64, false);
+      camera.position.set(0, 0, 2);
+      const render = () => {
+        renderer.render(scene, camera);
+        gl.readPixels(0, 0, 96, 64, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return Array.from(pixels);
+      };
+      const capture = sky_clouds => {
+        const config = graphicsConfig({sky_clouds, sun_direction:[1,1,0]}, 'ultra');
+        applySky(renderer, scene, config, new THREE.Vector3(...config.sunDirection));
+        const sky = scene.background;
+        try {
+          mirror.visible = false;
+          camera.lookAt(1, 1, 2);
+          const background = render();
+          scene.background = null;
+          camera.lookAt(0, 0, 0);
+          mirror.visible = true;
+          return {background, reflected:render()};
+        } finally {
+          sky.dispose(); scene.environment.dispose();
+          scene.background = scene.environment = null;
+        }
+      };
+      try {
+        const clear = capture(false), cloudy = capture({coverage:0.7, seed:123});
+        const difference = key => clear[key].reduce((sum, value, i) => sum + Math.abs(value - cloudy[key][i]), 0);
+        return {skyDelta:difference('background'), reflectionDelta:difference('reflected'), error:gl.getError()};
+      } finally {
+        material.dispose(); geometry.dispose(); renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(clouds.skyDelta > 10000 && clouds.reflectionDelta > 2000 && clouds.error === 0, JSON.stringify(clouds));
+    console.log('PASS clouds: generated sky and its reflection change without external assets');
+
     const contact = await page.evaluate(async () => {
       const THREE = await import('three');
       const { HDRPipeline } = await import('./hdr.js');
@@ -439,6 +486,15 @@ export async function verifyGraphics(browser, base, errors, shots) {
     await page.route(background, showMap);
     const panorama = await render();
     await page.unroute(background, showMap);
+    const showMapWithClouds = patchScene(scene => {
+      const graphics = scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics;
+      graphics.environment_background = true;
+      graphics.sky_clouds = true;
+    });
+    await page.route(background, showMapWithClouds);
+    const panoramaWithClouds = await render();
+    await page.unroute(background, showMapWithClouds);
+    assert.deepEqual(panoramaWithClouds.pixels, panorama.pixels, 'visible authored HDRI takes precedence over procedural clouds');
     const rotateMap = patchScene(scene => {
       const graphics = scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics;
       graphics.environment_rotation_deg = 90;

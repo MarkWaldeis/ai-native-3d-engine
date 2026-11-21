@@ -30,10 +30,16 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
   const quality = ['low', 'balanced', 'ultra'].indexOf(preset);
   if (preset === 'legacy' || (!value && quality < 0)) return null;
   const config = {...daylightDefaults(value?.time_of_day),...value};
-  const foliage = object(config.foliage), water = object(config.water);
+  const foliage = object(config.foliage), water = object(config.water), clouds = object(config.sky_clouds);
   return {
     quality,
     sky: hex(config.sky, '#4d88cb'),
+    skyClouds: config.sky_clouds === true || clouds ? {
+      coverage: bounded(clouds?.coverage, 0.45, 0, 1),
+      scale: bounded(clouds?.scale, 1, 0.25, 4),
+      opacity: bounded(clouds?.opacity, 0.85, 0, 1),
+      seed: Math.trunc(bounded(clouds?.seed, 0, 0, 65535)),
+    } : null,
     horizon: hex(config.horizon, hex(skyColor, '#b8cddd')),
     ground: hex(config.ground, '#626457'),
     sunColor: hex(config.sun_color, '#ffe5c1'),

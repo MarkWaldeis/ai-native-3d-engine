@@ -39,6 +39,14 @@ procedural sky visible while using the HDR map for lighting. Set
 authored map, not the sun or fog. If the asset fails to load, the player uses
 the procedural sky.
 
+Set `"sky_clouds": true` for static procedural clouds in the generated sky
+and its reflections. An object can set `coverage` (0–1, default 0.45),
+`scale` (0.25–4, default 1; higher values make smaller clouds), `opacity`
+(0–1, default 0.85), and integer `seed` (0–65535). The sky is generated once
+from the sun direction and color, with no per-frame cloud pass. Clouds don't
+cast shadows on geometry. A visible HDRI still replaces the procedural sky;
+a reflection-only HDRI leaves the clouds visible but uses the HDRI for lighting.
+
 **Try it:** Export the material studio to compare chrome, copper, clearcoat and
 neon under the same studio lighting. Its HDR map can be regenerated with
 `python3 examples/material_studio/make_studio_map.py` and its glazed slate floor
