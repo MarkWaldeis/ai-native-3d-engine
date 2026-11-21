@@ -53,11 +53,6 @@ pub(crate) struct RayHit {
     pub damage_multiplier: f64,
 }
 
-pub(crate) struct NavSurface {
-    pub y: f32,
-    pub collider: ColliderHandle,
-}
-
 fn pose(t: &Transform) -> Isometry<Real> {
     Isometry::from_parts(
         Translation::from(vector![t.position[0], t.position[1], t.position[2]]),
@@ -237,78 +232,14 @@ impl Physics {
         }).collect()
     }
 
-    pub(crate) fn nav_surfaces(&self, x:f32,z:f32,top:f32,bottom:f32,slope:f32) -> Vec<NavSurface> {
+    pub(crate) fn nav_surfaces(&self, x:f32,z:f32,top:f32,bottom:f32,slope:f32) -> Vec<(f32,ColliderHandle)> {
         let ray=Ray::new(point![x,top,z],vector![0.0,-1.0,0.0]);
         let mut hits=vec![];
         self.query.intersections_with_ray(&self.bodies,&self.colliders,&ray,top-bottom,true,QueryFilter::new().exclude_sensors(),|handle,hit|{
-            if hit.normal.y >= slope {
-                hits.push(NavSurface { y: top - hit.time_of_impact, collider: handle });
-            }
-            true
+            if hit.normal.y >= slope { hits.push((top-hit.time_of_impact,handle)); } true
         });
-        hits.sort_by(|a,b|a.y.total_cmp(&b.y).then_with(||a.collider.into_raw_parts().cmp(&b.collider.into_raw_parts())));
+        hits.sort_by(|a,b|a.0.total_cmp(&b.0).then_with(||a.1.into_raw_parts().cmp(&b.1.into_raw_parts())));
         hits
-    }
-
-    pub(crate) fn nav_supports_between(
-        &self,
-        surfaces: [&NavSurface; 2],
-        endpoints: [[f32; 2]; 2],
-        ray_range: [f32; 2],
-        min_normal_y: f32,
-        step: f32,
-        supports: &mut Vec<ColliderHandle>,
-    ) -> bool {
-        let [start, end] = surfaces;
-        let [from, to] = endpoints;
-        let delta = [to[0] - from[0], to[1] - from[1]];
-        let distance = delta[0].hypot(delta[1]);
-        let gradient = (1.0 - min_normal_y * min_normal_y).max(0.0).sqrt() / min_normal_y;
-        let rise = (end.y - start.y).abs();
-        let tolerance = 0.01;
-        let parent = self.colliders[start.collider].parent().filter(|&parent| {
-            self.colliders[end.collider].parent() == Some(parent)
-                && self.bodies[parent].colliders().len() > 1
-        });
-        let Some(parent) = parent else {
-            let limit = if start.collider == end.collider { step.max(gradient * distance) } else { step };
-            return rise <= limit + tolerance;
-        };
-        if rise > step.max(gradient * distance) + tolerance {
-            return false;
-        }
-
-        const SEGMENTS: u32 = 16;
-        let [top, bottom] = ray_range;
-        let belongs_to_compound = |_, collider: &Collider| collider.parent() == Some(parent);
-        let filter = QueryFilter::new().exclude_sensors().predicate(&belongs_to_compound);
-        let max_sample_rise = step.max(gradient * distance / SEGMENTS as f32) + tolerance;
-        let mut previous_y = start.y;
-        for i in 0..=SEGMENTS {
-            let t = i as f32 / SEGMENTS as f32;
-            let ray = Ray::new(
-                point![from[0] + t * delta[0], top, from[1] + t * delta[1]],
-                vector![0.0, -1.0, 0.0],
-            );
-            let Some((handle, hit)) = self.query.cast_ray_and_get_normal(
-                &self.bodies, &self.colliders, &ray, top - bottom, true, filter,
-            ) else {
-                return false;
-            };
-            let y = top - hit.time_of_impact;
-            if hit.normal.y < min_normal_y
-                || (y - previous_y).abs() > max_sample_rise
-                || (i == 0 && (y - start.y).abs() > tolerance)
-                || (i == SEGMENTS && (y - end.y).abs() > tolerance)
-            {
-                return false;
-            }
-            if !supports.contains(&handle) {
-                supports.push(handle);
-            }
-            previous_y = y;
-        }
-        true
     }
 
     pub(crate) fn nav_clear(&self,x:f32,y:f32,z:f32,half:f32,height:f32,supports:&[ColliderHandle]) -> bool {

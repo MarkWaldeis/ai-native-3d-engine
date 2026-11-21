@@ -70,105 +70,46 @@ fn lab_reset_restores_the_target_to_its_authored_pose() {
 }
 
 #[test]
-fn nav_bake_keeps_the_floor_supported_by_three_adjacent_compound_parts() {
-    let scene = serde_json::from_value(json!({"entities":[
-        {"id":1,"name":"three-part floor","kind":"box","size":[1,1,1],
-         "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
-            {"shape":"box","half_extents":[2.325,0.2,2],"position":[-1.675,-0.2,0]},
-            {"shape":"box","half_extents":[0.2,0.2,2],"position":[0.85,-0.2,0]},
-            {"shape":"box","half_extents":[1.475,0.2,2],"position":[2.525,-0.2,0]}
-         ]}}}}
-    ]}))
-    .unwrap();
-    let params = shared::navigation::NavParams {
-        cell_size: 1.0,
-        ..Default::default()
-    };
-    let (mesh, _) =
-        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
-    assert!(mesh
-        .tiles
-        .iter()
-        .flat_map(|tile| &tile.polygons)
-        .any(|poly| poly.cell == [0, 0]));
-    let path = engine_runtime::navigation::query(&mesh, [-1.5, 0.0, 0.5], [2.5, 0.0, 0.5]).unwrap();
-    assert!(path.first().unwrap()[0] < 0.0);
-    assert!(path.last().unwrap()[0] > 1.0);
-}
-
-#[test]
-fn nav_bake_rejects_a_step_into_a_same_compound_ramp() {
-    let scene = serde_json::from_value(json!({"entities":[
-        {"id":1,"name":"floor and raised ramp","kind":"box","size":[1,1,1],
-         "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
-            {"shape":"box","half_extents":[2,0.2,2],"position":[-2,-0.2,0]},
-            {"shape":"box","half_extents":[2,0.2,2],"position":[1.8320508,1.2067949,0],"rotation_deg":[0,0,30]}
-         ]}}}}
-    ]})).unwrap();
-    let params = shared::navigation::NavParams {
-        cell_size: 1.0,
-        step: 0.25,
-        ..Default::default()
-    };
-    let (mesh, _) =
-        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
-    let cells: Vec<_> = mesh
-        .tiles
-        .iter()
-        .flat_map(|tile| &tile.polygons)
-        .map(|poly| poly.cell)
-        .collect();
-    assert!(cells.contains(&[-2, 0]));
-    assert!(!cells.contains(&[-1, 0]));
-}
-
-#[test]
-fn nav_bake_connects_a_ramp_across_its_compound_part_seam() {
-    let scene = serde_json::from_value(json!({"entities":[
-        {"id":1,"name":"two-part ramp","kind":"box","size":[1,1,1],
-         "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
-            {"shape":"box","half_extents":[2,0.2,2],"position":[-1.7320508,1,0],"rotation_deg":[0,0,30]},
-            {"shape":"box","half_extents":[2,0.2,2],"position":[1.7320508,3,0],"rotation_deg":[0,0,30]}
-         ]}}}}
-    ]})).unwrap();
-    let params = shared::navigation::NavParams {
-        cell_size: 1.0,
-        ..Default::default()
-    };
-    let (mesh, _) =
-        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
-    let path = engine_runtime::navigation::query(&mesh, [-1.5, 1.4, 0.5], [1.5, 3.1, 0.5]).unwrap();
-    assert!(
-        path.windows(2)
-            .any(|edge| edge[0][0] < 0.0 && edge[1][0] > 0.0),
-        "{path:?}"
-    );
-}
-
-#[test]
-fn nav_bake_does_not_treat_a_wall_as_part_of_the_supporting_floor() {
-    let scene = serde_json::from_value(json!({"entities":[
-        {"id":1,"name":"floor and wall","kind":"box","size":[1,1,1],
+fn compound_navigation_grid_matches_independent_entities() {
+    let compound = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"floor, wall and ramp","kind":"box","size":[1,1,1],
          "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
             {"shape":"box","half_extents":[4,0.5,4],"position":[0,-0.5,0]},
-            {"shape":"box","half_extents":[0.05,1.5,4],"position":[0.7,1.5,0]}
+            {"shape":"box","half_extents":[0.05,1.5,4],"position":[0.7,1.5,0]},
+            {"shape":"box","half_extents":[2,0.2,1],"position":[-1.5,0.75,1],"rotation_deg":[0,0,25]}
          ]}}}}
+    ]})).unwrap();
+    let independent = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"floor","kind":"box","size":[8,1,8],"collider":{"shape":"box"},
+         "transform":{"position":[0,-0.5,0]}},
+        {"id":2,"name":"wall","kind":"box","size":[0.1,3,8],"collider":{"shape":"box"},
+         "transform":{"position":[0.7,1.5,0]}},
+        {"id":3,"name":"ramp","kind":"box","size":[4,0.4,2],"collider":{"shape":"box"},
+         "transform":{"position":[-1.5,0.75,1],"rotation_deg":[0,0,25]}}
     ]}))
     .unwrap();
     let params = shared::navigation::NavParams {
         cell_size: 1.0,
         ..Default::default()
     };
-    let (mesh, _) =
-        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
-    let cells: Vec<_> = mesh
-        .tiles
+    let root = std::path::Path::new(".");
+    let (compound, _) = engine_runtime::navigation::bake(&compound, root, params.clone()).unwrap();
+    let (independent, _) = engine_runtime::navigation::bake(&independent, root, params).unwrap();
+    let grid = |mesh: shared::navigation::NavMesh| {
+        mesh.tiles
+            .into_iter()
+            .map(|tile| (tile.region, tile.polygons))
+            .collect::<Vec<_>>()
+    };
+    let compound = grid(compound);
+    let cells: Vec<_> = compound
         .iter()
-        .flat_map(|tile| &tile.polygons)
+        .flat_map(|(_, polygons)| polygons)
         .map(|poly| poly.cell)
         .collect();
-    assert!(cells.contains(&[-2, 0]));
-    assert!(!cells.contains(&[0, 0]));
+    assert!(cells.contains(&[-2, -2]));
+    assert!(!cells.contains(&[0, -2]));
+    assert_eq!(compound, grid(independent));
 }
 
 #[test]
