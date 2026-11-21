@@ -162,6 +162,7 @@ function apply(result) {
   }
   for (const entity of result.transforms) {
     transforms.set(entity.id,entity); streaming?.move(entity.id,entity.transform);
+    effects.localLights?.move(entity.id, entity.transform);
     const object = objects.get(entity.id); if (!object) continue;
     const transform = entity.transform;
     object.position.fromArray(transform.position); object.scale.fromArray(transform.scale);
@@ -422,7 +423,7 @@ function frame(now) {
     updateCamera(false, elapsed);
     streaming?.update(camera);
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streaming && objects.get(playerId)?.position);
-    effects.localLights?.update(camera.position, transforms, effects.level);
+    effects.localLights?.update(camera.position, effects.level);
     updateShadows(); updateObjective(); effects.render(camera);
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;

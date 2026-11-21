@@ -81,29 +81,36 @@ test('point lights resolve flexible props and remain bounded as emitters move or
   assert.deepEqual(pointLightSettings('{"color":"#ffAA00","intensity":1200,"range":-2,"offset":[1,0,0]}'), {
     color:'#ffaa00', intensity:1000, range:0.25, offset:[1,0,0],
   });
-  const scene = new THREE.Scene(), pool = new LocalLights(scene), transforms = new Map();
+  const scene = new THREE.Scene(), pool = new LocalLights(scene);
+  const transform = x => ({position:[x,0,0], scale:[2,1,1], rotation_deg:[0,0,90]});
   for (let id = 9; id > 0; id--) {
-    pool.register({id, props:{ai_light:{offset:[1,0,0], intensity:id}}});
-    transforms.set(id, {transform:{position:[id,0,0], scale:[2,1,1], rotation_deg:[0,0,90]}});
+    pool.register({id, transform:transform(id), props:{ai_light:{offset:[1,0,0], intensity:id}}});
   }
   pool.register({id:10, visible:false, props:{ai_light:{intensity:1}}});
   const eye = new THREE.Vector3();
-  pool.update(eye, transforms, 2);
+  pool.update(eye, 2);
   assert.deepEqual(scene.children.map(light => light.intensity), [1,2,3,4,5,6,7,8]);
   assert.ok(scene.children[0].position.distanceTo(new THREE.Vector3(1,2,0)) < 1e-10);
   assert.equal(pool.sources.has(10), false);
-  pool.update(eye, transforms, 1);
+  pool.update(eye, 1);
   assert.equal(scene.children.length, 4);
-  pool.update(eye, transforms, 0);
+  pool.update(eye, 0);
   const slots = [...scene.children];
   assert.deepEqual(slots.map(light => light.intensity), [1,2]);
-  transforms.get(1).transform.position[0] += 1000;
+  pool.move(1, transform(-1000));
   pool.remove(2);
-  pool.update(eye, transforms, 0);
+  pool.update(eye, 0);
   assert.deepEqual(scene.children, slots, 'view changes and removal do not rebuild the shared GPU light slots');
   assert.deepEqual(slots.map(light => light.intensity), [3,4]);
-  pool.update(eye.set(100, 0, 0), transforms, 0);
+  pool.update(eye.set(100, 0, 0), 0);
   assert.deepEqual(slots.map(light => light.intensity), [0,0]);
+  pool.update(eye.set(-1000, 0, 0), 0);
+  assert.deepEqual(slots.map(light => light.intensity), [1,0]);
+  pool.update(eye.set(Number.MAX_VALUE, 0, 0), 0);
+  assert.deepEqual(slots.map(light => light.intensity), [0,0]);
+  assert.equal(pool.cells.size, 2);
+  pool.remove(1);
+  assert.equal(pool.cells.size, 1);
   pool.reset();
   assert.equal(scene.children.length, 0);
 });

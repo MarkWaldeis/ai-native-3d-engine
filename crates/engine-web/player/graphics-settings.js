@@ -73,6 +73,8 @@ export function materialSettings(authored) {
   };
 }
 
+export const MAX_POINT_LIGHT_RANGE = 64;
+
 export function pointLightSettings(authored) {
   const value = object(authored);
   if (!value) return null;
@@ -84,7 +86,7 @@ export function pointLightSettings(authored) {
   return {
     color: hex(value.color, '#ffffff').toLowerCase(),
     intensity,
-    range: bounded(value.range, 8, 0.25, 64),
+    range: bounded(value.range, 8, 0.25, MAX_POINT_LIGHT_RANGE),
     offset,
   };
 }
