@@ -78,14 +78,16 @@ test('cluster frustum culling and optional occluder affect proxy drawing, not ow
   const back=camera();back.lookAt(-100,0,0);back.updateMatrixWorld();hlod.update(back);assert.equal(hlod.stats().hlodClusters,0);
 });
 
+const drawn=group=>group.visible && group.children.some(child=>child.visible);
+
 test('StreamingWorld hides far chunk entities and atomically restores normal geometry',async()=>{
   const scene=new THREE.Scene(),world=new StreamingWorld(scene,{},config());world.add(entity());
   const c=camera();await Promise.all(world.update(c));
-  const group=world.groups.get('4,0');assert.equal(world.entities.get(1).level,3);assert.equal(group.visible,false);
+  const group=world.groups.get('4,0');assert.equal(world.entities.get(1).level,3);assert.equal(drawn(group),false);
   assert.equal(world.hlod.stats().hlodDrawCalls,1);
   c.position.x=28;c.lookAt(144,2,0);c.updateMatrixWorld();
   const tasks=world.update(c);
-  assert.equal(group.visible,true,'retained near template is ready before asynchronous rebuild');
+  assert.equal(drawn(group),true,'retained near template is ready before asynchronous rebuild');
   assert.equal(world.hlod.isFar('4,0'),false);assert.ok(world.entities.get(1).level<3);assert.equal(world.hlod.stats().hlodDrawCalls,0);
   await Promise.all(tasks);
   world.move(1,{position:[280,2,0],scale:[1,1,1],rotation_deg:[0,0,0]});
@@ -106,7 +108,7 @@ test('tiny-only chunks stay on the legacy distance cutoff and far limit hides no
   await Promise.all(world.update(camera()));
   assert.equal(world.entities.get(1).level,3);assert.equal(world.groups.get('4,0').children.length,0);
   assert.equal(world.entities.get(2).level,3);assert.equal(world.hlod.isFar('21,0'),false);
-  world.update(camera());assert.equal(world.groups.get('21,0').visible,false);
+  world.update(camera());assert.equal(drawn(world.groups.get('21,0')),false);
 });
 
 test('disabled HLOD preserves legacy grid, level selection, visibility and empty scenes',async()=>{
@@ -123,4 +125,17 @@ test('HLOD configuration defaults and invalid authoring',()=>{
   const cfg=config();assert.equal(cfg.hlod,true);assert.equal(cfg.hlod_cluster,4);assert.equal(cfg.hlod_min_radius,1.5);
   for(const patch of [{hlod:1},{hlod_distance:100},{hlod_distance:Infinity},{hlod_cluster:0},{hlod_cluster:1.5},{hlod_cluster:'4'},{hlod_min_radius:-1},{hlod_min_radius:NaN}]) assert.throws(()=>config(patch),RangeError);
   assert.equal(config({hlod_min_radius:0}).hlod_min_radius,0);
+});
+
+test('mixed chunks keep near non-HLOD entities drawn while static neighbours use the proxy',async()=>{
+  const scene=new THREE.Scene(),world=new StreamingWorld(scene,{},config());
+  world.add(entity(1));world.add(entity(2,[144,2,0],{script:'tick.rhai',size:[100,4,4]}));
+  const c=camera();await Promise.all(world.update(c));await Promise.all(world.update(c));
+  assert.equal(world.hlod.isFar('4,0'),true);assert.equal(world.entities.get(1).level,3);
+  assert.notEqual(world.entities.get(2).level,3);
+});
+
+test('hlod:false accepts draw distances beyond the default hlod_distance',()=>{
+  const player={tags:['player'],props:{ai_world:{hlod:false,draw_distance:2000,stream_radius:2100}}};
+  assert.doesNotThrow(()=>worldConfig([player]));
 });

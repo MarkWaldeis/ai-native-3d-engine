@@ -30,6 +30,9 @@ export class StreamingWorld {
     this.grid = new ChunkGrid(this.gridConfig); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.frustum = new THREE.Frustum(); this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
+  hideProxied(group, hidden = true) {
+    for (const child of group.children) if (child.isInstancedMesh) child.visible = !hidden || !child.userData.items.every(item => this.hlod.entities.has(item.e.id));
+  }
   setHlodOcclusion(occluder) { this.hlod?.setOcclusion(occluder); }
   async template(e, level) {
     const key = `${batchKey(e)}:${level}`;
@@ -120,7 +123,7 @@ export class StreamingWorld {
       if (this.builds.get(key) !== group) return;
       for (const object of objects) group.add(object);
       group.userData.nearReady = true;
-      group.visible = !this.hlod?.isFar(key);
+      if (this.hlod?.isFar(key)) this.hideProxied(group);
       group.userData.bounds = new THREE.Box3().setFromObject(group);
       old?.removeFromParent(); old?.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
       this.groups.set(key,group);
@@ -150,7 +153,7 @@ export class StreamingWorld {
       for (const {id,position,radius} of this.grid.chunks.get(key)?.values() || []) {
         const item = this.entities.get(id); if (!item) continue;
         let level = selectLOD(Math.max(0,camera.position.distanceTo(new THREE.Vector3(...position))-radius),item.level,this.config);
-        if(managed) level=outside || proxy && this.hlod.wantsFar(key) ? 3 : Math.min(level,2);
+        if(managed && this.hlod.entities.has(id)) level=outside || proxy && this.hlod.wantsFar(key) ? 3 : Math.min(level,2);
         if (level !== item.level) {
           item.level = level;
           if (!item.object) this.dirty.add(key);
@@ -200,7 +203,8 @@ export class StreamingWorld {
           const item = this.entities.get(id);
           if (item?.object && group.userData.bounds) group.userData.bounds.expandByPoint(item.object.position);
         }
-        group.visible = (!group.userData.bounds || this.frustum.intersectsBox(group.userData.bounds)) && !proxy && !outside;
+        group.visible = !group.userData.bounds || this.frustum.intersectsBox(group.userData.bounds);
+        if (managed) this.hideProxied(group,proxy || outside);
         group.traverse(o => { if (o.userData.billboard) { o.userData.items.forEach((item,i) => this.setMatrix(o,i,item,undefined,camera)); o.instanceMatrix.needsUpdate = true; } });
       }
     }
