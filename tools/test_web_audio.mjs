@@ -147,6 +147,20 @@ test('entity reverb JSON follows spawned, moved and removed transforms', () => m
   audio.apply({ removed: [4] }); audio.update(listen(40)); assert.equal(audio.stats().audioReverbZone, null);
 }));
 
+test('initial full spawn listing removes on-start ghost emitters/zones but later deltas do not', () => mock(async () => {
+  const kept = entity(1, 0), inactive = entity(2, 4);
+  const ghost = { ...entity(3, 0), name: 'ghost', props: { ai_sound: { synth: 'hum' }, ai_reverb_zone: { size: [20, 20, 20], preset: 'cave' } } };
+  const audio = new SpatialAudio(); audio.configure(scene([kept, inactive, ghost]));
+  audio.apply({ spawned: [kept, inactive], transforms: [kept], removed: [] });
+  assert.equal(audio.entities.has(3), false); assert.equal(audio.entities.has(2), true);
+  audio.unlock(); audio.update(listen());
+  assert.equal(audio.voices.has(3), false); assert.equal(audio.stats().audioReverbZone, null);
+  audio.apply({ spawned: [], transforms: [], removed: [] }); audio.update(listen());
+  assert.equal(audio.entities.has(1), true); assert.equal(audio.entities.has(2), true);
+  audio.configure(scene([ghost])); audio.apply({ spawned: [], transforms: [], removed: [] }); audio.update(listen());
+  assert.equal(audio.entities.size, 0); assert.equal(audio.voices.size, 0); assert.equal(audio.stats().audioReverbZone, null);
+}));
+
 test('declarative music conditions crossfade and layers share the same start time', () => mock(async () => {
   assert.equal(musicWhen('always', {}), true); assert.equal(musicWhen({ key: 'combat', op: '>=', value: 1 }, {}), false);
   assert.equal(musicWhen({ key: 'combat', op: 'eval', value: 1 }, { combat: 1 }), false);

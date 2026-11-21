@@ -41,6 +41,7 @@ export class SpatialAudio {
   set muted(value) { this._muted = value; if (this.master) param(this.master, 'gain', value ? 0 : this.config.master, this.context.currentTime); }
   configure(scene) {
     this.clear();
+    this.awaitingInitial = true;
     this.config = audioConfig(scene.entities?.find(e => e.tags?.includes('player'))?.props?.ai_audio);
     for (const entity of scene.entities || []) this.entities.set(entity.id, { ...entity, since: this.clock });
     this.layers = (this.config.music?.layers || []).map((layer, i) => ({ ...layer, id: `music:${i}`, layerId: layer.id, since: this.clock }));
@@ -74,6 +75,13 @@ export class SpatialAudio {
   suspend() { for (const voice of this.voices.values()) { clearTimeout(voice.timer); voice.media?.pause(); } this.context?.suspend()?.catch(() => {}); }
   play(kind) { this.feedback.play(kind); }
   apply(result) {
+    if (this.awaitingInitial) {
+      this.awaitingInitial = false;
+      if (Array.isArray(result.spawned) && Array.isArray(result.transforms)) {
+        const live = new Set([...result.spawned, ...result.transforms].map(entity => entity.id));
+        for (const id of this.entities.keys()) if (!live.has(id)) { this.entities.delete(id); this.stop(id); }
+      }
+    }
     this.state = result.state || {};
     for (const id of result.removed || []) { this.entities.delete(id); this.stop(id); }
     for (const e of result.spawned || []) this.entities.set(e.id, { ...e, since: this.clock });
