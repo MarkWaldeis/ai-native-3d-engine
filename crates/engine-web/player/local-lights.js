@@ -73,13 +73,13 @@ export class LocalLights {
     }
     while (this.slots.length > count) this.slots.pop().removeFromParent();
   }
-  update(cameraPosition, level) {
+  update(focus, level) {
     const budget = Math.min(SLOT_BUDGET[level], this.sources.size);
     this.resize(budget);
     const chosen = this.chosen;
     chosen.length = 0;
     if (!budget) return;
-    const { x, z } = cameraPosition;
+    const { x, z } = focus;
     const minX = cell(x - SEARCH_RADIUS), minZ = cell(z - SEARCH_RADIUS);
     const maxX = cell(x + SEARCH_RADIUS), maxZ = cell(z + SEARCH_RADIUS);
     if (![minX, minZ, maxX, maxZ].every(Number.isSafeInteger)) {
@@ -92,7 +92,7 @@ export class LocalLights {
         if (!bucket) continue;
         for (const source of bucket) {
           const reach = source.config.range + NEAR_MARGIN + FADE_DISTANCE;
-          const distanceSq = source.position.distanceToSquared(cameraPosition);
+          const distanceSq = source.position.distanceToSquared(focus);
           if (distanceSq >= reach * reach) continue;
           let index = chosen.length;
           while (index > 0 && (distanceSq < chosen[index - 1].distanceSq || (distanceSq === chosen[index - 1].distanceSq && source.id < chosen[index - 1].id))) index--;

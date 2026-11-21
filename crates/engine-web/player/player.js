@@ -427,8 +427,9 @@ function frame(now) {
     updateCamera(false, elapsed);
     streaming?.update(camera);
     terrain?.update(camera, now);
-    effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streaming && objects.get(playerId)?.position);
-    effects.localLights?.update(camera.position, effects.level);
+    const streamedFocus = streaming && objects.get(playerId)?.position;
+    effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
+    effects.localLights?.update(streamedFocus || camera.position, effects.level);
     updateShadows(); updateObjective(); effects.render(camera);
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
