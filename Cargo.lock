@@ -34,6 +34,7 @@ dependencies = [
  "engine-runtime",
  "engine-terrain",
  "getrandom",
+ "png 0.17.16",
  "serde_json",
  "shared",
  "tiny_http",
