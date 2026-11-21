@@ -14,7 +14,7 @@ export function loadAsset(path) {
 export class StreamingWorld {
   constructor(scene, renderer, config) {
     this.scene = scene; this.renderer = renderer; this.config = config;
-    this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.templates = new Map(); this.dirty = new Set();
+    this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.frustum = new THREE.Frustum(); this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
   async template(e, level) {
@@ -76,29 +76,37 @@ export class StreamingWorld {
     if (old !== item.key || !item.object) { this.dirty.add(old); this.dirty.add(item.key); }
   }
   async rebuild(key) {
-    const old = this.groups.get(key); old?.removeFromParent(); old?.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
-    const group = new THREE.Group(); this.groups.set(key,group);
-    const buckets = new Map();
+    const old = this.groups.get(key), group = new THREE.Group(); this.builds.set(key,group);
+    const buckets = new Map(), objects = [];
     for (const {id} of this.grid.chunks.get(key)?.values() || []) {
       const item = this.entities.get(id); if (!item) continue;
-      if (item.object) { group.add(item.object); continue; }
+      if (item.object) { objects.push(item.object); continue; }
       if (item.e.visible === false || item.level === 3) continue;
       const batch = `${batchKey(item.e)}:${item.level || 0}:${!!item.e.collider}`;
       if (!buckets.has(batch)) buckets.set(batch,[]); buckets.get(batch).push(item);
     }
-    for (const items of buckets.values()) {
-      const parts = await this.template(items[0].e,items[0].level || 0);
-      if (this.groups.get(key) !== group) return;
-      for (const part of parts) {
-        const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.billboard = part.billboard; mesh.userData.items = items;
-        mesh.castShadow = !part.billboard; mesh.receiveShadow = true;
-        mesh.userData.support = !!items[0].e.collider;
-        items.forEach((item,index) => { this.setMatrix(mesh,index,item,part.matrix); mesh.userData.ids.set(item.e.id,[index]); });
-        mesh.computeBoundingSphere(); group.add(mesh);
+    try {
+      for (const items of buckets.values()) {
+        const parts = await this.template(items[0].e,items[0].level || 0);
+        if (this.builds.get(key) !== group) return;
+        for (const part of parts) {
+          const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.billboard = part.billboard; mesh.userData.items = items;
+          mesh.castShadow = !part.billboard; mesh.receiveShadow = true;
+          mesh.userData.support = !!items[0].e.collider;
+          items.forEach((item,index) => { this.setMatrix(mesh,index,item,part.matrix); mesh.userData.ids.set(item.e.id,[index]); });
+          mesh.computeBoundingSphere(); group.add(mesh);
+        }
       }
+      if (this.builds.get(key) !== group) return;
+      for (const object of objects) group.add(object);
+      group.userData.bounds = new THREE.Box3().setFromObject(group);
+      old?.removeFromParent(); old?.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+      this.groups.set(key,group);
+      if (this.grid.loaded.has(key)) this.scene.add(group);
+    } finally {
+      if (this.builds.get(key) === group) this.builds.delete(key);
+      if (this.groups.get(key) !== group) group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
     }
-    group.userData.bounds = new THREE.Box3().setFromObject(group);
-    if (this.grid.loaded.has(key)) this.scene.add(group);
   }
   setMatrix(mesh,index,item,local = new THREE.Matrix4(),camera) {
     const t = item.e.transform;
@@ -180,5 +188,5 @@ export class StreamingWorld {
     }
     return result;
   }
-  reset() { for (const group of this.groups.values()) { group.removeFromParent(); group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); } this.groups.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.config); this.dirty.clear(); }
+  reset() { for (const group of this.groups.values()) { group.removeFromParent(); group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); } this.groups.clear(); this.builds.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.config); this.dirty.clear(); }
 }
