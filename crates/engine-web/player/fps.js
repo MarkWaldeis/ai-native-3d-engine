@@ -47,13 +47,14 @@ export class FirstPerson {
   }
   mountModel(model, authored = false) {
     if (this.model) this.weapon.remove(this.model);
-    this.model = model; this.weapon.add(model);
+    this.model = model; model.removeFromParent();
     if (authored) {
       const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
       const scale = 0.4 / Math.max(size.x, size.y, size.z, 1e-3); model.scale.multiplyScalar(scale);
       const center = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3()); model.position.sub(center);
       model.userData.muzzle = new THREE.Vector3(0, 0.02, -0.2 / model.scale.x);
     }
+    this.weapon.add(model);
     model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
     model.updateMatrix(); this.muzzleFlash.position.copy(model.userData.muzzle).applyMatrix4(model.matrix); this.weapon.add(this.muzzleFlash);
   }

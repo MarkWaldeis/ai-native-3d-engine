@@ -78,6 +78,58 @@ diagonal cells. Height-changing sections retain corners. Native and WASM execute
 the same Rust code; snapshots include `nav_agents` and release parity compares
 their positions, targets, status and full routes every 30 ticks.
 
+## M12 QA subset: bounded multi-agent parity workloads
+
+`examples/nav_scaling.rs` supplies deterministic **pre-baked quad** workloads,
+without modifying the physics backend, navigation implementation, player or
+streaming code owned by the parallel sessions. Two L-shaped corridors (flat and
+gently sloped) span three 16 m tiles, including negative coordinates. Each has
+352 polygons and runs 0, 1, 16, 64 and 128 noncolliding agents for 600 ticks.
+The geometry baker is deliberately bypassed via `Simulation::from_sources`;
+the ramp is hand-authored nav data, **not direct heightfield support**.
+
+```sh
+# Unoptimized native smoke budget: 1000 ms per simulation step, including cold plans.
+cargo run --example nav_scaling -- 1000 > target/nav-scaling.json
+# Use a current export's exact WASM package; override PLAYWRIGHT_MODULE if needed.
+node tools/verify_nav_scaling.mjs target/nav-scaling.json target/m15-site/coin_game
+# Or choose a different positive maximum tick + snapshot budget in milliseconds:
+node tools/verify_nav_scaling.mjs target/nav-scaling.json target/m15-site/coin_game 100
+```
+
+The verifier requires Chromium, WebKit iPhone 13 and WebKit iPad Pro 11; missing
+browsers fail, never skip. It checks full routes, planned targets, statuses and
+positions against native at five checkpoints per workload. IDs, route cursors
+and ticks are exact; floating-point values allow 1e-5. Empty, malformed and
+runtime-error inputs, budget failure/cleanup and deterministic arrival have
+regressions in `tests/nav_scaling.rs` and `tools/test_web_nav_scaling.mjs`.
+
+Browser verification defaults to a **100 ms maximum tick + JSON snapshot smoke
+budget**, including the cold all-agent path-planning spike, and exits nonzero on
+excess. Inputs are bounded to 16 cases, 128 agents, 3600 ticks and 64 samples per
+case. This does **not** establish a 16.67 ms frame budget or crowd avoidance.
+Actors intentionally overlap and have no colliders; no rendering is measured.
+
+Local macOS ARM64 measurements for 128 agents (600 ticks; release WASM, dev native
+without debug symbols/incremental compilation):
+
+| Execution | Flat max / p95 ms | Ramp max / p95 ms |
+|---|---:|---:|
+| Native simulation step only | 204.407 / 0.126 | 174.404 / 0.141 |
+| Chromium desktop tick + snapshot | 16.0 / 0.9 | 14.6 / 2.1 |
+| WebKit iPhone 13 profile tick + snapshot | 17 / 1 | 16 / 2 |
+| WebKit iPad Pro 11 profile tick + snapshot | 18 / 1 | 14 / 2 |
+
+Native excludes snapshot serialization and uses a different optimization profile;
+the rows are not a native/browser speed comparison. WebKit's clock rounds to
+milliseconds; a reported zero is below resolution, not free work. Device profiles
+are desktop emulation, **not physical-device performance evidence**.
+
+**M12 is still partial:** triangle-exact collider/heightfield baking, dynamic
+obstacles and avoidance require the #37-owned runtime/physics files; tile IO
+overlaps #32/#35 streaming ownership. This QA harness neither implements nor
+claims those features. Existing three-game release checks remain unchanged.
+
 Lint checks `goal/collectible/crystal/coin/lantern` approach locations against the
 player (or explicit start). It projects floating objective positions downward
 onto nearby walkable surfaces; it does not prove interaction/jump/script logic.
