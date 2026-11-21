@@ -91,19 +91,17 @@ fn one() -> f64 {
 
 impl Hitbox {
     pub fn build(&self, scale: [f32; 3], groups: Groups) -> Result<ColliderBuilder> {
-        let position = std::array::from_fn(|i| self.position[i] * scale[i]);
         ensure!(
             !self.name.is_empty()
                 && self.name.len() <= 64
                 && (0.0..=100.0).contains(&self.damage_multiplier),
             "invalid hitbox name or damage_multiplier (expected [0,100])"
         );
-        ensure!(
-            position.into_iter().chain(self.rotation_deg).all(finite),
-            "invalid hitbox transform"
-        );
-        Ok(ColliderBuilder::new(self.shape.build(scale, true)?)
-            .position(isometry(position, self.rotation_deg))
+        let (pose, shape) = self
+            .shape
+            .build_part(scale, self.position, self.rotation_deg)?;
+        Ok(ColliderBuilder::new(shape)
+            .position(pose)
             .sensor(true)
             .active_collision_types(ActiveCollisionTypes::empty())
             .collision_groups(groups.into())
@@ -225,6 +223,64 @@ fn positive(v: f32) -> bool {
 }
 
 impl Geometry {
+    fn build_part(
+        &self,
+        scale: [f32; 3],
+        position: [f32; 3],
+        rotation_deg: [f32; 3],
+    ) -> Result<(Isometry<Real>, SharedShape)> {
+        let position = std::array::from_fn(|i| position[i] * scale[i]);
+        ensure!(
+            position.into_iter().chain(rotation_deg).all(finite),
+            "invalid collider part transform"
+        );
+        let pose = isometry(position, rotation_deg);
+        if rotation_deg == [0.0; 3]
+            || scale.into_iter().all(|s| s == scale[0])
+            || matches!(self, Self::Sphere { .. })
+        {
+            return Ok((pose, self.build(scale, true)?));
+        }
+
+        let shape = self.build([1.0; 3], true)?;
+        let transform = |v: Vector<Real>| (pose.rotation * v).component_mul(&Vector::from(scale));
+        let shape = if let Some(capsule) = shape.as_capsule() {
+            let x = transform(Vector::x());
+            let z = transform(Vector::z());
+            let (xx, zz) = (x.norm_squared(), z.norm_squared());
+            let radius =
+                capsule.radius * ((xx + zz + (xx - zz).hypot(2.0 * x.dot(&z))) * 0.5).sqrt();
+            let end = transform(capsule.segment.b.coords);
+            ensure!(
+                positive(radius) && end.iter().copied().all(finite),
+                "invalid capsule dimensions"
+            );
+            SharedShape::capsule(Point::from(-end), Point::from(end), radius)
+        } else {
+            let vertices = if let Some(cuboid) = shape.as_cuboid() {
+                cuboid.to_trimesh().0
+            } else {
+                shape
+                    .as_convex_polyhedron()
+                    .context("expected convex collider part")?
+                    .points()
+                    .to_vec()
+            };
+            let vertices: Vec<_> = vertices
+                .into_iter()
+                .map(|p| Point::from(transform(p.coords)))
+                .collect();
+            ensure!(
+                vertices
+                    .iter()
+                    .all(|p| p.coords.iter().copied().all(finite)),
+                "invalid physics vertex"
+            );
+            SharedShape::convex_hull(&vertices).context("degenerate scaled collider part")?
+        };
+        Ok((isometry(position, [0.0; 3]), shape))
+    }
+
     pub fn build(&self, scale: [f32; 3], convex_only: bool) -> Result<SharedShape> {
         let abs = scale.map(f32::abs);
         let scaled = |p: [f32; 3]| std::array::from_fn(|i| p[i] * scale[i]);
@@ -299,15 +355,8 @@ impl Geometry {
                     parts
                         .iter()
                         .map(|part| {
-                            let position = scaled(part.position);
-                            ensure!(
-                                position.into_iter().chain(part.rotation_deg).all(finite),
-                                "invalid compound part transform"
-                            );
-                            Ok((
-                                isometry(position, part.rotation_deg),
-                                part.geometry.build(scale, true)?,
-                            ))
+                            part.geometry
+                                .build_part(scale, part.position, part.rotation_deg)
                         })
                         .collect::<Result<Vec<_>>>()?,
                 )
@@ -371,6 +420,32 @@ impl Query {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn rotated_compound_boxes_and_hitboxes_scale_in_entity_axes() {
+        let scale = [3.0, 1.0, 1.0];
+        let compound: Geometry = serde_json::from_value(json!({
+            "shape":"compound","parts":[{"shape":"box","half_extents":[0.25,1,0.5],
+                "position":[2,0,0],"rotation_deg":[0,0,90]}]
+        }))
+        .unwrap();
+        let hitbox: Hitbox = serde_json::from_value(json!({
+            "name":"rotated","shape":{"shape":"box","half_extents":[0.25,1,0.5]},
+            "position":[2,0,0],"rotation_deg":[0,0,90]
+        }))
+        .unwrap();
+        for bounds in [
+            compound.build(scale, false).unwrap().compute_local_aabb(),
+            hitbox
+                .build(scale, Groups::default())
+                .unwrap()
+                .build()
+                .compute_aabb(),
+        ] {
+            assert!((bounds.mins - point![3.0, -0.25, -0.5]).norm() < 1e-5);
+            assert!((bounds.maxs - point![9.0, 0.25, 0.5]).norm() < 1e-5);
+        }
+    }
 
     #[test]
     fn rejects_invalid_mesh_indices_and_nested_compounds() {
