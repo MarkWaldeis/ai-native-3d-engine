@@ -206,6 +206,7 @@ function applyRagdolls(states = []) {
 }
 
 function apply(result) {
+  checkpointAutosave(result.state, !ready);
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
     const object = objects.get(id);
@@ -384,10 +385,33 @@ async function restart(save = null) {
 }
 
 const saveKey = `ai-engine-save:v1:${location.pathname}`;
+let autosaveRequest, saveNoteTimer;
+function saveNote(text) {
+  clearTimeout(saveNoteTimer);
+  $('save-status').textContent = text;
+  saveNoteTimer = setTimeout(() => { $('save-status').textContent = ''; }, 3000);
+}
+function updateSaveMenu() {
+  let available = false;
+  try { available = localStorage.getItem(saveKey) !== null; } catch {}
+  $('load-game').disabled = !available || !ready;
+  $('save-game').disabled = !ready;
+  $('load-game').title = available ? 'Letzten Spielstand laden' : 'Noch kein Spielstand vorhanden';
+}
+function checkpointAutosave(state, initial = false) {
+  const request = state._autosave;
+  if (initial) { autosaveRequest = request; return; }
+  if (request === undefined || request === autosaveRequest) return;
+  autosaveRequest = request;
+  try { window.__aiSaveGame(); }
+  catch (error) { saveNote('Speichern fehlgeschlagen'); console.error('Spielstand:', error); }
+}
 window.__aiSaveGame = () => {
   if (!ready) throw new Error('Spiel ist noch nicht bereit.');
   const save = game.save_game();
   localStorage.setItem(saveKey, save);
+  updateSaveMenu();
+  saveNote('Gespeichert');
   return save;
 };
 window.__aiLoadGame = async () => {
@@ -397,6 +421,15 @@ window.__aiLoadGame = async () => {
   startRunning();
   return true;
 };
+$('save-game').addEventListener('click', () => {
+  try { window.__aiSaveGame(); } catch (error) { saveNote('Speichern fehlgeschlagen'); }
+});
+$('load-game').addEventListener('click', async () => {
+  $('load-game').disabled = true;
+  try { await window.__aiLoadGame(); }
+  catch (error) { saveNote('Laden fehlgeschlagen'); console.error('Spielstand:', error); }
+  finally { updateSaveMenu(); }
+});
 window.addEventListener('keydown', e => {
   if (e.code !== 'F5' && e.code !== 'F9') return;
   e.preventDefault();
@@ -425,6 +458,7 @@ bindActivation($('start'), async () => {
   } catch (error) { fail(error); }
 },()=>!modal.hidden);
 function pause() {
+  updateSaveMenu();
   fps?.stop();
   running = false; resetInput(); accumulator = 0; audio.suspend(); mode = 'pause'; modal.hidden = false;
   modal.dataset.screen = 'pause';

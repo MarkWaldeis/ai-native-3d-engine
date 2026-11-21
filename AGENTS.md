@@ -287,6 +287,8 @@ Version 1 speichert Entity-Deltas, Tick, Zustand, Flags, Inventar und Geschwindi
 Rhai: `flag_set/flag`, `inventory_add/remove/count`; fehlende Flags liefern `()`.
 Beim Laden nur `on_load(ctx)`, nicht `on_start`; `base_changed` meldet Basisänderungen.
 Web: F5/F9 oder `window.__aiSaveGame/__aiLoadGame`, lokal pro Spielpfad.
+Checkpoint-Autosave: Skripte erhöhen `state._autosave`; der Web-Player speichert
+bei Änderungen (nicht beim Laden) und meldet „Gespeichert“. Pause: Speichern/Laden.
 
 ## Gameplay / M3
 
