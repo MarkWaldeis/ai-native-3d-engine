@@ -8,6 +8,7 @@ const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 let action = false, running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
+let ui = {};
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const loader = new GLTFLoader();
@@ -102,13 +103,13 @@ function apply(result) {
   }
   const fragments = [];
   for (const [key, value] of Object.entries(result.state)) {
-    if (key === 'won' || key === 'gewonnen') continue;
+    if (key === 'won' || key === 'gewonnen' || key.startsWith('_') || (ui.hud_keys && !ui.hud_keys.includes(key))) continue;
     const span = document.createElement('span');
     if (key === 'score') {
       const icon = document.createElement('i'); icon.className = 'coin-icon'; icon.setAttribute('aria-hidden', 'true'); span.append(icon);
-      span.append(document.createTextNode('Münzen '));
+      span.append(document.createTextNode(`${ui.score_label || 'Münzen'} `));
       const number = document.createElement('b'); number.textContent = value; span.append(number);
-      const total = source.entities.filter(e => e.tags?.includes('coin')).length;
+      const total = source.entities.filter(e => e.tags?.includes(ui.collectible_tag || 'coin')).length;
       if (total) span.append(document.createTextNode(` / ${total}`));
     } else span.textContent = `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`;
     fragments.push(span);
@@ -121,9 +122,9 @@ function apply(result) {
 
 function showWin() {
   running = false; resetInput(); mode = 'restart'; modal.hidden = false;
-  $('modal-badge').textContent = 'ALLE MÜNZEN GESAMMELT';
+  $('modal-badge').textContent = ui.win_badge || 'ALLE MÜNZEN GESAMMELT';
   $('modal-symbol').textContent = '✦'; $('modal-title').textContent = 'Gewonnen!';
-  $('modal-text').textContent = `Geschafft! ${latest.state.score ?? ''} Münzen gesammelt und das Ziel erreicht. Noch eine Runde?`;
+  $('modal-text').textContent = ui.win_text || `Geschafft! ${latest.state.score ?? ''} Münzen gesammelt und das Ziel erreicht. Noch eine Runde?`;
   $('start').textContent = 'Nochmal spielen'; $('start').disabled = false;
   $('modal-note').textContent = 'Dein Spiel läuft mit derselben Simulation wie im Editor.';
 }
@@ -241,6 +242,9 @@ async function boot() {
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
   world = new THREE.Scene(); world.background = new THREE.Color(0xa0bdd5);
   [source, scripts] = await Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json'), init()]);
+  const authoredUI = source.entities.find(e => e.tags?.includes('player'))?.props?.ai_ui;
+  ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
+  if (ui.sky_color) { world.background = new THREE.Color(ui.sky_color); renderer.setClearColor(world.background); }
   game = new WebGame();
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
@@ -258,6 +262,13 @@ async function boot() {
     $('modal-text').textContent = 'Steuere mit dem Joystick oder WASD / Pfeiltasten. Die Aktionstaste entspricht der Leertaste.';
     $('mission').textContent = 'Deine Welt. Direkt im Browser.';
   }
+  if (ui.title) $('title').textContent = ui.title;
+  if (ui.intro_title) $('modal-title').textContent = ui.intro_title;
+  if (ui.intro_text) $('modal-text').textContent = ui.intro_text;
+  if (ui.mission) $('mission').textContent = ui.mission;
+  if (ui.badge) $('modal-badge').textContent = ui.badge;
+  if (ui.action_label) $('action').lastChild.textContent = ui.action_label;
+  document.title = `${$('title').textContent} · AI Engine`;
   if (matchMedia('(pointer: coarse)').matches) $('help').textContent = 'Joystick: Bewegen · Taste: Aktion';
   requestAnimationFrame(frame);
 }

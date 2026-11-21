@@ -130,11 +130,13 @@ fn walk_node(node: &gltf::Node, parent: Mat4, buffers: &[gltf::buffer::Data], ou
             }
             let base = out.vertices.len() as u32;
             for i in 0..positions.len() {
-                out.vertices.push(Vertex::new(
+                let mut vertex=Vertex::new(
                     world.xform_point(positions[i]),
                     normalize(world.xform_dir(normals[i])),
                     uvs[i],
-                ));
+                );
+                vertex.color=prim.material().pbr_metallic_roughness().base_color_factor();
+                out.vertices.push(vertex);
             }
             out.indices.extend(indices.iter().map(|i| i + base));
         }

@@ -72,7 +72,7 @@ impl Engine {
                     name: item["name"].as_str().unwrap_or("Blender object").into(),
                     mesh: PrimitiveKind::Gltf { path: path.into() },
                     transform,
-                    color: serde_json::from_value(item["color"].clone())?,
+                    color: [1.0;4],
                     visible: existing.first().map(|e| e.visible).unwrap_or(true),
                     source_uid: Some(uid.into()),
                     props: item["props"].clone(),

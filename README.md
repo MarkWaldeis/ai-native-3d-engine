@@ -1,5 +1,41 @@
 # ai-native-3d-engine
 
+## M6 · Himmelsgarten: Blender-first HTTP swarm
+
+`examples/sky_garden/` is a floating-island platformer: steer Milo with the touch
+joystick or WASD/arrows, jump with **Springen / Space**, collect three crystals
+and reach the portal. Falling returns you to the last crystal checkpoint.
+The `.blend` file is the modeling source; GLBs embed modeled scenery/materials.
+
+```sh
+cargo build
+python3 tools/swarm_demo.py --out-dir target/sky-site/sky_garden
+python3 -m http.server 8000 --directory target/sky-site
+# Open http://localhost:8000/sky_garden/
+```
+
+Python stdlib only. Four concurrent roles use distinct `X-Agent-Id` headers,
+dependent task claims, entity locks and revision queries. All models/components/
+scripts are authored through MCP HTTP. **Replaces the active Blender scene.**
+Requires Blender and existing web-export prerequisites; output must be new/empty.
+Recipes: `tools/sky_garden/`; execution: `docs/swarm_journal.json`;
+German friction notes: [SWARM_FINDINGS.md](docs/SWARM_FINDINGS.md).
+
+- `write_script {ids,path,source,expected_revision?}` compiles before writing a
+  project-relative `.rhai` file and attaching it to existing entities. Existing
+  parent required; entity locks, CAS, play-mode restrictions and journal apply.
+- `save_scene {path,bundle_assets:true}` copies GLBs alongside the scene into
+  `assets/`, using project-relative references without changing the authoring world.
+- Rhai `ctx.velocity()` / `ctx.grounded()` read the previous physics step
+  (zero/false initially or without a body). Grounding requires upward support,
+  not a wall. Blender `ai_lock_rotation:true` keeps bodies upright.
+- Player `props.ai_ui` customizes title, mission, collectible tag, action, HUD keys,
+  intro/win text and sky color. `_`-prefixed state keys stay private in the HUD.
+
+`cargo test -p engine-tests --test swarm_game` covers script writing, grounding,
+portable assets and simulate-based win/jump/fall-respawn validation. Pages exports
+both `/sky_garden/` and `/coin_game/`.
+
 [![CI](https://github.com/MarkWaldeis/ai-native-3d-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/MarkWaldeis/ai-native-3d-engine/actions/workflows/ci.yml)
 
 An AI-native 3D game engine prototype written in Rust. The engine runs as an

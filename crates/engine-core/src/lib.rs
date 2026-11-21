@@ -10,6 +10,7 @@ use std::path::Path;
 /// Mutations the outside world (MCP) can apply. Processed via World::apply.
 #[derive(Debug)]
 pub enum Command {
+    SetScripts { ids: Vec<EntityId>, script: shared::components::Script },
     SpawnPrimitive {
         name: String,
         kind: PrimitiveKind,
@@ -218,6 +219,11 @@ impl World {
             } => {
                 let id = self.spawn(name, kind, transform, color);
                 Ok(json!({"id": id, "revision": self.revision}))
+            }
+            Command::SetScripts { ids, script } => {
+                for id in &ids {if self.entity(*id).is_none() {bail!("no entity {id}");}}
+                for entity in &mut self.scene.entities {if ids.contains(&entity.id) {entity.script=Some(script.clone());}}
+                self.bump(); Ok(json!({"ok":true,"ids":ids,"revision":self.revision}))
             }
             Command::SetTransform { id, transform } => {
                 let e = self.entity_mut(id).context(format!("no entity {id}"))?;

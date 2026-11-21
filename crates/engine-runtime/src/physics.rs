@@ -101,6 +101,7 @@ impl Physics {
             } else {
                 builder
             };
+            let builder = if entity.props["ai_lock_rotation"].as_bool() == Some(true) { builder.lock_rotations() } else { builder };
             let handle = self
                 .bodies
                 .insert(builder.position(pose(&entity.transform)).build());
@@ -183,6 +184,21 @@ impl Physics {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn motion(&self) -> (BTreeMap<u64,[f32;3]>, BTreeSet<u64>) {
+        let mut velocities=BTreeMap::new(); let mut grounded=BTreeSet::new();
+        for (id,handle) in &self.handles {
+            let body=&self.bodies[*handle]; let v=body.linvel();
+            velocities.insert(*id,[v.x,v.y,v.z]);
+            for collider in body.colliders() {
+                if self.narrow.contact_pairs_with(*collider).any(|pair| pair.has_any_active_contact && pair.manifolds.iter().any(|manifold| {
+                    let normal=if pair.collider1 == *collider { -manifold.data.normal.y } else {manifold.data.normal.y};
+                    normal>0.6 && !manifold.data.solver_contacts.is_empty()
+                })) { grounded.insert(*id); }
+            }
+        }
+        (velocities,grounded)
     }
 }
 

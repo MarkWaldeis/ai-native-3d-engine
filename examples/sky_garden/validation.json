@@ -1,0 +1,108 @@
+{
+  "win": {
+    "ticks": 210,
+    "inputs": [
+      {
+        "tick": 0,
+        "action": "move_x",
+        "value": 1
+      },
+      {
+        "tick": 198,
+        "action": "move_x",
+        "value": 0
+      },
+      {
+        "tick": 12,
+        "action": "action",
+        "value": 1
+      },
+      {
+        "tick": 13,
+        "action": "action",
+        "value": 0
+      },
+      {
+        "tick": 76,
+        "action": "action",
+        "value": 1
+      },
+      {
+        "tick": 77,
+        "action": "action",
+        "value": 0
+      },
+      {
+        "tick": 140,
+        "action": "action",
+        "value": 1
+      },
+      {
+        "tick": 141,
+        "action": "action",
+        "value": 0
+      }
+    ],
+    "asserts": [
+      {
+        "state": "score",
+        "equals": 3
+      },
+      {
+        "state": "won",
+        "equals": true
+      },
+      {
+        "state": "Sprünge",
+        "equals": 3
+      },
+      {
+        "state": "Rettungen",
+        "equals": 0
+      },
+      {
+        "entities_with_tag": "crystal",
+        "count": 0
+      },
+      {
+        "entity": "Milo",
+        "y_greater_than": 1.0,
+        "at_tick": 40
+      }
+    ]
+  },
+  "fall": {
+    "ticks": 155,
+    "inputs": [
+      {
+        "tick": 0,
+        "action": "move_z",
+        "value": 1
+      },
+      {
+        "tick": 65,
+        "action": "move_z",
+        "value": 0
+      }
+    ],
+    "asserts": [
+      {
+        "state": "Rettungen",
+        "equals": 1
+      },
+      {
+        "entity": "Milo",
+        "position_near": [
+          0,
+          0.75,
+          0
+        ],
+        "tolerance": 0.2
+      },
+      {
+        "state": "won",
+        "equals": false
+      }
+    ]
+  }
+}

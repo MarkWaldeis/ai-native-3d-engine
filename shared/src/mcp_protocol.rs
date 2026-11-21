@@ -79,6 +79,7 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         json!({"type": "integer", "description": "optimistic concurrency: apply only if world.revision still equals this value"})
     };
     vec![
+        ToolDef {name:"write_script",description:"Compile and write a .rhai file inside the project and attach it to existing entity ids. Parent folder must exist. Requires entity locks/CAS compatibility, disabled during play. Atomic scene update; journal attributes all ids to the writer.",input_schema:schema(json!({"path":{"type":"string"},"source":{"type":"string"},"ids":{"type":"array","minItems":1,"items":{"type":"integer"}},"expected_revision":expected_rev()}),&["path","source","ids"])},
         ToolDef { name:"export_web", description:"Export authoring scene (or scene JSON/path) to a self-contained WebGL2/WASM static folder. out_dir must be empty/new. Builds engine-web with installed wasm32 target and wasm-bindgen-cli 0.2.100. Includes referenced Rhai files and embedded GLBs; no GPU needed.", input_schema:schema(json!({"out_dir":{"type":"string","minLength":1},"scene":{"oneOf":[{"type":"string"},{"type":"object"}]}}),&["out_dir"]) },
         ToolDef { name: "validate_scene", description: "Read-only AI-QA findings: severity, entity ID, code, message, suggested_fix tool call or null. World-AABB floating/overlap heuristics; floating/trigger tags, ai_floating/ai_trigger:true, or scripted non-collider entities suppress physical warnings. Frustum assumes 16:9. Reads active simulation if playing.", input_schema: schema(json!({}), &[]) },
         ToolDef { name: "play", description: "Start a separate simulation from an authoring snapshot. Hooks on_start run at tick 0; authoring edits are disabled until stop. One shared play session per Engine.", input_schema: schema(json!({}), &[]) },
@@ -207,8 +208,8 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "save_scene",
-            description: "Persist the current scene to a .json file.",
-            input_schema: schema(json!({"path": {"type": "string"}}), &["path"]),
+            description: "Persist the current scene to JSON. bundle_assets:true copies GLBs alongside it into assets/ with portable project-relative paths; bundle destination must be inside the project.",
+            input_schema: schema(json!({"path": {"type": "string"},"bundle_assets":{"type":"boolean"}}), &["path"]),
         },
         ToolDef {
             name: "load_scene",

@@ -28,6 +28,7 @@ struct VsIn {
     @location(0) pos: vec3<f32>,
     @location(1) nrm: vec3<f32>,
     @location(2) uv: vec2<f32>,
+    @location(3) color: vec4<f32>,
 };
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
@@ -41,7 +42,7 @@ fn vs(i: VsIn) -> VsOut {
     o.clip = g.view_proj * mdl.m * vec4<f32>(i.pos, 1.0);
     // uniform-scale approximation is fine for a prototype
     o.nrm = normalize((mdl.m * vec4<f32>(i.nrm, 0.0)).xyz);
-    o.color = mdl.color;
+    o.color = mdl.color * i.color;
     return o;
 }
 
@@ -158,6 +159,7 @@ impl Renderer {
                     array_stride: std::mem::size_of::<shared::mesh::Vertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &[
+                        wgpu::VertexAttribute {offset:32,shader_location:3,format:wgpu::VertexFormat::Float32x4},
                         wgpu::VertexAttribute {
                             offset: 0,
                             shader_location: 0,

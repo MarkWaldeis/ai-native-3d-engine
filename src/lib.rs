@@ -16,6 +16,7 @@ pub mod http;
 mod blender;
 mod runtime;
 mod qa;
+mod authoring;
 pub mod web;
 
 pub struct Engine {
@@ -174,6 +175,7 @@ impl Engine {
         let expected = expected_rev(args);
         let r = (|| -> anyhow::Result<Value> {
             match name {
+                "write_script" => self.write_script(args),
                 "play" | "step" | "stop" | "get_sim_state" | "simulate" | "query" => self.runtime_tool(name, args),
                 "blender_status" => {
                     Ok(text_result(match self.blender.request(json!({"command":"ping"})) {
@@ -263,6 +265,9 @@ impl Engine {
                 }
                 "save_scene" => {
                     let p = args.get("path").and_then(|p| p.as_str()).unwrap_or("scene.json");
+                    if args.get("bundle_assets").map(|v|v.as_bool().ok_or_else(||anyhow::anyhow!("bundle_assets must be boolean"))).transpose()?.unwrap_or(false) {
+                        return Ok(text_result(authoring::save_bundle(&self.world.scene, self.assets_dir.parent().unwrap_or(Path::new(".")), Path::new(p))?.to_string()));
+                    }
                     Ok(text_result(
                         self.world.apply(Command::SaveScene { path: p.into() })?.to_string(),
                     ))

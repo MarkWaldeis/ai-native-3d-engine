@@ -1,0 +1,51 @@
+fn on_start(ctx) {
+    ctx.state_set("score", 0);
+    ctx.state_set("won", false);
+    ctx.state_set("Sprünge", 0);
+    ctx.state_set("Rettungen", 0);
+    ctx.state_set("_held", false);
+    ctx.state_set("_coyote", 0);
+    ctx.state_set("_checkpoint", 0.0);
+    ctx.log("Willkommen, Milo! Joystick: laufen. Aktion: springen.");
+}
+
+fn on_tick(ctx, dt) {
+    let p = ctx.position();
+    if p[1] < -5.0 {
+        ctx.set_position([ctx.state_get("_checkpoint"), 1.3, 0.0]);
+        ctx.set_velocity([0.0, 0.0, 0.0]);
+        ctx.state_set("Rettungen", ctx.state_get("Rettungen") + 1);
+        ctx.state_set("_coyote", 0);
+        ctx.log("Der Wind hat dich aufgefangen. Weiter geht's!");
+        return;
+    }
+    let coyote = ctx.state_get("_coyote");
+    if ctx.grounded() { coyote = 6; } else if coyote > 0 { coyote -= 1; }
+    let pressed = ctx.input("action") > 0.5 || ctx.input("jump") > 0.5;
+    let velocity = ctx.velocity();
+    velocity[0] = ctx.input("move_x") * 3.5;
+    velocity[2] = ctx.input("move_z") * 3.5;
+    if pressed && !ctx.state_get("_held") && coyote > 0 {
+        velocity[1] = 5.0;
+        coyote = 0;
+        ctx.state_set("Sprünge", ctx.state_get("Sprünge") + 1);
+    }
+    ctx.state_set("_held", pressed);
+    ctx.state_set("_coyote", coyote);
+    ctx.set_velocity(velocity);
+    for crystal in ctx.find_by_tag("crystal") {
+        let target = ctx.entity_position(crystal);
+        let dx = p[0] - target[0]; let dy = p[1] - target[1]; let dz = p[2] - target[2];
+        if dx * dx + dy * dy + dz * dz < 1.2 {
+            ctx.remove(crystal);
+            ctx.state_set("score", ctx.state_get("score") + 1);
+            ctx.state_set("_checkpoint", target[0]);
+            ctx.log("Kristall gerettet · neuer Wind-Anker!");
+        }
+    }
+    let portal = ctx.entity_position(ctx.find_by_name("Portal"));
+    let dx = p[0] - portal[0]; let dz = p[2] - portal[2];
+    if ctx.state_get("score") == 3 && dx * dx + dz * dz < 0.8 && p[1] < 2.1 {
+        ctx.state_set("won", true);
+    }
+}

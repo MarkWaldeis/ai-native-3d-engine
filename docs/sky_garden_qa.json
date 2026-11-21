@@ -1,0 +1,1279 @@
+{
+  "findings": [],
+  "win": {
+    "asserts": [
+      {
+        "actual": 3,
+        "assert": {
+          "equals": 3,
+          "state": "score"
+        },
+        "at_tick": 210,
+        "passed": true
+      },
+      {
+        "actual": true,
+        "assert": {
+          "equals": true,
+          "state": "won"
+        },
+        "at_tick": 210,
+        "passed": true
+      },
+      {
+        "actual": 3,
+        "assert": {
+          "equals": 3,
+          "state": "Sprünge"
+        },
+        "at_tick": 210,
+        "passed": true
+      },
+      {
+        "actual": 0,
+        "assert": {
+          "equals": 0,
+          "state": "Rettungen"
+        },
+        "at_tick": 210,
+        "passed": true
+      },
+      {
+        "actual": 0,
+        "assert": {
+          "count": 0,
+          "entities_with_tag": "crystal"
+        },
+        "at_tick": 210,
+        "passed": true
+      },
+      {
+        "actual": 2.002558469772339,
+        "assert": {
+          "at_tick": 40,
+          "entity": "Milo",
+          "y_greater_than": 1.0
+        },
+        "at_tick": 40,
+        "passed": true
+      }
+    ],
+    "final_state": {
+      "entities": [
+        {
+          "id": 1,
+          "name": "Insel-0",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 2,
+          "name": "Felswurzel-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "name": "Inselblüten-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 4,
+          "name": "Insel-1",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              3.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 5,
+          "name": "Felswurzel-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              3.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "name": "Inselblüten-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              3.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "name": "Insel-2",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              7.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 8,
+          "name": "Felswurzel-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              7.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 9,
+          "name": "Inselblüten-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              7.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 10,
+          "name": "Insel-3",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              10.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 11,
+          "name": "Felswurzel-3",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 12,
+          "name": "Inselblüten-3",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 13,
+          "name": "Wolkenbaum-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              -0.5,
+              0.15000000596046448,
+              -0.8299999833106995
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 14,
+          "name": "Wolkenbaum-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              6.5,
+              0.15000000596046448,
+              -0.8299999833106995
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 15,
+          "name": "Wolkenbaum-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.0,
+              0.15000000596046448,
+              -0.8299999833106995
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 19,
+          "name": "Portal",
+          "tags": [
+            "portal",
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              11.0,
+              1.2999999523162842,
+              0.0
+            ],
+            "rotation_deg": [
+              90.00000762939453,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              0.9999999403953552,
+              0.9999999403953552
+            ]
+          }
+        },
+        {
+          "id": 20,
+          "name": "Milo",
+          "tags": [
+            "player"
+          ],
+          "transform": {
+            "position": [
+              11.46143627166748,
+              0.747931718826294,
+              -2.1176187470217656e-09
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 21,
+          "name": "Wolkeninsel-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              -4.0,
+              -2.799999952316284,
+              -5.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 22,
+          "name": "Wolkeninsel-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              4.0,
+              -3.299999952316284,
+              -7.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 23,
+          "name": "Wolkeninsel-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              13.0,
+              -2.5999999046325684,
+              -6.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 24,
+          "name": "Wolkeninsel-3",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              2.0,
+              -4.5,
+              5.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 25,
+          "name": "Wolkeninsel-4",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.0,
+              -4.0,
+              6.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "failed": false,
+      "logs": [
+        "entity 20: Willkommen, Milo! Joystick: laufen. Aktion: springen.",
+        "entity 20: Kristall gerettet · neuer Wind-Anker!",
+        "entity 20: Kristall gerettet · neuer Wind-Anker!",
+        "entity 20: Kristall gerettet · neuer Wind-Anker!"
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 3,
+        "_checkpoint": 10.25,
+        "_coyote": 6,
+        "_held": false,
+        "score": 3,
+        "won": true
+      },
+      "tick": 210
+    },
+    "passed": true,
+    "ticks": 210
+  },
+  "fall": {
+    "asserts": [
+      {
+        "actual": 1,
+        "assert": {
+          "equals": 1,
+          "state": "Rettungen"
+        },
+        "at_tick": 155,
+        "passed": true
+      },
+      {
+        "actual": [
+          0.0,
+          0.7488616108894348,
+          0.0
+        ],
+        "assert": {
+          "entity": "Milo",
+          "position_near": [
+            0,
+            0.75,
+            0
+          ],
+          "tolerance": 0.2
+        },
+        "at_tick": 155,
+        "passed": true
+      },
+      {
+        "actual": false,
+        "assert": {
+          "equals": false,
+          "state": "won"
+        },
+        "at_tick": 155,
+        "passed": true
+      }
+    ],
+    "final_state": {
+      "entities": [
+        {
+          "id": 1,
+          "name": "Insel-0",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 2,
+          "name": "Felswurzel-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 3,
+          "name": "Inselblüten-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 4,
+          "name": "Insel-1",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              3.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 5,
+          "name": "Felswurzel-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              3.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 6,
+          "name": "Inselblüten-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              3.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 7,
+          "name": "Insel-2",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              7.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 8,
+          "name": "Felswurzel-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              7.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 9,
+          "name": "Inselblüten-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              7.0,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 10,
+          "name": "Insel-3",
+          "tags": [
+            "ground"
+          ],
+          "transform": {
+            "position": [
+              10.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 11,
+          "name": "Felswurzel-3",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 12,
+          "name": "Inselblüten-3",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.5,
+              0.0,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 13,
+          "name": "Wolkenbaum-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              -0.5,
+              0.15000000596046448,
+              -0.8299999833106995
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 14,
+          "name": "Wolkenbaum-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              6.5,
+              0.15000000596046448,
+              -0.8299999833106995
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 15,
+          "name": "Wolkenbaum-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.0,
+              0.15000000596046448,
+              -0.8299999833106995
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 16,
+          "name": "Kristall-1",
+          "tags": [
+            "crystal",
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              3.5,
+              1.149999976158142,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              167.91659545898438,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 17,
+          "name": "Kristall-2",
+          "tags": [
+            "crystal",
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              7.0,
+              1.149999976158142,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              167.91659545898438,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 18,
+          "name": "Kristall-3",
+          "tags": [
+            "crystal",
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.25,
+              1.149999976158142,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              167.91659545898438,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 19,
+          "name": "Portal",
+          "tags": [
+            "portal",
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              11.0,
+              1.2999999523162842,
+              0.0
+            ],
+            "rotation_deg": [
+              90.00000762939453,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              0.9999999403953552,
+              0.9999999403953552
+            ]
+          }
+        },
+        {
+          "id": 20,
+          "name": "Milo",
+          "tags": [
+            "player"
+          ],
+          "transform": {
+            "position": [
+              0.0,
+              0.7488616108894348,
+              0.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 21,
+          "name": "Wolkeninsel-0",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              -4.0,
+              -2.799999952316284,
+              -5.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 22,
+          "name": "Wolkeninsel-1",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              4.0,
+              -3.299999952316284,
+              -7.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 23,
+          "name": "Wolkeninsel-2",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              13.0,
+              -2.5999999046325684,
+              -6.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 24,
+          "name": "Wolkeninsel-3",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              2.0,
+              -4.5,
+              5.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        },
+        {
+          "id": 25,
+          "name": "Wolkeninsel-4",
+          "tags": [
+            "floating"
+          ],
+          "transform": {
+            "position": [
+              10.0,
+              -4.0,
+              6.0
+            ],
+            "rotation_deg": [
+              0.0,
+              -0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          }
+        }
+      ],
+      "failed": false,
+      "logs": [
+        "entity 20: Willkommen, Milo! Joystick: laufen. Aktion: springen.",
+        "entity 20: Der Wind hat dich aufgefangen. Weiter geht's!"
+      ],
+      "state": {
+        "Rettungen": 1,
+        "Sprünge": 0,
+        "_checkpoint": 0.0,
+        "_coyote": 6,
+        "_held": false,
+        "score": 0,
+        "won": false
+      },
+      "tick": 155
+    },
+    "passed": true,
+    "ticks": 155
+  }
+}

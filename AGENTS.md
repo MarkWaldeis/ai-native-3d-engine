@@ -3,6 +3,26 @@
 Rust-Workspace mit strikter Crate-Trennung (siehe Masterplan). `shared/` ist
 frozen — Contracts dort nur vom Lead-Agenten ändern.
 
+## M6 · Himmelsgarten / HTTP-Schwarm
+
+`cargo build`, dann `python3 tools/swarm_demo.py --out-dir target/sky-site/sky_garden`.
+Vier Rollen, eigene X-Agent-Id, abhängige Tasks, Entity-Claims und Journal.
+**Ersetzt die aktive Blender-Szene.** Exportziel neu/leer. Quelle: `.blend` in
+`examples/sky_garden/`; Rezepte in `tools/sky_garden/`; Befunde in
+`docs/SWARM_FINDINGS.md`, Ausführung in `docs/swarm_journal.json`.
+
+- `write_script {ids,path,source,expected_revision?}`: Compile vor Dateischreiben;
+  projekt-relative `.rhai`, existierender Elternordner, Locks/CAS/Play-Sperre/Journal.
+- `save_scene {path,bundle_assets:true}`: GLBs nach `assets/` neben die Szene;
+  Referenzen bleiben relativ zum Projekt-Root, nicht Szenenordner.
+- Rhai `ctx.velocity()` / `ctx.grounded()` lesen den letzten Physikschritt;
+  ohne Körper Nullvektor/false. `ai_lock_rotation:true` hält Physikkörper aufrecht.
+- Player-Prop `ai_ui` (JSON-String oder Objekt): `title`, `mission`, `score_label`,
+  `collectible_tag`, `action_label`, `intro_title`, `intro_text`, `win_text`,
+  `badge`, `win_badge`, `hud_keys`, `sky_color`. `_`-State bleibt im HUD unsichtbar.
+- `cargo test -p engine-tests --test swarm_game`: Writer, Grounding/Wandkontakt,
+  portables Speichern, simulate-basierter Sprung/Sieg/Sturz-Test.
+
 ## Build (Windows, GNU-Toolchain)
 
 Rust wurde als `stable-x86_64-pc-windows-gnu` installiert. Zwei Stolpersteine:

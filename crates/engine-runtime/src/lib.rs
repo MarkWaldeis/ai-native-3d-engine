@@ -26,6 +26,8 @@ struct Data {
     logs: VecDeque<String>,
     forces: Vec<Force>,
     dirty: BTreeSet<u64>,
+    velocities: BTreeMap<u64, [f32;3]>,
+    grounded: BTreeSet<u64>,
     next_id: u64,
 }
 impl Data {
@@ -91,7 +93,12 @@ impl Simulation {
             bail!("simulation supports at most {MAX_ENTITIES} entities");
         }
         scene.entities.sort_by_key(|e| e.id);
-        for entity in &scene.entities {
+        for entity in &mut scene.entities {
+            if sources.is_none() {
+                if let shared::scene::PrimitiveKind::Gltf{path}=&mut entity.mesh {
+                    if Path::new(path).is_relative() {*path=root.join(&*path).to_string_lossy().into_owned();}
+                }
+            }
             validate_entity(entity)?;
         }
         if scene.entities.windows(2).any(|e| e[0].id == e[1].id) {
@@ -112,6 +119,8 @@ impl Simulation {
             logs: VecDeque::new(),
             forces: vec![],
             dirty: BTreeSet::new(),
+            velocities: BTreeMap::new(),
+            grounded: BTreeSet::new(),
             next_id,
         }));
         let engine = script::engine(data.clone());
@@ -294,6 +303,8 @@ impl Simulation {
                 let forces = std::mem::take(&mut data.forces);
                 let dirty = std::mem::take(&mut data.dirty);
                 self.physics.step(&mut data.scene, &dirty, forces)?;
+                let (velocities, grounded) = self.physics.motion();
+                data.velocities=velocities; data.grounded=grounded;
                 self.tick += 1;
             }
             Ok(())

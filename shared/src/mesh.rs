@@ -6,6 +6,7 @@ pub struct Vertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub uv: [f32; 2],
+    pub color: [f32;4],
 }
 
 impl Vertex {
@@ -14,6 +15,7 @@ impl Vertex {
             position,
             normal,
             uv,
+            color: [1.0;4],
         }
     }
 }
