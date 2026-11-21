@@ -338,12 +338,12 @@ function localMovement() {
   };
 }
 
-function controls() {
-  sampledInput = input.sample({ keys, pads: navigator.getGamepads?.() || [], touch: { ...joystick, actions: touchControls?.sample() } });
-  const pressed = Math.max(actionInput.sample(), sampledInput.actions.action);
+function controls(consume = true, queued = true) {
+  sampledInput = input.sample({ keys, pads: navigator.getGamepads?.() || [], touch: { ...joystick, actions: touchControls?.sample(queued) } });
+  const pressed = Math.max(actionInput.sample(consume, queued), sampledInput.actions.action);
   const result = fps ? { ...fps.inputs(localMovement(), pressed, sampledInput.actions), travel_speed: travelSpeed } : null;
   const move = movement();
-  touchControls?.consume();
+  if (consume) touchControls?.consume();
   return result || { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
 }
 
@@ -614,7 +614,7 @@ function frame(now) {
     }
     renderer.info.reset();
     if (net) {
-      const result = net.tick(running ? controls() : {});
+      const result = running ? net.tick(controls(false, false), controls(false), () => { actionInput.sample(); touchControls?.consume(); }) : net.tick({});
       if (result) apply(result);
       if (!net.status.connected && net.socket.readyState >= 2) showNetworkDisconnect();
     } else if (running) {

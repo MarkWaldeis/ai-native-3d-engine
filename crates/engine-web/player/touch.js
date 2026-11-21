@@ -88,9 +88,9 @@ export class TouchState {
     const index = this.pointers.get(pointer); this.pointers.delete(pointer);
     if (cancelled && ![...this.pointers.values()].includes(index)) this.queued.delete(index);
   }
-  sample() {
+  sample(queued = true) {
     const actions = {};
-    for (const index of new Set([...this.queued, ...[...this.pointers.values()].filter(i => this.buttons[i].hold)])) actions[this.buttons[index].action] = 1;
+    for (const index of new Set([...(queued ? this.queued : []), ...[...this.pointers.values()].filter(i => this.buttons[i].hold)])) actions[this.buttons[index].action] = 1;
     return actions;
   }
   consume() { this.queued.clear(); }

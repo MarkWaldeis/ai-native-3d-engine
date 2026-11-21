@@ -224,12 +224,25 @@ impl NetClient {
         actions: Actions,
         now_ms: f64,
     ) -> Result<ClientMessage> {
+        self.advance_to_with_first_actions(server_tick, actions.clone(), actions, now_ms)
+    }
+
+    /// Use first_actions on only the first prediction tick, then held actions.
+    pub fn advance_to_with_first_actions(
+        &mut self,
+        server_tick: u64,
+        actions: Actions,
+        first_actions: Actions,
+        now_ms: f64,
+    ) -> Result<ClientMessage> {
         let target = server_tick.saturating_add(self.stats.lead_ticks.max(1));
         if target.saturating_sub(self.simulation.tick) > self.config.history_capacity as u64 {
             bail!("client clock jump exceeds history");
         }
+        let mut next_actions = first_actions;
         while self.simulation.tick < target {
-            self.tick(actions.clone(), now_ms)?;
+            self.tick(next_actions, now_ms)?;
+            next_actions = actions.clone();
         }
         Ok(self.input_message())
     }

@@ -36,7 +36,7 @@ export class TouchControls {
     }
     this.layout();
   }
-  sample() { return this.state.sample(); }
+  sample(queued = true) { return this.state.sample(queued); }
   consume() { this.state.consume(); this.pressed(); }
   reset() { this.state.reset(); this.pressed(); }
   pressed() {
