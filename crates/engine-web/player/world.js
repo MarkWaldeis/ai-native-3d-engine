@@ -5,6 +5,13 @@ import { isCollectible } from './presentation.js';
 import { primitiveMaterial, tuneAssetTextures } from './materials.js';
 import { sunShadowSettings } from './graphics-settings.js';
 
+function disposeChunk(group) {
+  if (!group) return;
+  group.removeFromParent();
+  for (const child of group.children) if (child.isInstancedMesh) child.dispose();
+  group.clear();
+}
+
 export class WebAssets {
   constructor(anisotropy = 1) {
     this.anisotropy = anisotropy;
@@ -89,7 +96,9 @@ export class StreamingWorld {
     if (old !== item.key || !item.object) { this.dirty.add(old); this.dirty.add(item.key); }
   }
   async rebuild(key) {
-    const old = this.groups.get(key), group = new THREE.Group(); this.builds.set(key,group);
+    const old = this.groups.get(key), group = new THREE.Group();
+    disposeChunk(this.builds.get(key));
+    this.builds.set(key,group);
     const buckets = new Map(), objects = [];
     for (const {id} of this.grid.chunks.get(key)?.values() || []) {
       const item = this.entities.get(id); if (!item) continue;
@@ -114,12 +123,12 @@ export class StreamingWorld {
       if (this.builds.get(key) !== group) return;
       for (const object of objects) group.add(object);
       group.userData.bounds = new THREE.Box3().setFromObject(group);
-      old?.removeFromParent(); old?.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+      disposeChunk(old);
       this.groups.set(key,group);
       if (this.grid.loaded.has(key)) this.scene.add(group);
     } finally {
       if (this.builds.get(key) === group) this.builds.delete(key);
-      if (this.groups.get(key) !== group) group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+      if (this.groups.get(key) !== group) disposeChunk(group);
     }
   }
   setMatrix(mesh,index,item,local = new THREE.Matrix4(),camera) {
@@ -132,8 +141,12 @@ export class StreamingWorld {
   update(camera) {
     const tasks = [];
     const change = this.grid.update(camera.position.toArray());
-    for (const key of change.unload) this.groups.get(key)?.removeFromParent();
-    for (const key of change.load) { if (this.groups.has(key)) this.scene.add(this.groups.get(key)); else this.dirty.add(key); }
+    for (const key of change.unload) {
+      disposeChunk(this.groups.get(key));
+      disposeChunk(this.builds.get(key));
+      this.groups.delete(key); this.builds.delete(key); this.dirty.delete(key);
+    }
+    for (const key of change.load) this.dirty.add(key);
     this.frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
     for (const key of this.grid.loaded) {
       for (const {id,position,radius} of this.grid.chunks.get(key)?.values() || []) {
@@ -220,5 +233,9 @@ export class StreamingWorld {
     }
     return result;
   }
-  reset() { for (const group of this.groups.values()) { group.removeFromParent(); group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); } this.groups.clear(); this.builds.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.config); this.dirty.clear(); }
+  reset() {
+    for (const group of this.groups.values()) disposeChunk(group);
+    for (const group of this.builds.values()) disposeChunk(group);
+    this.groups.clear(); this.builds.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.config); this.dirty.clear();
+  }
 }

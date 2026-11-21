@@ -127,6 +127,53 @@ test('failed, superseded and reset rebuilds cannot replace a complete chunk', as
   assert.equal(world.groups.size,0);
 });
 
+test('unloading a distant chunk releases its instance buffers and reuses templates on return', async () => {
+  const {scene,world,key} = fixture();
+  const actor = new THREE.Group();
+  world.add({...world.entities.get(1).e,id:5},actor);
+  await world.rebuild(key);
+  const camera = new THREE.PerspectiveCamera(), old = world.groups.get(key);
+  const instance = old.children.find(o=>o.isInstancedMesh);
+  let disposals = 0;
+  instance.addEventListener('dispose',()=>disposals++);
+  const geometry = instance.geometry, material = instance.material;
+  let templateDisposals = 0;
+  for (const resource of [geometry,material]) resource.addEventListener('dispose',()=>templateDisposals++);
+  camera.position.x = 2000; camera.updateMatrixWorld();
+  assert.deepEqual(world.update(camera),[]);
+  assert.equal(disposals,1);
+  assert.equal(world.groups.has(key),false);
+  assert.equal(old.parent,null);
+  assert.equal(actor.parent,null);
+  assert.equal(templateDisposals,0);
+  camera.position.x = 0; camera.updateMatrixWorld();
+  await Promise.all(world.update(camera));
+  const restored = world.groups.get(key), mesh = restored.children.find(o=>o.isInstancedMesh);
+  assert.notEqual(mesh,instance);
+  assert.equal(mesh.geometry,geometry);
+  assert.equal(mesh.material,material);
+  assert.equal(restored.parent,scene);
+  assert.equal(actor.parent,restored);
+});
+
+test('an instance build in flight cannot restore a chunk after it has unloaded', async () => {
+  const {world,key} = fixture();
+  let release;
+  const template = world.template.bind(world), gate = new Promise(resolve=>{release=resolve;});
+  world.template = async (...args) => {await gate; return template(...args);};
+  const camera = new THREE.PerspectiveCamera();
+  camera.updateMatrixWorld();
+  const build = world.update(camera);
+  assert.equal(build.length,1);
+  camera.position.x = 2000; camera.updateMatrixWorld();
+  world.update(camera);
+  release(); await Promise.all(build);
+  assert.equal(world.groups.has(key),false);
+  camera.position.x = 0; camera.updateMatrixWorld();
+  await Promise.all(world.update(camera));
+  assert.equal(world.groups.get(key).parent,world.scene);
+});
+
 test('streamed objectives honor authored collectible tags without including unrelated collectibles', () => {
   const {world} = fixture();
   for (const [id,tags] of [[10,['lantern']],[11,['coin']],[12,['goal']]]) {
