@@ -216,6 +216,7 @@ impl NetServer {
                 last_processed_seq: client.processed,
                 input_late_ticks: client.late,
                 entities: self.simulation.net_entity_states(),
+                pending_starts: self.simulation.net_pending_starts(),
                 spawned: self
                     .simulation
                     .scene()

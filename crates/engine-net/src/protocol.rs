@@ -47,6 +47,8 @@ pub struct Snapshot {
     #[serde(default)]
     pub spawned: Vec<Entity>,
     #[serde(default)]
+    pub pending_starts: Vec<u64>,
+    #[serde(default)]
     pub players: Vec<u64>,
     pub removed: Vec<u64>,
     pub script_state: Value,

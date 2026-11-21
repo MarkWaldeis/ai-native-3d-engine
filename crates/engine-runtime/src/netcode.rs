@@ -28,6 +28,20 @@ pub struct NetEntityState {
 }
 
 impl Simulation {
+    /// Scripted entities whose on_start hook has not yet been prepared.
+    pub fn net_pending_starts(&self) -> Vec<u64> {
+        self.data.borrow().scene.entities.iter()
+            .filter(|entity| entity.script.is_some() && !self.scripts.contains_key(&entity.id))
+            .map(|entity|entity.id).collect()
+    }
+
+    /// Restore start bookkeeping after authoritative definitions and script state.
+    pub fn apply_net_pending_starts(&mut self, pending: &[u64]) -> Result<()> {
+        self.prepare_net_scripts(false)?;
+        self.scripts.retain(|id,_| !pending.contains(id));
+        Ok(())
+    }
+
     /// Insert or replace an authoritative entity without replaying its on_start hook.
     /// Script state and body velocities are supplied separately by the snapshot.
     pub fn insert_net_entity(&mut self, mut entity: Entity) -> Result<()> {

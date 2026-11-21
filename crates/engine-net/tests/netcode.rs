@@ -63,6 +63,50 @@ fn net_entity_insertion_initializes_authored_animator_defaults() -> Result<()> {
     Ok(())
 }
 
+fn check_replicated_script_start(pending:bool) -> Result<()> {
+    let mut scene=support::scene();
+    scene.entities[1].script=Some(shared::components::Script::Inline {source:r#"
+        fn on_tick(ctx,dt) {
+            if ctx.input("spawn")>0.0 && ctx.state_get("created")==() {
+                ctx.spawn_entity(#{name:"child",kind:"box",size:[1.0,1.0,1.0],
+                    script:#{source:"fn on_start(ctx) { let n=ctx.state_get(\"starts\"); if n==() {n=0;} ctx.state_set(\"starts\",n+1); ctx.state_set(\"initialized\",true); } fn on_tick(ctx,dt) { if ctx.state_get(\"initialized\")!=true {throw \"on_tick before on_start\";} }"}});
+                ctx.state_set("created",true);
+            }
+        }
+    "#.into()});
+    let mut server=NetServer::new(scene.clone(),BTreeMap::new(),ServerConfig{snapshot_interval:1,..ServerConfig::default()})?;
+    let mut client=NetClient::new(scene.clone(),BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut client,1)?;
+    server.receive(1,ClientMessage::Input {frames:vec![InputFrame {tick:0,seq:0,actions:BTreeMap::from([("spawn".into(),1.0)])}],ack_snapshot_tick:None})?;
+    let mut last=None;
+    for tick in 0..if pending {1} else {2} {
+        let actions=if tick==1 {BTreeMap::from([("spawn".into(),1.0)])} else {BTreeMap::new()};
+        client.tick(actions,tick as f64*17.0)?;
+        last=server.tick()?.pop().map(|(_,message)|message);
+    }
+    client.receive(last.unwrap(),34.0)?;
+    for tick in 2..4 {client.tick(BTreeMap::new(),tick as f64*17.0)?;}
+    assert_eq!(client.simulation().net_script_state()["starts"],json!(1));
+
+    // A late join must not repeat a start already represented in authoritative state.
+    let mut late=NetClient::new(scene,BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut late,2)?;
+    for (peer,message) in server.tick()? {if peer==2 {late.receive(message,68.0)?;}}
+    late.tick(BTreeMap::new(),85.0)?;
+    assert_eq!(late.simulation().net_script_state()["starts"],json!(1));
+    Ok(())
+}
+
+#[test]
+fn replicated_pending_script_runs_start_once_before_tick() -> Result<()> {
+    check_replicated_script_start(true)
+}
+
+#[test]
+fn replicated_started_script_does_not_repeat_start_on_prediction_or_late_join() -> Result<()> {
+    check_replicated_script_start(false)
+}
+
 #[test]
 fn zero_latency_prediction_is_bit_exact_without_corrections() -> Result<()> {
     let mut server = NetServer::new(support::scene(), BTreeMap::new(), ServerConfig::default())?;
@@ -536,6 +580,7 @@ fn snapshot(tick: u64, x: f32) -> Snapshot {
             angvel: [0.0; 3],
         }],
         spawned: vec![],
+        pending_starts: vec![],
         players: vec![],
         removed: vec![],
         script_state: json!({}),
