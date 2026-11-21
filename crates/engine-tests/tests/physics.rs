@@ -70,6 +70,33 @@ fn lab_reset_restores_the_target_to_its_authored_pose() {
 }
 
 #[test]
+fn nav_bake_keeps_the_floor_supported_by_three_adjacent_compound_parts() {
+    let scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"three-part floor","kind":"box","size":[1,1,1],
+         "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
+            {"shape":"box","half_extents":[2.325,0.2,2],"position":[-1.675,-0.2,0]},
+            {"shape":"box","half_extents":[0.2,0.2,2],"position":[0.85,-0.2,0]},
+            {"shape":"box","half_extents":[1.475,0.2,2],"position":[2.525,-0.2,0]}
+         ]}}}}
+    ]}))
+    .unwrap();
+    let params = shared::navigation::NavParams {
+        cell_size: 1.0,
+        ..Default::default()
+    };
+    let (mesh, _) =
+        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
+    assert!(mesh
+        .tiles
+        .iter()
+        .flat_map(|tile| &tile.polygons)
+        .any(|poly| poly.cell == [0, 0]));
+    let path = engine_runtime::navigation::query(&mesh, [-1.5, 0.0, 0.5], [2.5, 0.0, 0.5]).unwrap();
+    assert!(path.first().unwrap()[0] < 0.0);
+    assert!(path.last().unwrap()[0] > 1.0);
+}
+
+#[test]
 fn nav_bake_rejects_a_step_into_a_same_compound_ramp() {
     let scene = serde_json::from_value(json!({"entities":[
         {"id":1,"name":"floor and raised ramp","kind":"box","size":[1,1,1],

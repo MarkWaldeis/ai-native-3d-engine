@@ -142,7 +142,7 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
             let compound = matches!(&collider, crate::physics_config::Geometry::Compound { .. });
             e.props["ai_physics"] = json!({"collider":collider});
             if compound {
-                json!([e.props["ai_physics"], "compound_part_seam_steps"])
+                json!([e.props["ai_physics"], "compound_support_profile"])
             } else {
                 e.props["ai_physics"].clone()
             }
@@ -287,22 +287,14 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
                         .into_iter()
                         .min_by(|a, b| (a.y - y).abs().total_cmp(&(b.y - y).abs()))
                         .filter(|corner| {
-                            let rise = corner.y - y;
-                            let step = params.step + 0.01;
-                            let slope_limit = params.max_slope_deg.to_radians().tan() * d * 1.415 + 0.01;
-                            if rise.abs() > step.max(slope_limit) {
-                                return false;
-                            }
-                            if corner.collider == surface.collider {
-                                return true;
-                            }
-                            physics.nav_seam_step(
-                                [surface.collider, corner.collider],
-                                [x, y, z],
-                                [x + dx * d, corner.y, z + dz * d],
+                            physics.nav_supports_between(
+                                [&surface, corner],
+                                [[x, z], [x + dx * d, z + dz * d]],
                                 [high + 1.0, low - 1.0],
                                 slope,
-                            ).is_some_and(|seam| seam <= step)
+                                params.step,
+                                &mut supports,
+                            )
                         })
                     {
                         supports.push(corner.collider);

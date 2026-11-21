@@ -250,46 +250,65 @@ impl Physics {
         hits
     }
 
-    pub(crate) fn nav_seam_step(
+    pub(crate) fn nav_supports_between(
         &self,
-        parts: [ColliderHandle; 2],
-        from: [f32; 3],
-        to: [f32; 3],
+        surfaces: [&NavSurface; 2],
+        endpoints: [[f32; 2]; 2],
         ray_range: [f32; 2],
-        slope: f32,
-    ) -> Option<f32> {
-        let [a, b] = parts.map(|handle| &self.colliders[handle]);
-        if a.parent().is_none() || a.parent() != b.parent() {
-            return Some((to[1] - from[1]).abs());
+        min_normal_y: f32,
+        step: f32,
+        supports: &mut Vec<ColliderHandle>,
+    ) -> bool {
+        let [start, end] = surfaces;
+        let [from, to] = endpoints;
+        let delta = [to[0] - from[0], to[1] - from[1]];
+        let distance = delta[0].hypot(delta[1]);
+        let gradient = (1.0 - min_normal_y * min_normal_y).max(0.0).sqrt() / min_normal_y;
+        let rise = (end.y - start.y).abs();
+        let tolerance = 0.01;
+        let parent = self.colliders[start.collider].parent().filter(|&parent| {
+            self.colliders[end.collider].parent() == Some(parent)
+                && self.bodies[parent].colliders().len() > 1
+        });
+        let Some(parent) = parent else {
+            let limit = if start.collider == end.collider { step.max(gradient * distance) } else { step };
+            return rise <= limit + tolerance;
+        };
+        if rise > step.max(gradient * distance) + tolerance {
+            return false;
         }
+
+        const SEGMENTS: u32 = 16;
         let [top, bottom] = ray_range;
-        let delta = [to[0] - from[0], to[2] - from[2]];
-        let ray_at = |t: f32| Ray::new(
-            point![from[0] + t * delta[0], top, from[2] + t * delta[1]],
-            vector![0.0, -1.0, 0.0],
-        );
-        let cast = |collider: &Collider, t| {
-            collider.shape().cast_ray_and_get_normal(collider.position(), &ray_at(t), top - bottom, true)
-                .filter(|hit| hit.normal.y >= slope)
-        };
-        let (mut lo, mut hi) = (0.0, 1.0);
-        let (mut left, mut right) = (cast(a, lo)?, cast(b, hi)?);
-        for _ in 0..10 {
-            let mid = (lo + hi) * 0.5;
-            match (cast(a, mid), cast(b, mid)) {
-                (Some(hit), other) if other.is_none_or(|r| hit.time_of_impact <= r.time_of_impact) => {
-                    (lo, left) = (mid, hit);
-                }
-                (_, Some(hit)) => (hi, right) = (mid, hit),
-                _ => return None,
+        let belongs_to_compound = |_, collider: &Collider| collider.parent() == Some(parent);
+        let filter = QueryFilter::new().exclude_sensors().predicate(&belongs_to_compound);
+        let max_sample_rise = step.max(gradient * distance / SEGMENTS as f32) + tolerance;
+        let mut previous_y = start.y;
+        for i in 0..=SEGMENTS {
+            let t = i as f32 / SEGMENTS as f32;
+            let ray = Ray::new(
+                point![from[0] + t * delta[0], top, from[1] + t * delta[1]],
+                vector![0.0, -1.0, 0.0],
+            );
+            let Some((handle, hit)) = self.query.cast_ray_and_get_normal(
+                &self.bodies, &self.colliders, &ray, top - bottom, true, filter,
+            ) else {
+                return false;
+            };
+            let y = top - hit.time_of_impact;
+            if hit.normal.y < min_normal_y
+                || (y - previous_y).abs() > max_sample_rise
+                || (i == 0 && (y - start.y).abs() > tolerance)
+                || (i == SEGMENTS && (y - end.y).abs() > tolerance)
+            {
+                return false;
             }
+            if !supports.contains(&handle) {
+                supports.push(handle);
+            }
+            previous_y = y;
         }
-        let seam = (lo + hi) * 0.5;
-        let height_at_seam = |t, hit: rapier3d::parry::query::RayIntersection| {
-            top - hit.time_of_impact
-                - (seam - t) * (hit.normal.x * delta[0] + hit.normal.z * delta[1]) / hit.normal.y
-        };
-        Some((height_at_seam(lo, left) - height_at_seam(hi, right)).abs())
+        true
     }
 
     pub(crate) fn nav_clear(&self,x:f32,y:f32,z:f32,half:f32,height:f32,supports:&[ColliderHandle]) -> bool {
