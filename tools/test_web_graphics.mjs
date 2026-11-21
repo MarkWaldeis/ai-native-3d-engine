@@ -8,6 +8,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 } });
 const THREE = await import('three');
 const { graphicsConfig, hdrSettings } = await import('../crates/engine-web/player/graphics-settings.js');
+const { ShadowGrid } = await import('../crates/engine-web/player/effects.js');
 const { primitiveMaterial } = await import('../crates/engine-web/player/materials.js');
 const { environmentLighting, skyTexture } = await import('../crates/engine-web/player/sky.js');
 const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
@@ -30,6 +31,32 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(graphicsConfig({environment_map:'https://example.com/photo.hdr'}, 'ultra').environmentMap, null);
   assert.equal(graphicsConfig({environment_map:'assets/environment.hdr'}, 'ultra').environmentMap, 'assets/environment.hdr');
   assert.equal(graphicsConfig({environment_background:false}, 'ultra').environmentBackground, false);
+});
+
+test('moving the sun camera does not move shadows by fractions of a texel', () => {
+  for (const offset of [new THREE.Vector3(-6, 16, 9), new THREE.Vector3(0, 20, 0)]) {
+    const light = new THREE.DirectionalLight();
+    const shadow = light.shadow, camera = shadow.camera;
+    Object.assign(camera, {left:-12, right:12, top:12, bottom:-12});
+    camera.updateProjectionMatrix();
+    const grid = new ShadowGrid(offset, camera.up);
+    for (const resolution of [512, 1024, 2048]) {
+      shadow.mapSize.setScalar(resolution);
+      const step = 24 / resolution;
+      const uv = (x, y) => {
+        const origin = new THREE.Vector3().addScaledVector(grid.right, x * step).addScaledVector(grid.up, y * step);
+        grid.align(light.target.position.copy(origin), camera, shadow.mapSize);
+        light.position.copy(light.target.position).add(offset);
+        light.updateMatrixWorld(); light.target.updateMatrixWorld();
+        shadow.updateMatrices(light);
+        return new THREE.Vector3(1, 1, 1).applyMatrix4(shadow.matrix);
+      };
+      const origin = uv(0, 0), subpixel = uv(0.4, -0.4), shifted = uv(1.2, -1.2);
+      assert.ok(origin.distanceTo(subpixel) < 1e-10);
+      assert.ok(Math.abs((origin.x - shifted.x) * resolution - 1) < 1e-6);
+      assert.ok(Math.abs((origin.y - shifted.y) * resolution + 1) < 1e-6);
+    }
+  }
 });
 
 test('studio HDRI decodes HDR colors and lighting intensity does not alter the background', async () => {
