@@ -41,6 +41,7 @@ export class SpatialAudio {
   set muted(value) { this._muted = value; if (this.master) param(this.master, 'gain', value ? 0 : this.config.master, this.context.currentTime); }
   configure(scene) {
     this.clear();
+    this.failures.clear();
     this.awaitingInitial = true;
     this.config = audioConfig(scene.entities?.find(e => e.tags?.includes('player'))?.props?.ai_audio);
     for (const entity of scene.entities || []) this.entities.set(entity.id, { ...entity, since: this.clock });
@@ -69,10 +70,17 @@ export class SpatialAudio {
         this.mediaEntries.add(entry); this.mediaPool.push(entry);
       }
       for (const entry of this.mediaPool) { entry.media.play()?.catch(() => {}); entry.media.pause(); }
-      for (const voice of this.voices.values()) voice.media?.play()?.catch(() => {});
+      for (const voice of this.voices.values()) if (voice.media) this.playMedia(voice);
     } catch { /* Audio is optional. */ }
   }
   suspend() { for (const voice of this.voices.values()) { clearTimeout(voice.timer); voice.media?.pause(); } this.context?.suspend()?.catch(() => {}); }
+  playMedia(voice) {
+    const rejected = error => { if (!voice.cancelled) voice.blocked = error.name === 'NotAllowedError'; };
+    try {
+      const playing = voice.media.play();
+      playing?.then(() => { if (!voice.cancelled) voice.blocked = false; }, rejected);
+    } catch (error) { rejected(error); }
+  }
   play(kind) { this.feedback.play(kind); }
   apply(result) {
     if (this.awaitingInitial) {
@@ -173,7 +181,7 @@ export class SpatialAudio {
         v.media.onloadedmetadata = seek;
         v.media.onerror = () => { if (!v.cancelled) { this.warn(sound.src, new Error('stream load failed')); this.stop(entity.id); } };
         v.media.src = sound.src;
-        const play = () => { if (!v.cancelled) { seek(); v.media.play()?.catch(error => this.warn(sound.src, error)); } };
+        const play = () => { if (!v.cancelled) { seek(); this.playMedia(v); } };
         if (music && this.musicStart > c.currentTime) v.timer = setTimeout(() => { if (c.state === 'running') play(); }, (this.musicStart - c.currentTime) * 1000); else if (c.state === 'running') play();
       } else {
         const oscillatorShot = sound.synth && !v.source.buffer && sound.loop === false;

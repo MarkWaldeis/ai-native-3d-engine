@@ -399,6 +399,7 @@ $('fullscreen').addEventListener('click', async () => {
 });
 
 const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+for (const event of ['pointerdown', 'keydown']) window.addEventListener(event, () => { if (running && !document.hidden) audio.unlock(); });
 window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { stopPreview(); if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
 window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
 window.addEventListener('blur', resetInput);

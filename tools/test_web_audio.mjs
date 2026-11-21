@@ -182,6 +182,33 @@ test('long and explicit streams bypass decode; media lifecycle suspends and dest
   audio.apply({ removed: [1] }); assert.equal(media.playing, false); assert.equal(audio.stats().audioStreams, 0);
 }));
 
+test('autoplay denial blocks only that voice, never blacklists shared src, and unlock retries music/emitters', () => mock(async () => {
+  const audio = new SpatialAudio();
+  audio.configure(scene([entity(1, 0, { src: 'shared', stream: true }), entity(2, 1, { src: 'shared', stream: true })], { music: { layers: [{ id: 'streamed', src: 'shared', stream: true }] } }));
+  audio.unlock(); audio.update(listen()); await settle(); audio.context.currentTime = 1; audio.update(listen()); await settle();
+  const first = audio.voices.get(1), second = audio.voices.get(2), music = audio.voices.get('music:0');
+  assert.ok(first.media.playing && second.media.playing && music.media.playing);
+  let denied = true;
+  const rejectable = voice => { const play = voice.media.play.bind(voice.media); voice.media.play = () => denied ? Promise.reject(Object.assign(new Error('gesture needed'), { name: 'NotAllowedError' })) : play(); };
+  rejectable(first); rejectable(music);
+  audio.playMedia(first); audio.playMedia(music); await settle(); audio.update(listen());
+  assert.equal(first.blocked, true); assert.equal(music.blocked, true); assert.equal(audio.failures.has('shared'), false);
+  assert.equal(audio.voices.get(1), first); assert.equal(audio.voices.get(2), second); assert.equal(second.media.playing, true);
+  denied = false; audio.unlock(); await settle();
+  assert.equal(first.blocked, false); assert.equal(music.blocked, false); assert.equal(first.media.playing, true);
+  assert.equal(audio.failures.size, 0); audio.clear();
+}));
+
+test('restart clears transient load failures so a source can play again', () => mock(async () => {
+  const audio = new SpatialAudio(); const source = scene([entity(1, 0, { src: 'retry', stream: true })]);
+  audio.configure(source); audio.unlock(); audio.update(listen()); await settle();
+  const saved = console.warn; console.warn = () => {};
+  try { audio.voices.get(1).media.onerror(); } finally { console.warn = saved; }
+  assert.equal(audio.failures.has('retry'), true);
+  audio.configure(source); assert.equal(audio.failures.size, 0); audio.update(listen()); await settle();
+  assert.equal(audio.voices.get(1).media.playing, true); audio.clear();
+}));
+
 test('stream voices reuse gesture-primed elements and their single media source', () => mock(async () => {
   let gesture = true, sources = 0;
   globalThis.Audio = class extends Media {
