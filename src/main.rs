@@ -15,16 +15,22 @@ fn main() {
     if args.get(1).map(String::as_str) == Some("--net-serve") {
         let result = (|| -> anyhow::Result<()> {
             let scene_path=args.get(2).ok_or_else(|| anyhow::anyhow!("usage: ai-engine --net-serve <scene.json> [--addr 127.0.0.1:7790]"))?;
-            let addr=match args.len() {
-                3 => "127.0.0.1:7790".to_owned(),
-                5 if args[3]=="--addr" => args[4].clone(),
-                _ => anyhow::bail!("usage: ai-engine --net-serve <scene.json> [--addr 127.0.0.1:7790]"),
-            };
+            let mut addr="127.0.0.1:7790".to_owned();
+            let mut allow_origins=vec![];
+            let mut flags=args[3..].iter();
+            while let Some(flag)=flags.next() {
+                let value=flags.next().ok_or_else(||anyhow::anyhow!("{flag} requires a value"))?;
+                match flag.as_str() {
+                    "--addr" => addr=value.clone(),
+                    "--allow-origin" => allow_origins.push(value.clone()),
+                    _ => anyhow::bail!("unknown net-serve option {flag}"),
+                }
+            }
             let root=std::env::current_dir()?.canonicalize()?;
             let path=engine_core::project_path(&root,std::path::Path::new(scene_path))?;
             let scene=serde_json::from_str(&std::fs::read_to_string(path)?)?;
             engine_core::validate_scene_paths(&scene,&root)?;
-            std::thread::spawn(move || engine_net::websocket::serve(scene,engine_net::SimSource::ProjectRoot(root),&addr))
+            std::thread::spawn(move || engine_net::websocket::serve_with_origins(scene,engine_net::SimSource::ProjectRoot(root),&addr,allow_origins))
                 .join().map_err(|_| anyhow::anyhow!("network server thread panicked"))?
         })();
         if let Err(error)=result { eprintln!("network server failed: {error:#}"); std::process::exit(1); }

@@ -54,6 +54,77 @@ fn receive(socket: &mut WebSocket<TcpStream>) -> Result<ServerMessage> {
 }
 
 #[test]
+fn handshake_rejects_foreign_origin_but_allows_loopback_and_native() -> Result<()> {
+    origin_handshakes(
+        vec![],
+        &[
+            (None, true),
+            (Some("http://localhost:8000"), true),
+            (Some("http://127.0.0.1:8000"), true),
+            (Some("http://[::1]:8000"), true),
+            (Some("https://evil.example"), false),
+            (Some("null"), false),
+            (Some("http://localhost.evil.example"), false),
+            (Some("http://localhost@evil.example"), false),
+        ],
+    )
+}
+
+#[test]
+fn handshake_accepts_only_explicitly_allowed_foreign_origins() -> Result<()> {
+    assert!(WsServer::bind_with_origins("127.0.0.1:0", vec!["null".into()]).is_err());
+    origin_handshakes(
+        vec![
+            "https://game.example".into(),
+            "http://another.example:8000".into(),
+        ],
+        &[
+            (Some("https://game.example"), true),
+            (Some("http://another.example:8000"), true),
+            (Some("https://other.example"), false),
+            (Some("http://game.example"), false),
+            (None, true),
+        ],
+    )
+}
+
+fn origin_handshakes(allowed_origins: Vec<String>, cases: &[(Option<&str>, bool)]) -> Result<()> {
+    use tungstenite::client::IntoClientRequest;
+    let mut transport = WsServer::bind_with_origins("127.0.0.1:0", allowed_origins)?;
+    let addr = transport.local_addr()?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let signal = stop.clone();
+    let handle = thread::spawn(move || -> Result<()> {
+        let mut server = NetServer::new(scene(), BTreeMap::new(), ServerConfig::default())?;
+        while !signal.load(Ordering::Relaxed) {
+            transport.tick(&mut server)?;
+            thread::sleep(Duration::from_millis(2));
+        }
+        Ok(())
+    });
+    let _worker = Worker {
+        stop,
+        handle: Some(handle),
+    };
+    for &(origin, allowed) in cases {
+        let stream = TcpStream::connect(addr)?;
+        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
+        let mut request = format!("ws://{addr}").into_client_request()?;
+        if let Some(origin) = origin {
+            request.headers_mut().insert("Origin", origin.parse()?);
+        }
+        let result = tungstenite::client(request, stream);
+        assert_eq!(result.is_ok(), allowed, "origin {origin:?}");
+        if !allowed {
+            assert!(
+                matches!(result,Err(tungstenite::HandshakeError::Failure(tungstenite::Error::Http(response))) if response.status()==403)
+            );
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn two_websocket_clients_move_converge_and_disconnect_frees_slot() -> Result<()> {
     let transport = WsServer::bind("127.0.0.1:0")?;
     let addr = transport.local_addr()?;

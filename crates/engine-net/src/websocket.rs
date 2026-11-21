@@ -18,7 +18,13 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use tungstenite::{accept_with_config, protocol::WebSocketConfig, Error, Message};
+use tungstenite::{
+    accept_hdr_with_config,
+    handshake::server::{Request, Response},
+    http::{StatusCode, Uri},
+    protocol::WebSocketConfig,
+    Error, Message,
+};
 
 #[derive(Debug)]
 enum Event {
@@ -34,10 +40,20 @@ pub struct WsServer {
     disconnected: VecDeque<PeerId>,
     next: PeerId,
     stopped: Arc<AtomicBool>,
+    allow_origins: Arc<Vec<String>>,
 }
 
 impl WsServer {
     pub fn bind(addr: impl ToSocketAddrs) -> Result<Self> {
+        Self::bind_with_origins(addr, vec![])
+    }
+    pub fn bind_with_origins(addr: impl ToSocketAddrs, allow_origins: Vec<String>) -> Result<Self> {
+        anyhow::ensure!(
+            allow_origins
+                .iter()
+                .all(|origin| origin_host(origin).is_some()),
+            "--allow-origin requires an http(s) origin without a path, credentials or query"
+        );
         let listener = TcpListener::bind(addr)?;
         listener.set_nonblocking(true)?;
         let (sender, events) = mpsc::sync_channel(1024);
@@ -49,6 +65,7 @@ impl WsServer {
             disconnected: VecDeque::new(),
             next: 1,
             stopped: Arc::new(AtomicBool::new(false)),
+            allow_origins: Arc::new(allow_origins),
         })
     }
     pub fn local_addr(&self) -> Result<SocketAddr> {
@@ -76,8 +93,10 @@ impl WsServer {
                     self.peers.insert(peer, sender);
                     let events = self.sender.clone();
                     let stopped = self.stopped.clone();
+                    let allow_origins = self.allow_origins.clone();
                     thread::spawn(move || {
-                        let _ = connection(socket, peer, receiver, &events, &stopped);
+                        let _ =
+                            connection(socket, peer, receiver, &events, &stopped, &allow_origins);
                         let _ = events.send(Event::Closed(peer));
                     });
                 }
@@ -157,12 +176,46 @@ fn blocked(error: &Error) -> bool {
     matches!(error,Error::Io(e) if e.kind()==ErrorKind::WouldBlock)
 }
 
+fn origin_host(origin: &str) -> Option<String> {
+    let uri: Uri = origin.parse().ok()?;
+    if !matches!(uri.scheme_str(), Some("http" | "https"))
+        || uri.path() != "/"
+        || uri.query().is_some()
+    {
+        return None;
+    }
+    let authority = uri.authority()?;
+    if authority.as_str().contains('@') {
+        return None;
+    }
+    Some(authority.host().to_ascii_lowercase())
+}
+
+fn origin_allowed(request: &Request, allow_origins: &[String]) -> bool {
+    let mut origins = request.headers().get_all("origin").iter();
+    let Some(origin) = origins.next() else {
+        return true;
+    };
+    if origins.next().is_some() {
+        return false;
+    }
+    let Ok(origin) = origin.to_str() else {
+        return false;
+    };
+    let Some(host) = origin_host(origin) else {
+        return false;
+    };
+    matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]" | "::1")
+        || allow_origins.iter().any(|allowed| allowed == origin)
+}
+
 fn connection(
     socket: TcpStream,
     peer: PeerId,
     outgoing: Receiver<Vec<u8>>,
     events: &SyncSender<Event>,
     stopped: &AtomicBool,
+    allow_origins: &[String],
 ) -> Result<()> {
     socket.set_nodelay(true)?;
     socket.set_read_timeout(Some(Duration::from_secs(2)))?;
@@ -171,7 +224,21 @@ fn connection(
         .max_message_size(Some(4 * 1024 * 1024))
         .max_frame_size(Some(4 * 1024 * 1024))
         .max_write_buffer_size(8 * 1024 * 1024);
-    let mut ws = accept_with_config(socket, Some(config))?;
+    let allow_origins = allow_origins.to_vec();
+    let mut ws = accept_hdr_with_config(
+        socket,
+        move |request: &Request, response: Response| {
+            if origin_allowed(request, &allow_origins) {
+                Ok(response)
+            } else {
+                let mut denied =
+                    tungstenite::http::Response::new(Some("Origin not allowed".to_owned()));
+                *denied.status_mut() = StatusCode::FORBIDDEN;
+                Err(denied)
+            }
+        },
+        Some(config),
+    )?;
     ws.get_mut().set_nonblocking(true)?;
     while !stopped.load(Ordering::Relaxed) {
         for _ in 0..64 {
@@ -212,7 +279,16 @@ fn connection(
 }
 
 pub fn serve(scene: Scene, source: SimSource, addr: &str) -> Result<()> {
-    let mut transport = WsServer::bind(addr)?;
+    serve_with_origins(scene, source, addr, vec![])
+}
+
+pub fn serve_with_origins(
+    scene: Scene,
+    source: SimSource,
+    addr: &str,
+    allow_origins: Vec<String>,
+) -> Result<()> {
+    let mut transport = WsServer::bind_with_origins(addr, allow_origins)?;
     let mut server = NetServer::new(scene, source, ServerConfig::default())?;
     eprintln!(
         "[net] WebSocket authority listening on ws://{}",

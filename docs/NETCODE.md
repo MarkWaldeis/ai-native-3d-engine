@@ -188,6 +188,10 @@ interpolation and physics remain in Rust. JS only moves bytes and renders.
 The native adapter uses tungstenite 0.28, bounded worker queues and a 60-Hz
 authority thread. Text and binary frames carry the existing JSON encoding.
 It is for **trusted local sessions**, without authentication or TLS. HTTPS pages
+need an explicitly allowed origin (`--allow-origin https://game.example`,
+repeatable) unless their hostname is localhost, 127.0.0.1 or [::1]. Native
+requests without Origin remain allowed; foreign browser origins are rejected
+during the handshake by default. This is not authentication. HTTPS pages
 need a separately configured TLS WebSocket endpoint. Browser network terrain
 streaming/asset transfer are not implemented; use the bundled net_arena scene.
 
