@@ -45,8 +45,9 @@ export class BrowserNet {
       this.close(); throw new Error('Multiplayer-Verbindung zu langsam. Bitte neu verbinden.');
     }
     const now = this.clock();
-    const result = JSON.parse(firstInputs === undefined ? this.game.tick(JSON.stringify(inputs), now)
-      : this.game.tick_with_impulses(JSON.stringify(inputs), JSON.stringify(firstInputs), now));
+    const withImpulses = firstInputs !== null && typeof firstInputs === 'object';
+    const result = JSON.parse(withImpulses ? this.game.tick_with_impulses(JSON.stringify(inputs), JSON.stringify(firstInputs), now)
+      : this.game.tick(JSON.stringify(inputs), now));
     if (result.input_ticks > 0) onConsumed();
     for (const message of result.outgoing) this.socket.send(message);
     Object.assign(this.status, {

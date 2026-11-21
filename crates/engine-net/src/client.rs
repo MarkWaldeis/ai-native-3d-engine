@@ -239,12 +239,27 @@ impl NetClient {
         if target.saturating_sub(self.simulation.tick) > self.config.history_capacity as u64 {
             bail!("client clock jump exceeds history");
         }
+        let first_tick = self.simulation.tick;
+        let has_impulse = first_actions != actions;
         let mut next_actions = first_actions;
         while self.simulation.tick < target {
             self.tick(next_actions, now_ms)?;
             next_actions = actions.clone();
         }
-        Ok(self.input_message())
+        let mut message = self.input_message();
+        if has_impulse && self.simulation.tick > first_tick {
+            if let ClientMessage::Input { frames, .. } = &mut message {
+                // Preserve both impulse and release across a large catch-up batch.
+                for tick in first_tick..(first_tick + 2).min(self.simulation.tick) {
+                    if !frames.iter().any(|frame| frame.tick == tick) {
+                        if let Some(frame) = self.frames.get(&tick) { frames.push(frame.clone()); }
+                    }
+                }
+                frames.sort_by_key(|frame| frame.tick);
+                while frames.len() > 128 { frames.remove(2); }
+            }
+        }
+        Ok(message)
     }
 
     pub fn input_message(&self) -> ClientMessage {

@@ -272,9 +272,19 @@ mod tests {
         assert_eq!(game.client.as_ref().unwrap().simulation().net_script_state()["pulses"], 1);
         game.tick_with_impulses_inner("{}", "{}", 200.0).unwrap();
         assert_eq!(game.client.as_ref().unwrap().simulation().net_script_state()["pulses"], 1);
-        assert!(game.tick_with_impulses_inner("{}", "[]", 201.0).is_err());
+        let first_tick = game.client.as_ref().unwrap().simulation().tick;
+        let result: Value = serde_json::from_str(&game.tick_with_impulses_inner("{}", "{\"fire\":1}", 900.0).unwrap()).unwrap();
+        assert!(result["input_ticks"].as_u64().unwrap() > ClientConfig::default().redundant_frames as u64);
+        let message = decode(result["outgoing"][0].as_str().unwrap().as_bytes()).unwrap();
+        if let ClientMessage::Input { frames, .. } = message {
+            assert_eq!(frames.iter().find(|f| f.tick == first_tick).unwrap().actions["fire"], 1.0);
+            assert_eq!(frames.iter().find(|f| f.tick == first_tick + 1).unwrap().actions.get("fire").copied().unwrap_or(0.0), 0.0);
+            assert_eq!(frames.iter().filter(|f| f.actions.get("fire").copied().unwrap_or(0.0) > 0.5).count(), 1);
+        } else { panic!("expected client input frames"); }
+        assert_eq!(game.client.as_ref().unwrap().simulation().net_script_state()["pulses"], 2);
+        assert!(game.tick_with_impulses_inner("{}", "[]", 901.0).is_err());
         game.disconnect();
-        let result: Value = serde_json::from_str(&game.tick_with_impulses_inner("{}", "{\"fire\":1}", 202.0).unwrap()).unwrap();
+        let result: Value = serde_json::from_str(&game.tick_with_impulses_inner("{}", "{\"fire\":1}", 902.0).unwrap()).unwrap();
         assert_eq!(result["input_ticks"], 0);
     }
 
