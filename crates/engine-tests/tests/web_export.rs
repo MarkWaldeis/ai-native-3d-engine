@@ -38,6 +38,55 @@ fn root() -> PathBuf {
 }
 
 #[test]
+fn web_export_bundles_audio_deduplicates_and_preserves_string_props() {
+    let fixture = Fixture::new();
+    let samples = [0_u8; 16];
+    let mut wav = Vec::from(&b"RIFF"[..]);
+    wav.extend_from_slice(&(36_u32 + samples.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt \x10\0\0\0\x01\0\x01\0");
+    wav.extend_from_slice(&8000_u32.to_le_bytes());
+    wav.extend_from_slice(&16000_u32.to_le_bytes());
+    wav.extend_from_slice(b"\x02\0\x10\0data");
+    wav.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&samples);
+    std::fs::write(fixture.0.join("tone.wav"), &wav).unwrap();
+    std::fs::write(fixture.0.join("copy.wav"), &wav).unwrap();
+    let authored = json!({"entities":[
+        {"id":1,"name":"player","kind":"box","size":[1,1,1],"tags":["player"],"props":{"ai_audio":json!({"music":{"layers":[{"id":"base","src":"copy.wav"}]}}).to_string()}},
+        {"id":2,"name":"object sound","kind":"box","size":[1,1,1],"props":{"ai_sound":{"src":"tone.wav","volume":0.2}}},
+        {"id":3,"name":"string sound","kind":"box","size":[1,1,1],"props":{"ai_sound":json!({"src":"copy.wav"}).to_string()}}
+    ]});
+    let scene: Scene = serde_json::from_value(authored.clone()).unwrap();
+    let out = fixture.0.join("audio-site");
+    let report = export_bundle(&scene, &fixture.0, &out, &fixture.0.join("pkg")).unwrap();
+    assert_eq!(report["audio"], 1);
+    assert_eq!(std::fs::read_dir(out.join("audio")).unwrap().count(), 1);
+    let exported: Value = serde_json::from_slice(&std::fs::read(out.join("scene.json")).unwrap()).unwrap();
+    let target = exported["entities"][1]["props"]["ai_sound"]["src"].as_str().unwrap();
+    assert!(target.starts_with("audio/") && target.ends_with(".wav"));
+    assert_eq!(std::fs::read(out.join(target)).unwrap(), wav);
+    assert_eq!(exported["entities"][1]["props"]["ai_sound"]["volume"], 0.2);
+    let music: Value = serde_json::from_str(exported["entities"][0]["props"]["ai_audio"].as_str().unwrap()).unwrap();
+    let sound: Value = serde_json::from_str(exported["entities"][2]["props"]["ai_sound"].as_str().unwrap()).unwrap();
+    assert_eq!(music["music"]["layers"][0]["src"], target);
+    assert_eq!(sound["src"], target);
+    for (i, bad) in ["https://example.org/a.wav", "http://example.org/a.wav", "/tmp/a.wav", "C:\\a.wav", "../a.wav", "tone.txt", "missing.wav"].iter().enumerate() {
+        for music in [false, true] {
+            let mut invalid = authored.clone();
+            if music { invalid["entities"][0]["props"]["ai_audio"] = json!({"music":{"layers":[{"src":bad}]}}); }
+            else { invalid["entities"][1]["props"]["ai_sound"] = json!({"src":bad}); }
+            let scene: Scene = serde_json::from_value(invalid).unwrap();
+            let out = fixture.0.join(format!("invalid-{i}-{music}"));
+            let error = export_bundle(&scene, &fixture.0, &out, &fixture.0.join("pkg")).unwrap_err();
+            assert!(format!("{error:#}").contains("audio"), "{error:#}");
+            assert!(!out.exists());
+        }
+    }
+    let empty: Scene = serde_json::from_value(json!({"entities":[]})).unwrap();
+    assert_eq!(export_bundle(&empty, &fixture.0, &fixture.0.join("empty"), &fixture.0.join("pkg")).unwrap()["audio"], 0);
+}
+
+#[test]
 fn web_export_bundles_compact_terrain_once_and_rewrites_paths() {
     let fixture=Fixture::new();
     let terrain=engine_terrain::Terrain::generate(engine_terrain::TerrainConfig {size_m:[512.0;2],samples:33,..Default::default()}).unwrap();
@@ -86,6 +135,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "occlusion.js",
         "effects.js",
         "presentation.js",
+        "audio.js",
         "graphics-settings.js",
         "gpu-timer.js",
         "hdr.js",

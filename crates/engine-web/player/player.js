@@ -8,7 +8,8 @@ import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
-import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
+import { feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
+import { SpatialAudio, bindAudioGestures } from './audio.js';
 import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
@@ -23,7 +24,8 @@ let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
 let effects, assets, lastFeedback, lastHUD = '';
-const audio = new GameAudio();
+const audio = new SpatialAudio();
+window.__aiAudio = { stats: () => audio.stats(), engine: audio };
 const animations = new Animations();
 window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
@@ -151,6 +153,7 @@ function createObject(entity) {
 }
 
 function apply(result) {
+  audio.apply(result);
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
     const object = objects.get(id);
@@ -309,6 +312,7 @@ async function restart() {
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
   const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
+  audio.configure(source);
   await terrain?.preload();
   mark('webGameLoaded');
   apply(JSON.parse(initial));
@@ -383,6 +387,7 @@ $('fullscreen').addEventListener('click', async () => {
 });
 
 const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
+bindAudioGestures(window, () => audio.unlock(), () => running && !document.hidden);
 window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { stopPreview(); if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
 window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
 window.addEventListener('blur', resetInput);
@@ -441,6 +446,8 @@ function frame(now) {
       }
     }
     updateCamera(false, elapsed);
+    audio.update({ position: camera.position.toArray(), forward: camera.getWorldDirection(new THREE.Vector3()).toArray(), up: new THREE.Vector3(0, 1, 0).applyQuaternion(camera.quaternion).toArray() });
+    Object.assign(stats, audio.stats());
     occluder?.beginFrame();
     streaming?.update(camera);
     terrain?.update(camera, now);

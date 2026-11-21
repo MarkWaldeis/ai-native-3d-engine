@@ -1,0 +1,27 @@
+{
+  "name": "Klanggarten",
+  "camera": {"position": [0, 12, 18], "target": [0, 0.5, 0], "fov_deg": 55},
+  "light_dir": [-0.4, 1, 0.3], "ambient": 0.5,
+  "entities": [
+    {"id":1,"name":"Gartenboden","kind":"box","size":[64,0.4,64],"transform":{"position":[0,-0.2,-8]},"color":[0.12,0.28,0.23,1],"tags":["ground"],"collider":{"shape":"box"},"rigidbody":{"type":"static"}},
+    {"id":2,"name":"Spieler","kind":"sphere","radius":0.45,"segments":24,"transform":{"position":[0,0.5,4]},"color":[0.95,0.68,0.22,1],"tags":["player"],"collider":{"shape":"sphere","radius":0.45},"rigidbody":{"type":"kinematic"},"script":"examples/audio_garden/player.rhai","props":{
+      "ai_ui":{"title":"Klanggarten","mission":"Gehe mit W in die blaue Höhle · rechts wartet die Halle","intro_title":"Entdecke den Klanggarten","intro_text":"WASD / Pfeile: gehen. Höhle geradeaus: Hall und zweite Musikschicht. Brunnen links, Feuer rechts. Kopfhörer empfohlen.","badge":"3D AUDIO","hud_keys":["Höhle"],"sky_color":"#97c9c7"},
+      "ai_audio":{"master":0.65,"sfx":0.7,"music_volume":0.12,"max_voices":12,"stream_radius":45,"memory_budget_mb":8,"music":{"crossfade_s":1.5,"layers":[{"id":"base","synth":"pulse","volume":0.12,"when":"always"},{"id":"cave","synth":"hum","volume":0.25,"when":{"key":"Höhle","op":">=","value":1}}]}}
+    }},
+    {"id":3,"name":"Brunnen","kind":"cylinder","radius":1.5,"height":0.8,"segments":32,"transform":{"position":[-5,0.4,0]},"color":[0.22,0.62,0.76,1],"props":{"ai_sound":{"synth":"water","volume":0.5,"ref_distance":3}}},
+    {"id":4,"name":"Wasserstrahl","kind":"cylinder","radius":0.18,"height":2.6,"segments":16,"transform":{"position":[-5,1.8,0]},"color":[0.45,0.9,1,1]},
+    {"id":5,"name":"Feuer","kind":"sphere","radius":0.7,"segments":16,"transform":{"position":[5,0.7,0]},"color":[1,0.26,0.05,1],"props":{"ai_sound":"{\"synth\":\"fire\",\"volume\":0.6,\"ref_distance\":2}"}},
+    {"id":6,"name":"Klangstein","kind":"box","size":[0.8,2,0.8],"transform":{"position":[-4,1,-9]},"color":[0.48,0.38,0.73,1],"props":{"ai_sound":{"synth":"hum","volume":0.08}}},
+    {"id":7,"name":"Glockenstein","kind":"sphere","radius":0.55,"segments":24,"transform":{"position":[4,1,-8]},"color":[0.95,0.82,0.4,1],"props":{"ai_sound":{"src":"examples/audio_garden/chime.wav","volume":0.3,"loop":true,"ref_distance":3}}},
+    {"id":8,"name":"cave","kind":"box","size":[1,1,1],"visible":false,"transform":{"position":[0,12,-16]},"props":{"ai_reverb_zone":{"shape":"box","size":[14,40,24],"preset":"cave","wet":0.85,"fade":2}}},
+    {"id":9,"name":"Höhlenwand links","kind":"box","size":[1,5,24],"transform":{"position":[-7.5,2.5,-16]},"color":[0.16,0.23,0.36,1],"collider":{"shape":"box"},"rigidbody":{"type":"static"}},
+    {"id":10,"name":"Höhlenwand rechts","kind":"box","size":[1,5,24],"transform":{"position":[7.5,2.5,-16]},"color":[0.16,0.23,0.36,1],"collider":{"shape":"box"},"rigidbody":{"type":"static"}},
+    {"id":11,"name":"Höhlenrückwand","kind":"box","size":[16,5,1],"transform":{"position":[0,2.5,-28]},"color":[0.12,0.18,0.3,1]},
+    {"id":12,"name":"Höhlenpfad","kind":"box","size":[5,0.08,30],"transform":{"position":[0,0.02,-10]},"color":[0.24,0.4,0.5,1]},
+    {"id":13,"name":"hall","kind":"box","size":[1,1,1],"visible":false,"transform":{"position":[20,12,0]},"props":{"ai_reverb_zone":"{\"shape\":\"box\",\"size\":[16,40,20],\"preset\":\"hall\",\"wet\":0.7,\"fade\":3}"}},
+    {"id":14,"name":"Hallenboden","kind":"box","size":[16,0.12,20],"transform":{"position":[20,0.02,0]},"color":[0.63,0.52,0.38,1]},
+    {"id":15,"name":"Säule A","kind":"cylinder","radius":0.5,"height":5,"segments":16,"transform":{"position":[14,2.5,-8]},"color":[0.85,0.74,0.57,1]},
+    {"id":16,"name":"Säule B","kind":"cylinder","radius":0.5,"height":5,"segments":16,"transform":{"position":[26,2.5,-8]},"color":[0.85,0.74,0.57,1]},
+    {"id":17,"name":"Hallenbalken","kind":"box","size":[13,0.6,1.2],"transform":{"position":[20,5,-8]},"color":[0.85,0.74,0.57,1]}
+  ]
+}

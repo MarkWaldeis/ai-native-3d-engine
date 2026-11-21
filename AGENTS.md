@@ -100,6 +100,20 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   Screenshots nach `docs/web_*.png`. Headless-Chrome in GPU-losen macOS-VMs
   benötigt ggf. `--use-angle=swiftshader --enable-unsafe-swiftshader`.
 
+## Audio (Web)
+
+- Player-Prop `ai_audio`: Master/SFX/Musik, Stimmenlimit (24), Radius (80 m),
+  Hysterese (8 m), Buffer-LRU (32 MiB), Streaming ab 20 s. `ai_sound` an Entities:
+  Datei oder Synth (`wind/water/hum/fire/pulse`), HRTF, Position/Kegel folgen Transform.
+- `ai_reverb_zone`: Box/Kugel, `room/hall/cave/outdoor/underwater`; Listener ist
+  die Kamera. Musik-Layer lesen deklarativ Rhai-State, keine JS-Spielregeln.
+- Export kopiert projekt-relative Audiodateien dedupliziert nach `audio/`;
+  URLs/absolute/ausbrechende Pfade verboten. Props auch als JSON-String.
+- Demo: `cargo run -- --export-web examples/audio_garden/scene.json target/site/audio_garden`,
+  HTTP wie oben; `node tools/verify_web_audio.mjs`. Screenshot: `docs/web_audio_garden.png`.
+  Tests: `node --test tools/test_web_*.mjs`, `cargo test -p engine-tests --test web_export`.
+  Konfiguration/Grenzen: `docs/AUDIO.md`; Stats: `window.__aiAudio.stats()`.
+
 ## Web-Terrain (Streaming)
 
 - Export bündelt jedes `ai_terrain`-Manifest einmal: `terrain/<n>/terrain.json`,
