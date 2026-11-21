@@ -133,6 +133,33 @@ fn arena_four_slots_scoring_and_scene_overrides_work() {
 }
 
 #[test]
+fn net_simulate_rejects_terrain_explicitly_without_mutating_authoring_or_play() {
+    let mut engine = host();
+    data(call(&mut engine, "play", json!({})));
+    let play = data(call(&mut engine, "get_sim_state", json!({})));
+    let revision = engine.world.revision;
+    let mut terrain = arena();
+    terrain.entities[0].props["ai_terrain"] = json!("terrain/terrain.json");
+    for args in [
+        json!({"clients":1,"ticks":1,"scene":terrain.clone()}),
+        json!({"clients":1,"ticks":1}),
+    ] {
+        engine.world.scene = terrain.clone();
+        let result = call(&mut engine, "net_simulate", args);
+        assert_eq!(result["isError"], true, "{result}");
+        assert!(
+            result
+                .to_string()
+                .contains("net_simulate does not support props.ai_terrain"),
+            "{result}"
+        );
+        assert_eq!(engine.world.scene, terrain);
+        assert_eq!(engine.world.revision, revision);
+        assert_eq!(data(call(&mut engine, "get_sim_state", json!({}))), play);
+    }
+}
+
+#[test]
 fn net_simulate_empty_unconnected_and_invalid_requests_are_explicit() {
     let mut engine = host();
     let empty = data(call(

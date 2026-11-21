@@ -33,6 +33,10 @@ impl Engine {
             Some(value) => serde_json::from_value(value.clone())?,
             None => self.world.scene.clone(),
         };
+        ensure!(
+            !scene.entities.iter().any(|entity| entity.props.get("ai_terrain").and_then(Value::as_str).is_some()),
+            "net_simulate does not support props.ai_terrain: network simulations require in-memory terrain sources, which are not loaded by this tool"
+        );
         engine_core::validate_scene_paths(&scene, &root)?;
         let mut sources = BTreeMap::new();
         for entity in &mut scene.entities {

@@ -148,6 +148,9 @@ These are numerical/headless checks, not visual verification of the arena.
 
 ## Limits
 
+- MCP `net_simulate` explicitly rejects scenes with `props.ai_terrain`; terrain
+  sources/project-root loading are not yet wired into the network runner.
+
 - No spawned-entity replication: snapshots contain no new mesh, collider or
   script definitions; unknown IDs are rejected. Removal of known IDs works.
 - No authentication, encryption, reliable event channel or congestion control.
