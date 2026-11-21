@@ -1,5 +1,24 @@
 # Browser graphics
 
+## Hierarchische Fern-LOD
+
+`ai_world.hlod` ist bei Welt-Streaming standardmäßig aktiv. `hlod_cluster:4`
+fasst 4×4 Chunks zusammen; `hlod_distance:1600` erweitert Nebel und Kamerareichweite.
+`hlod_min_radius:1.5` filtert kleine Details. Statische Primitive werden stark
+vereinfacht, GLBs verwenden `web_mesh_bounds`; dynamische/animierte Objekte,
+Skripte und unsichtbare Entities sind keine Proxys. Welttransforms und Farben
+werden in eine gemeinsame Vertexfarben-Geometrie gebacken, ohne Schattenwurf.
+
+Nur vollständig außerhalb `draw_distance` liegende Chunks wechseln nach einer
+Hysterese zur Fern-LOD. Zusammenhängende Indexbereiche ergeben meist einen Draw
+Call pro Cluster. Ein Aufbau pro Frame begrenzt Lastspitzen; entfernte Geometrie
+wird freigegeben, Änderungen invalidieren den Cluster. Beim Rückwechsel bleibt
+der Proxy bis zur fertigen Nah-Geometrie stehen. Beim ersten Laden können ferne
+Cluster daher zeitversetzt erscheinen. `hlod:false` lässt den alten Pfad unverändert.
+`?stats=1` und Benchmarks zeigen `hlodClusters`, `hlodDrawCalls`, `hlodTriangles`.
+Terrain-Occlusion kann unabhängig über `StreamingWorld.setHlodOcclusion(occluder)`
+mit `occluded(key,eye,box)` angebunden werden.
+
 Terrain-Verdeckung: `ai_world.occlusion` aktiviert standardmäßig gemeinsame
 Höhenfeldproben für Chunk-Gruppen und Terrain-Kacheln (auch ohne Chunk-Streaming).
 `occlusion_margin` (2 m) toleriert Höhenfehler; nahe Boxen und Kameras unter dem

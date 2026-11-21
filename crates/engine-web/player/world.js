@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { HLOD } from './hlod.js';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
 import { isCollectible } from './presentation.js';
@@ -109,9 +110,15 @@ export class StreamingWorld {
   constructor(scene, renderer, config, assets = new WebAssets()) {
     this.scene = scene; this.renderer = renderer; this.config = config;
     this.assets = assets;
-    this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
+    this.gridConfig = config.hlod ? {...config,stream_radius:Math.max(config.stream_radius,config.draw_distance+config.hysteresis+config.chunk_size)} : config;
+    this.hlod = config.hlod ? new HLOD(scene,config) : null;
+    this.grid = new ChunkGrid(this.gridConfig); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
+  hideProxied(group, hidden = true) {
+    for (const child of group.children) if (child.isInstancedMesh) child.visible = !hidden || !this.hlod.entities.has(child.userData.items[0].e.id);
+  }
+  setHlodOcclusion(occluder) { this.hlod?.setOcclusion(occluder); }
   setOcclusion(occluder) { this.occluder=occluder; }
   async template(e, level) {
     const key = `${batchKey(e)}:${level}`;
@@ -180,11 +187,12 @@ export class StreamingWorld {
     const key = this.grid.register(e.id,t.position,radius);
     const shadows = object ? null : sunShadowSettings(e.props?.ai_sun_shadow);
     const signature = shadows ? `${batchKey(e)}:${shadows.castShadow}:${shadows.receiveShadow}` : null;
-    this.entities.set(e.id,{e,object,key,signature,shadows,level:undefined}); this.dirty.add(key);
+    this.entities.set(e.id,{e,object,key,signature,shadows,level:undefined}); this.dirty.add(key); this.hlod?.add(e,key);
   }
   batched(e) { return this.config.instancing && canInstance(e); }
   remove(id) {
     const item = this.entities.get(id); if (!item) return;
+    this.hlod?.remove(id);
     this.dirty.add(item.key); item.object?.removeFromParent(); this.entities.delete(id); this.grid.remove(id);
     const group = this.groups.get(item.key);
     group?.traverse(o => { if (o.isInstancedMesh) for (const index of o.userData.ids?.get(id) || []) { o.setMatrixAt(index,new THREE.Matrix4().makeScale(0,0,0)); o.instanceMatrix.needsUpdate = true; } });
@@ -192,6 +200,7 @@ export class StreamingWorld {
   move(id, transform) {
     const item = this.entities.get(id); if (!item) return;
     const old = item.key; item.e.transform = transform; item.key = this.grid.move(id,transform.position);
+    this.hlod?.add(item.e,item.key);
     if (old !== item.key || !item.object) { this.dirty.add(old); this.dirty.add(item.key); }
   }
   async rebuild(key) {
@@ -202,16 +211,17 @@ export class StreamingWorld {
     for (const {id} of this.grid.chunks.get(key)?.values() || []) {
       const item = this.entities.get(id); if (!item) continue;
       if (item.object) { objects.push(item.object); continue; }
-      if (item.e.visible === false || item.level === 3) continue;
-      const batch = `${item.signature}:${item.level || 0}:${!!item.e.collider}`;
+      const tracked = !!this.hlod?.entities.has(id);
+      if (item.e.visible === false || item.level === 3 && (!tracked || !this.hlod.isFar(key))) continue;
+      const batch = `${item.signature}:${tracked && item.level === 3 ? 2 : item.level || 0}:${!!item.e.collider}:${tracked}`;
       if (!buckets.has(batch)) buckets.set(batch,[]); buckets.get(batch).push(item);
     }
     try {
       for (const items of buckets.values()) {
-        const parts = await this.template(items[0].e,items[0].level || 0);
+        const parts = await this.template(items[0].e,items[0].level === 3 ? 2 : items[0].level || 0);
         if (this.builds.get(key) !== group) return;
         for (const part of parts) {
-          const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map();
+          const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.items = items;
           mesh.castShadow = items[0].shadows.castShadow && !part.billboard;
           mesh.receiveShadow = items[0].shadows.receiveShadow;
           mesh.userData.support = !!items[0].e.collider;
@@ -221,6 +231,8 @@ export class StreamingWorld {
       }
       if (this.builds.get(key) !== group) return;
       for (const object of objects) group.add(object);
+      group.userData.nearReady = true;
+      if (this.hlod?.isFar(key)) this.hideProxied(group);
       disposeChunk(old);
       this.groups.set(key,group);
       // Three.js culls meshes per pass; offscreen chunks can still cast shadows.
@@ -245,10 +257,14 @@ export class StreamingWorld {
       this.groups.delete(key); this.builds.delete(key); this.dirty.delete(key);
     }
     for (const key of change.load) this.dirty.add(key);
+    this.hlod?.update(camera,key=>this.grid.loaded.has(key) && this.groups.get(key)?.userData.nearReady);
     for (const key of this.grid.loaded) {
+      const managed=this.hlod?.hasChunk(key), proxy=this.hlod?.isFar(key);
+      const outside=managed && this.hlod.chunkDistance(key,camera.position)>=this.config.hlod_distance;
       for (const {id,position,radius} of this.grid.chunks.get(key)?.values() || []) {
         const item = this.entities.get(id); if (!item) continue;
-        const level = selectLOD(Math.max(0,camera.position.distanceTo(new THREE.Vector3(...position))-radius),item.level,this.config);
+        let level = selectLOD(Math.max(0,camera.position.distanceTo(new THREE.Vector3(...position))-radius),item.level,this.config);
+        if(managed && this.hlod.entities.has(id)) level=outside || proxy && this.hlod.wantsFar(key) ? 3 : Math.min(level,2);
         if (level !== item.level) {
           item.level = level;
           if (!item.object) this.dirty.add(key);
@@ -293,6 +309,7 @@ export class StreamingWorld {
       }
       const group = this.groups.get(key);
       if (group) {
+        if (managed) this.hideProxied(group,proxy || outside);
         const bounds = this.occluder ? new THREE.Box3().setFromObject(group) : null;
         group.visible = !this.occluder?.occluded(`chunk:${key}`,camera.position,bounds);
         if (!group.visible) this.occludedChunks++;
@@ -327,8 +344,9 @@ export class StreamingWorld {
     return result;
   }
   reset() {
+    this.hlod?.reset();
     for (const group of this.groups.values()) disposeChunk(group);
     for (const group of this.builds.values()) disposeChunk(group);
-    this.groups.clear(); this.builds.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.config); this.dirty.clear();
+    this.groups.clear(); this.builds.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.gridConfig); this.dirty.clear();
   }
 }
