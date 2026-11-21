@@ -8,6 +8,15 @@ export async function verifyGraphics(browser, base, errors, shots) {
     if (message.type() === 'error' && /THREE|WebGL/.test(message.text())) errors.push(`graphics: ${message.text()}`);
   });
   await page.addInitScript(installClock);
+  await page.addInitScript(() => {
+    const proto = WebGL2RenderingContext.prototype;
+    const setParameter = proto.texParameterf;
+    window.textureAnisotropy = [];
+    proto.texParameterf = function(target, parameter, value) {
+      if (parameter === 0x84fe) window.textureAnisotropy.push(value);
+      return setParameter.call(this, target, parameter, value);
+    };
+  });
   const ready = async () => {
     await page.waitForFunction(() => !document.getElementById('start').disabled || document.getElementById('modal').dataset.screen === 'error', null, { polling: 50 });
     assert.equal(await page.locator('#start').isEnabled(), true, await page.locator('#modal-text').textContent());
@@ -45,11 +54,33 @@ export async function verifyGraphics(browser, base, errors, shots) {
         gl.readPixels(Math.round(size * 0.574), size / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         return { red: pixels[0], hdr: !!pipeline.sceneTarget, calls: renderer.info.render.calls };
       }
+      function edgeCoverage(filter, level) {
+        pipeline.edgeAA = filter;
+        pipeline.resize(level, 192, 192, 1);
+        pipeline.render(scene, camera);
+        const image = new Uint8Array(192 * 192 * 4);
+        gl.readPixels(0, 0, 192, 192, gl.RGBA, gl.UNSIGNED_BYTE, image);
+        let intermediate = 0;
+        const center = image[(96 * 192 + 96) * 4];
+        for (let i = 0; i < image.length; i += 4) {
+          if (image[i] > 8 && image[i] < center - 8) intermediate++;
+        }
+        return { intermediate, center };
+      }
       try {
         const high = sample(2, 192, 6), low = sample(0, 192, 6), dim = sample(1, 128, 0.1);
+        const panel = scene.children[0];
+        panel.rotation.z = 0.41;
+        panel.scale.setScalar(5);
+        material.emissive.setHex(0xffffff);
+        material.emissiveIntensity = 0.7;
+        const sharp = edgeCoverage(false, 2), smoothed = edgeCoverage(true, 2), balanced = edgeCoverage(true, 1);
+        panel.rotation.z = 0;
+        panel.scale.setScalar(1);
+        material.emissive.setHex(0xff4200);
         pipeline.release(); pipeline.supported = false;
         const unsupported = sample(2, 192, 6);
-        return { high, low, dim, unsupported, glError: gl.getError() };
+        return { high, low, dim, sharp, smoothed, balanced, unsupported, glError: gl.getError() };
       } finally {
         pipeline.release(); geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
       }
@@ -59,7 +90,10 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(result.low.red, 0, 'no halo outside the geometry when rendering directly');
     assert.ok(result.dim.hdr && result.dim.red <= 1, 'dim objects should not bloom');
     assert.deepEqual(result.unsupported, result.low, 'no float attachment should fall back to direct rendering');
-    console.log('PASS graphics: exported presets, linear HDR bloom threshold, resize and direct-render fallback');
+    assert.ok(result.smoothed.intermediate > result.sharp.intermediate + 100, JSON.stringify(result));
+    assert.equal(result.smoothed.center, result.sharp.center, 'edge filtering leaves the uniform interior unchanged');
+    assert.deepEqual(result.balanced, result.sharp, 'the balanced tier does not run edge filtering');
+    console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
 
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
@@ -83,13 +117,30 @@ export async function verifyGraphics(browser, base, errors, shots) {
         copy.width = 40; copy.height = 28;
         const ctx = copy.getContext('2d');
         ctx.drawImage(game, 0, 0, copy.width, copy.height);
-        return { pixels: Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data), error: gl.getError(), title: document.getElementById('title').textContent };
+        const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+        return {
+          pixels: Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data),
+          error: gl.getError(), title: document.getElementById('title').textContent,
+          maximumAnisotropy: ext ? gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 1,
+          sampledAnisotropy: window.textureAnisotropy,
+          cameraDistance: Math.hypot(...window.__engineStats.cameraPosition.map((v, i) => v - window.__engineStats.playerPosition[i])),
+        };
       });
     };
-    const [loaded, reflected] = await Promise.all([page.waitForResponse(map), render()]);
+    const [loaded, floor, reflected] = await Promise.all([
+      page.waitForResponse(map), page.waitForResponse(response => response.url().startsWith(studio) && response.url().endsWith('.glb')), render(),
+    ]);
     assert.equal(loaded.status(), 200, 'the exported panorama is loaded from its bundle');
+    assert.equal(floor.status(), 200, 'the textured floor loads from a bundled GLB');
     assert.equal(reflected.title, 'Materiallabor');
     assert.equal(reflected.error, 0);
+    if (reflected.maximumAnisotropy > 1) {
+      assert.ok(reflected.sampledAnisotropy.includes(Math.min(8, reflected.maximumAnisotropy)), 'the Ultra studio applies anisotropy to its WebGL sampler');
+      console.log('PASS GLB textures: bundled textured floor applies the supported Ultra anisotropy');
+    } else {
+      assert.deepEqual(reflected.sampledAnisotropy, [], 'unsupported GPUs retain ordinary sampling');
+      console.log('PASS GLB textures: bundled textured floor renders without anisotropy support');
+    }
     const before = await page.evaluate(() => window.__engineStats.playerPosition);
     await page.keyboard.down('KeyD');
     await page.evaluate(() => advanceFrames(20));
@@ -99,12 +150,36 @@ export async function verifyGraphics(browser, base, errors, shots) {
     await page.screenshot({ path: `${shots}/material-studio.png` });
 
     const background = `${studio}/scene.json`;
-    const showMap = async route => {
+    const patchScene = callback => async route => {
       const response = await route.fetch();
       const scene = await response.json();
-      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.environment_background = true;
+      callback(scene);
       await route.fulfill({ response, json: scene });
     };
+    const noLights = patchScene(scene => {
+      for (const entity of scene.entities) delete entity.props?.ai_light;
+    });
+    await page.route(background, noLights);
+    const unlit = await render();
+    await page.unroute(background, noLights);
+    const streamed = async lit => {
+      const settings = patchScene(scene => {
+        const player = scene.entities.find(entity => entity.tags.includes('player'));
+        player.props.ai_world = {};
+        player.props.ai_graphics.fog_density = 0;
+        for (const entity of scene.entities) {
+          if (entity.props?.ai_light) entity.props.ai_light.range = 6;
+          if (!lit) delete entity.props?.ai_light;
+        }
+      });
+      await page.route(background, settings);
+      try { return await render(); }
+      finally { await page.unroute(background, settings); }
+    };
+    const streamedLit = await streamed(true), streamedUnlit = await streamed(false);
+    const showMap = patchScene(scene => {
+      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.environment_background = true;
+    });
     await page.route(background, showMap);
     const panorama = await render();
     await page.unroute(background, showMap);
@@ -114,10 +189,18 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(fallback.error, 0, 'a missing panorama falls back without WebGL errors');
     const delta = (a, b) => a.reduce((sum, color, i) => sum + Math.abs(color - b[i]), 0);
     const top = 40 * 2 * 4;
+    assert.equal(unlit.error, 0);
+    assert.deepEqual(reflected.pixels.slice(0, top), unlit.pixels.slice(0, top), 'point lights leave the procedural sky unchanged');
+    assert.ok(delta(reflected.pixels.slice(top), unlit.pixels.slice(top)) > 800, 'point lights illuminate nearby surfaces in the exported studio');
+    assert.ok(streamedLit.cameraDistance > 46, 'the streaming camera is outside the lights’ selection margin');
+    assert.equal(streamedLit.error, 0);
+    assert.equal(streamedUnlit.error, 0);
+    assert.ok(delta(streamedLit.pixels.slice(top), streamedUnlit.pixels.slice(top)) > 100, 'short-range lights illuminate the streamed play area');
     assert.ok(delta(panorama.pixels.slice(0, top), reflected.pixels.slice(0, top)) > 300, 'the panorama can be visible behind the scene');
     assert.deepEqual(reflected.pixels.slice(0, top), fallback.pixels.slice(0, top), 'reflection-only HDRI preserves the procedural background');
     assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
     console.log('PASS HDRI: offline panorama, reflection-only mode, visible background, movement and missing-map fallback');
+    console.log('PASS point lights: exported fixtures light nearby surfaces without altering the sky');
   } finally {
     await page.close();
   }

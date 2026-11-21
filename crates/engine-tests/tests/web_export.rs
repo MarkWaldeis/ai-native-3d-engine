@@ -89,6 +89,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "hdr.js",
         "sky.js",
         "materials.js",
+        "local-lights.js",
         "style.css",
         "scene.json",
         "scripts.json",
@@ -214,7 +215,7 @@ fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
     let original = scene.clone();
     let report = export_bundle(&scene, &repo, &out, &pkg).unwrap();
     assert_eq!(scene, original);
-    assert_eq!(report["assets"], 1);
+    assert_eq!(report["assets"], 2);
     assert!(out.join("vendor/addons/loaders/RGBELoader.js").is_file());
     let hdr = std::fs::read(repo.join("examples/material_studio/studio.hdr")).unwrap();
     assert_eq!(
@@ -233,13 +234,17 @@ fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
         json!(r#"{"environment_map":"examples/material_studio/studio.hdr"}"#);
     assert_eq!(
         export_bundle(&scene, &repo, &fixture.0.join("string"), &pkg).unwrap()["assets"],
-        1
+        2
     );
 
     let assets = &fixture.0;
     let broken = assets.join("broken.hdr");
     std::fs::write(&broken, &hdr[..hdr.len() - 1]).unwrap();
-    scene.entities[1].script = None;
+    scene
+        .entities
+        .retain(|entity| entity.tags.iter().any(|tag| tag == "player"));
+    let player = scene.entities.first_mut().unwrap();
+    player.script = None;
     for (path, expected) in [
         (json!(42), "project-relative .hdr path"),
         (json!("photo.jpg"), "project-relative .hdr path"),
@@ -250,7 +255,7 @@ fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
         (json!("absent.hdr"), "environment map not found"),
         (json!("broken.hdr"), "truncated RGBE scanline packet"),
     ] {
-        scene.entities[1].props["ai_graphics"] = json!({"environment_map":path});
+        scene.entities[0].props["ai_graphics"] = json!({"environment_map":path});
         let invalid = assets.join("invalid");
         let err = export_bundle(&scene, assets, &invalid, &pkg).unwrap_err();
         assert!(format!("{err:#}").contains(expected), "{err:#}");

@@ -43,6 +43,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     environmentMap: config.environment_map === 'assets/environment.hdr' ? config.environment_map : null,
     environmentBackground: config.environment_background !== false,
     exposure: bounded(config.exposure, 1, 0.1, 4),
+    hdrAntialias: config.hdr_antialias !== false,
     bloomStrength: bounded(config.bloom_strength, 0.22, 0, 2),
     bloomThreshold: bounded(config.bloom_threshold, 1.1, 0, 8),
     foliage: config.foliage === true || foliage ? {density:bounded(foliage?.density,1,0,4),distance:bounded(foliage?.distance,64,16,128)} : false,
@@ -69,5 +70,23 @@ export function materialSettings(authored) {
     emissiveIntensity: bounded(value?.emissive_intensity, 1, 0, 32),
     clearcoat: bounded(value?.clearcoat, 0, 0, 1),
     clearcoatRoughness: bounded(value?.clearcoat_roughness, 0.2, 0, 1),
+  };
+}
+
+export const MAX_POINT_LIGHT_RANGE = 64;
+
+export function pointLightSettings(authored) {
+  const value = object(authored);
+  if (!value) return null;
+  const intensity = bounded(value.intensity, 16, 0, 1000);
+  if (intensity === 0) return null;
+  const offset = Array.isArray(value.offset) && value.offset.length === 3 && value.offset.every(Number.isFinite)
+    ? value.offset.map(component => bounded(component, 0, -32, 32))
+    : [0, 0, 0];
+  return {
+    color: hex(value.color, '#ffffff').toLowerCase(),
+    intensity,
+    range: bounded(value.range, 8, 0.25, MAX_POINT_LIGHT_RANGE),
+    offset,
   };
 }
