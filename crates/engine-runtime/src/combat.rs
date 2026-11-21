@@ -116,15 +116,27 @@ fn own_position(ctx: &Context) -> ScriptResult<[f32; 3]> {
 }
 
 fn cast(ctx: &Context, origin: [f32; 3], dir: [f32; 3], max_dist: f64) -> ScriptResult<Option<crate::physics::RayHit>> {
-    {
-        let mut data = ctx.data.borrow_mut();
-        if data.combat.raycasts >= MAX_RAYCASTS_PER_TICK {
-            return Err(format!("at most {MAX_RAYCASTS_PER_TICK} raycasts per tick").into());
-        }
-        data.combat.raycasts += 1;
-    }
+    count_query(ctx)?;
     let max_dist = if max_dist.is_finite() { max_dist.clamp(0.0, 10_000.0) as f32 } else { 0.0 };
     Ok(ctx.physics.borrow().raycast(origin, dir, max_dist, Some(ctx.id)))
+}
+
+fn count_query(ctx: &Context) -> ScriptResult<()> {
+    let mut data = ctx.data.borrow_mut();
+    if data.combat.raycasts >= MAX_RAYCASTS_PER_TICK {
+        return Err(format!("at most {MAX_RAYCASTS_PER_TICK} physics queries per tick").into());
+    }
+    data.combat.raycasts += 1;
+    Ok(())
+}
+
+fn physics_query(ctx: &Context, name: &str, options: Map) -> ScriptResult<Dynamic> {
+    count_query(ctx)?;
+    let mut query: crate::physics_config::Query =
+        rhai::serde::from_dynamic(&Dynamic::from(options)).map_err(|e| e.to_string())?;
+    query.filter.exclude.get_or_insert(ctx.id);
+    let value = ctx.physics.borrow().query(name, query).map_err(|e| e.to_string())?;
+    rhai::serde::to_dynamic(value).map_err(|e| e.to_string().into())
 }
 
 fn ray_map(hit: Option<crate::physics::RayHit>) -> Map {
@@ -173,6 +185,9 @@ fn line_of_sight(ctx: &Context, from: [f32; 3], to: [f32; 3], target: Option<u64
 }
 
 pub(crate) fn register(engine: &mut Engine) {
+    for name in ["raycast", "shape_cast", "overlap"] {
+        engine.register_fn(name, move |ctx: &mut Context, options: Map| physics_query(ctx, name, options));
+    }
     engine.register_fn("raycast", |ctx: &mut Context, origin: Array, dir: Array, max_dist: f64| -> ScriptResult<Map> {
         Ok(ray_map(cast(ctx, vector(origin)?, vector(dir)?, max_dist)?))
     });

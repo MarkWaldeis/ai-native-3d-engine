@@ -3,6 +3,7 @@ mod combat;
 pub mod animation;
 pub mod navigation;
 mod physics;
+mod physics_config;
 mod terrain_stream;
 pub mod report;
 mod script;
@@ -260,6 +261,19 @@ impl Simulation {
 
     pub fn scene(&self) -> Scene {
         self.data.borrow().scene.clone()
+    }
+
+    pub fn physics_query(&self, name: &str, args: &Value) -> Result<Value> {
+        self.physics.borrow().query(name, serde_json::from_value(args.clone())?)
+    }
+
+    pub fn authoring_physics_query(mut scene: Scene, root: &Path, name: &str, args: &Value) -> Result<Value> {
+        let query = serde_json::from_value(args.clone())?;
+        scene.entities.sort_by_key(|entity| entity.id);
+        let mut physics = Physics::new(root.to_path_buf());
+        physics.reconcile(&scene)?;
+        physics.refresh_queries();
+        physics.query(name, query)
     }
 
     pub fn visit_entities(&self, mut visitor: impl FnMut(&shared::scene::Entity)) {

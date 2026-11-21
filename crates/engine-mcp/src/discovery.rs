@@ -7,6 +7,7 @@ pub(crate) fn tools() -> Value {
     tools.as_array_mut().unwrap().extend(crate::terrain::tools());
     tools.as_array_mut().unwrap().extend(crate::animation::tools());
     tools.as_array_mut().unwrap().extend(crate::navigation::tools());
+    tools.as_array_mut().unwrap().extend(crate::physics::tools());
     for tool in tools.as_array_mut().unwrap() {
         let name = tool["name"].as_str().unwrap();
         let read_only = matches!(
@@ -30,6 +31,7 @@ pub(crate) fn tools() -> Value {
                 | "list_assets"
                 | "terrain_info"
                 | "terrain_sample"
+                | "raycast" | "shape_cast" | "overlap"
         );
         let additive = matches!(
             name,
@@ -70,6 +72,9 @@ pub fn agent_guide() -> String {
         guide.push_str(&format!("- **{}**: {}\n", tool["name"].as_str().unwrap(), tool["description"].as_str().unwrap()));
     }
     for tool in crate::navigation::tools() {
+        guide.push_str(&format!("- **{}**: {}\n", tool["name"].as_str().unwrap(), tool["description"].as_str().unwrap()));
+    }
+    for tool in crate::physics::tools() {
         guide.push_str(&format!("- **{}**: {}\n", tool["name"].as_str().unwrap(), tool["description"].as_str().unwrap()));
     }
     guide

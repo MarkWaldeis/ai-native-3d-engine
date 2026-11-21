@@ -46,6 +46,42 @@ fn ball_scene() -> Value {
 }
 
 #[test]
+fn physics_queries_use_live_colliders_and_respect_filters() {
+    let mut engine = host(json!({"entities":[
+        {"id":1,"name":"compound","kind":"box","size":[1,1,1],"props":{"ai_physics":{"collider":{
+            "shape":"compound","parts":[{"shape":"box","half_extents":[0.5,0.5,0.5],"position":[2,0,0]},
+            {"shape":"convex_hull","vertices":[[0,0,0],[1,0,0],[0,1,0],[0,0,1]],"position":[5,0,0]}]
+        }}}},
+        {"id":2,"name":"sensor","kind":"box","size":[1,1,1],"transform":{"position":[0,0,2]},
+         "collider":{"shape":"box"},"props":{"ai_physics":{"sensor":true,"groups":{"memberships":2,"filter":4}}}},
+        {"id":3,"name":"wall","kind":"box","size":[1,1,1],"transform":{"position":[0,0,4]},
+         "props":{"ai_physics":{"collider":{"shape":"trimesh","vertices":[[-1,-1,0],[0,1,0],[1,-1,0]],"triangles":[[0,1,2]]}}}},
+        {"id":4,"name":"moving","kind":"sphere","radius":0.2,"segments":8,
+         "transform":{"position":[8,0,0]},"collider":{"shape":"sphere"},"rigidbody":{"type":"kinematic"},
+         "script":{"source":"fn on_start(ctx) { ctx.set_velocity([-6.0, 0.0, 0.0]); }"}}
+    ]}));
+    let mut ray = json!({"origin":[0,0,0],"direction":[0,0,10],"distance":8});
+    let wall = data(call(&mut engine, "raycast", ray.clone()));
+    assert_eq!(wall["id"], 3);
+    assert_eq!(wall["distance"], 4.0);
+    ray["filter"] = json!({"include_sensors":true,"groups":{"memberships":4,"filter":2}});
+    assert_eq!(data(call(&mut engine, "raycast", ray.clone()))["id"], 2);
+    ray["filter"]["exclude"] = json!(2);
+    assert_eq!(data(call(&mut engine, "raycast", ray))["id"], 3);
+
+    let cast = data(call(&mut engine, "shape_cast",
+        json!({"origin":[0,0,0],"direction":[1,0,0],"distance":8,"shape":{"shape":"sphere","radius":0.25}})));
+    assert_eq!(cast["id"], 1);
+    assert!((cast["distance"].as_f64().unwrap() - 1.25).abs() < 0.001);
+    let overlap = json!({"origin":[7,0,0],"shape":{"shape":"sphere","radius":0.25}});
+    assert_eq!(data(call(&mut engine, "overlap", overlap.clone()))["ids"], json!([]));
+    data(call(&mut engine, "play", json!({})));
+    data(call(&mut engine, "step", json!({"ticks":10})));
+    assert_eq!(data(call(&mut engine, "overlap", overlap))["ids"], json!([4]));
+    assert_eq!(engine.world.revision, 0);
+}
+
+#[test]
 fn rapier_ball_rests_on_floor_without_mutating_authoring() {
     let scene = ball_scene();
     let mut engine = host(scene);

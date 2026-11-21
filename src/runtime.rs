@@ -72,6 +72,10 @@ impl Engine {
                     .unwrap_or_else(|| self.world.scene.clone());
                 report::query(&scene, args)?
             }
+            "raycast" | "shape_cast" | "overlap" => match &self.simulation {
+                Some(simulation) => simulation.physics_query(name, args)?,
+                None => Simulation::authoring_physics_query(self.world.scene.clone(), project, name, args)?,
+            },
             "simulate" => {
                 let ticks = ticks(args)?;
                 let inputs = inputs(args)?;

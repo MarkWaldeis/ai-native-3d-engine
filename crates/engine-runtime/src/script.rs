@@ -148,6 +148,12 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
         },
     );
     engine.register_fn(
+        "apply_force",
+        |ctx: &mut Context, value: Array| -> ScriptResult<()> {
+            queue_force(ctx, Force::Applied(ctx.id, vector(value)?))
+        },
+    );
+    engine.register_fn(
         "set_velocity",
         |ctx: &mut Context, value: Array| -> ScriptResult<()> {
             let value = vector(value)?;
@@ -264,7 +270,7 @@ fn queue_force(ctx: &mut Context, force: Force) -> ScriptResult<()> {
         .iter()
         .find(|e| e.id == ctx.id)
         .ok_or("entity not found")?;
-    if entity.rigidbody.is_none() && entity.collider.is_none() {
+    if entity.rigidbody.is_none() && entity.collider.is_none() && entity.props.get("ai_physics").is_none() {
         return Err("impulse/velocity needs a rigidbody".into());
     }
     if data.forces.len() >= 4096 {
