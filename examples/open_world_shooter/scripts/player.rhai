@@ -214,6 +214,9 @@ fn on_tick(ctx,dt) {
     let vy=velocity[1];
     if ctx.input("jump") > 0.5 && ctx.grounded() { vy=setting(cfg,"jump_speed",5.0); }
     let speed=if ctx.input("sprint") > 0.5 { setting(cfg,"sprint_speed",9.0) } else { setting(cfg,"move_speed",5.5) };
+    let multiplier=ctx.input("travel_speed");
+    if multiplier <= 0.0 { multiplier=1.0; }
+    speed*=clamp(multiplier,1.0,4.0);
     let move=ctx.move_dir();
     let vx=clamp(move[0]*speed,(-3260.0-p[0])/dt,(3260.0-p[0])/dt);
     let vz=clamp(move[2]*speed,(-3260.0-p[2])/dt,(3260.0-p[2])/dt);

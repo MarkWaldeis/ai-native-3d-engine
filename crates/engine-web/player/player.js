@@ -8,6 +8,7 @@ import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
+import { travelSpeedInput } from './fps_core.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
@@ -21,6 +22,7 @@ const modal = $('modal');
 const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
+const travelSpeed = travelSpeedInput(location.search);
 const input = new InputSystem(), inputEdges = new InputEdges();
 let inputSettings, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
 const touchMode = () => document.body.classList.contains('touch-input');
@@ -282,7 +284,7 @@ function localMovement() {
 }
 
 function controls() {
-  if (fps) return fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions);
+  if (fps) return { ...fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions), travel_speed: travelSpeed };
   const move = movement();
   const pressed = actionInput.sample();
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };

@@ -230,6 +230,29 @@ fn shooter_reload_exposes_animation_time_and_refills_from_reserve() {
 }
 
 #[test]
+fn shooter_travel_speed_only_scales_horizontal_movement() {
+    let mut distances = Vec::new();
+    for multiplier in [0.0, -2.0, 1.0, 4.0, 99.0] {
+        let mut scene = read("examples/open_world_shooter/tests/combat.json");
+        scene["entities"].as_array_mut().unwrap().retain(|e| e["name"] != "alpha-soldier");
+        let mut simulation = Simulation::new(serde_json::from_value(scene).unwrap(), &root()).unwrap();
+        simulation.step(30, &[
+            Input { entity: None,tick:0,action:"move_x".into(),value:1.0},
+            Input { entity: None,tick:0,action:"fire".into(),value:1.0},
+            Input { entity: None,tick:0,action:"travel_speed".into(),value:multiplier},
+        ]).unwrap();
+        let snapshot=simulation.scene();
+        let p=snapshot.entities.iter().find(|e|e.name=="player").unwrap().transform.position;
+        distances.push(p[0]+2700.0);
+        assert!((p[1]-30.9).abs()<0.1);
+        assert_eq!(simulation.state_summary()["state"]["ammo"],25);
+    }
+    for i in [1,2] {assert!((distances[i]-distances[0]).abs()<0.01);}
+    for i in [3,4] {assert!((distances[i]-4.0*distances[0]).abs()<0.2, "{distances:?}");}
+    assert!((distances[3]-distances[4]).abs()<0.01);
+}
+
+#[test]
 fn shooter_player_walks_across_both_generated_bridges_without_jumping() {
     for label in ["south", "north"] {
         let mut scene: Scene = serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
