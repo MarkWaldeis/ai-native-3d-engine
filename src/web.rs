@@ -60,6 +60,10 @@ const PLAYER_FILES: &[(&str, &str)] = &[
         "controls.js",
         include_str!("../crates/engine-web/player/controls.js"),
     ),
+    ("fps.js", include_str!("../crates/engine-web/player/fps.js")),
+    ("fps_core.js", include_str!("../crates/engine-web/player/fps_core.js")),
+    ("fx.js", include_str!("../crates/engine-web/player/fx.js")),
+    ("hud.js", include_str!("../crates/engine-web/player/hud.js")),
     (
         "vendor/three.module.js",
         include_str!("../crates/engine-web/player/vendor/three.module.js"),
