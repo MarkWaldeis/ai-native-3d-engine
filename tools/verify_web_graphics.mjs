@@ -69,10 +69,11 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const actual = await page.evaluate(() => {
         advanceFrames(1);
         const canvas = document.getElementById('game');
-        return [canvas.dataset.graphics, canvas.dataset.quality, window.__engineStats.drawCalls];
+        return [canvas.dataset.graphics, canvas.dataset.quality, window.__engineStats.drawCalls, canvas.dataset.depth];
       });
       assert.deepEqual(actual.slice(0, 2), [mode, level]);
       assert.ok(actual[2] > 0, `the exported ${query} player renders a frame`);
+      assert.equal(actual[3], 'standard');
     }
     const result = await page.evaluate(async () => {
       const THREE = await import('three');
@@ -151,7 +152,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.agx.rgb.every((channel, i) => Math.abs(channel - result.directAgx.rgb[i]) <= 2), 'direct and HDR compositing apply AgX once');
     console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
 
-    const contact = await page.evaluate(async () => {
+    const renderContact = logarithmicDepthBuffer => page.evaluate(async logarithmicDepthBuffer => {
       const THREE = await import('three');
       const { HDRPipeline } = await import('./hdr.js');
       const scene = new THREE.Scene();
@@ -165,7 +166,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const block = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.2, 1.5), gray);
       block.position.y = 0.6;
       scene.add(floor, block);
-      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas'), logarithmicDepthBuffer});
       const gl = renderer.getContext();
       const config = {bloomStrength: 0, hdrAntialias: false, contactStrength: 1, contactRadius: 1.25};
       const pipeline = new HDRPipeline(renderer, config);
@@ -206,10 +207,66 @@ export async function verifyGraphics(browser, base, errors, shots) {
         block.geometry.dispose(); floor.geometry.dispose(); gray.dispose();
         renderer.dispose(); renderer.forceContextLoss();
       }
+    }, logarithmicDepthBuffer);
+    for (const logarithmic of [false, true]) {
+      const contact = await renderContact(logarithmic);
+      assert.ok(contact.darkened > 50 && contact.flat > 5000 && contact.sky > 500, JSON.stringify({logarithmic, ...contact}));
+      assert.deepEqual([contact.half, contact.draws, contact.released, contact.fallback, contact.glError], [97, 4, true, true, 0]);
+    }
+    console.log('PASS contact occlusion: standard and logarithmic depth, unchanged open surfaces and sky, and GPU/tier fallback');
+
+    const sceneUrl = `${base}/coin_game/scene.json`;
+    const useLogDepth = async route => {
+      const response = await route.fetch();
+      const scene = await response.json();
+      const player = scene.entities.find(entity => entity.tags.includes('player'));
+      player.props ??= {};
+      player.props.ai_graphics = {logarithmic_depth:true};
+      await route.fulfill({response,json:scene});
+    };
+    await page.route(sceneUrl, useLogDepth);
+    try {
+      for (const [preset, mode] of [['ultra', 'logarithmic'], ['legacy', 'standard']]) {
+        await page.goto(`${base}/coin_game/?quality=${preset}`);
+        await ready();
+        assert.equal(await page.locator('#game').getAttribute('data-depth'), mode);
+      }
+    } finally { await page.unroute(sceneUrl, useLogDepth); }
+    const depth = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {HDRPipeline} = await import('./hdr.js');
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 6000);
+      const geometry = new THREE.PlaneGeometry(200, 200);
+      const near = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color:0x00ff00}));
+      const far = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color:0xff0000}));
+      far.renderOrder = 1;
+      scene.add(near, far);
+      const draw = logarithmicDepthBuffer => {
+        const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas'), logarithmicDepthBuffer});
+        const gl = renderer.getContext(), pixel = new Uint8Array(4);
+        const pipeline = new HDRPipeline(renderer, {bloomStrength:0,hdrAntialias:true});
+        try {
+          return [0, 2].map(tier => {
+            pipeline.resize(tier, 64, 64, 1);
+            let correct = 0;
+            for (let i = 0; i < 12; i++) {
+              near.position.z = -2000 - i * 0.37;
+              far.position.z = near.position.z - 0.5;
+              pipeline.render(scene, camera);
+              gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+              correct += Number(pixel[1] > pixel[0]);
+            }
+            return {correct,hdr:!!pipeline.sceneTarget,error:gl.getError()};
+          });
+        } finally { pipeline.release(); renderer.dispose(); renderer.forceContextLoss(); }
+      };
+      try { return {standard:draw(false), logarithmic:draw(true)}; }
+      finally { geometry.dispose(); near.material.dispose(); far.material.dispose(); }
     });
-    assert.ok(contact.darkened > 50 && contact.flat > 5000 && contact.sky > 500, JSON.stringify(contact));
-    assert.deepEqual([contact.half, contact.draws, contact.released, contact.fallback, contact.glError], [97, 4, true, true, 0]);
-    console.log('PASS contact occlusion: local grounding, unchanged open surfaces and sky, and GPU/tier fallback');
+    assert.deepEqual(depth.logarithmic, [{correct:12,hdr:false,error:0},{correct:12,hdr:true,error:0}]);
+    assert.ok(depth.standard.some(sample => sample.correct < 12), JSON.stringify(depth));
+    console.log('PASS logarithmic depth: near surface wins at 2 km in direct and HDR rendering');
 
     const spot = await page.evaluate(async () => {
       const THREE = await import('three');

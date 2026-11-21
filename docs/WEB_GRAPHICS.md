@@ -51,6 +51,13 @@ python3 -m http.server 8000 --directory target/site
 
 Open `http://localhost:8000/material_studio/?quality=ultra`.
 
+For kilometer-scale scenes with nearly overlapping surfaces, opt into
+`"logarithmic_depth": true` in `ai_graphics`. It improves depth precision
+at long distances without moving the near plane. It works in the direct
+and HDR renderer, including Ultra contact occlusion. It may cost fragment
+performance on some GPUs, so leave it off unless the scene needs it.
+`?quality=legacy` always uses standard depth.
+
 QA captures: [desktop Chromium](web_material_studio_desktop.png),
 [iPhone WebKit profile](web_material_studio_iphone.png),
 [iPad WebKit profile](web_material_studio_ipad.png).

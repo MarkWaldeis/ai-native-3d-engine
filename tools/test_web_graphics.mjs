@@ -50,6 +50,13 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(graphicsConfig({environment_background:false}, 'ultra').environmentBackground, false);
 });
 
+test('logarithmic depth is explicit and never changes legacy scenes', () => {
+  assert.equal(graphicsConfig({}, 'ultra').logarithmicDepth, false);
+  assert.equal(graphicsConfig({logarithmic_depth:'true'}, 'ultra').logarithmicDepth, false);
+  assert.equal(graphicsConfig({logarithmic_depth:true}, 'low').logarithmicDepth, true);
+  assert.equal(graphicsConfig({logarithmic_depth:true}, 'legacy'), null);
+});
+
 test('moving the sun camera does not move shadows by fractions of a texel', () => {
   for (const offset of [new THREE.Vector3(-6, 16, 9), new THREE.Vector3(0, 20, 0)]) {
     const light = new THREE.DirectionalLight();

@@ -498,11 +498,6 @@ async function boot() {
   });
   const context = $('game').getContext('webgl2', { antialias: true, alpha: false });
   if (!context) throw new Error('WebGL 2 ist nicht verfügbar. Bitte Safari oder Chrome aktualisieren.');
-  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true });
-  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
-  world = new THREE.Scene();
   [[source, scripts]] = await Promise.all([
     Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json')]).then(result => { mark('sceneFetched'); return result; }),
     init().then(result => { mark('wasmInitialized'); return result; }),
@@ -512,7 +507,14 @@ async function boot() {
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   const preset = new URLSearchParams(location.search).get('quality');
-  effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
+  const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
+  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });
+  renderer.domElement.dataset.depth = renderer.capabilities.logarithmicDepthBuffer ? 'logarithmic' : 'standard';
+  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
+  world = new THREE.Scene();
+  effects = new GameEffects(renderer, world, ui.sky_color, graphics);
   await effects.prepareEnvironment();
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
   const config = worldConfig(source.entities);

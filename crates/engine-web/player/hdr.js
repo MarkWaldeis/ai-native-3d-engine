@@ -116,7 +116,7 @@ export class HDRPipeline {
     this.threshold = config.bloomThreshold;
     this.edgeAA = config.hdrAntialias !== false;
     this.contactConfig = config;
-    this.contactSupported = renderer.capabilities.isWebGL2 && !renderer.capabilities.logarithmicDepthBuffer;
+    this.contactSupported = renderer.capabilities.isWebGL2;
     this.size = new THREE.Vector2();
   }
 
@@ -154,7 +154,7 @@ export class HDRPipeline {
     const depth = contactEnabled ? new THREE.DepthTexture(1, 1) : null;
     const texel = {value: new THREE.Vector2()};
     this.sceneTarget = target(true, depth);
-    if (depth) this.contact = new ContactOcclusion(pass, depth, texel, this.contactConfig);
+    if (depth) this.contact = new ContactOcclusion(pass, depth, texel, this.contactConfig, renderer.capabilities.logarithmicDepthBuffer);
     const prev = renderer.getRenderTarget();
     const complete = renderTarget => {
       renderer.setRenderTarget(renderTarget);
