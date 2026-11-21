@@ -27,6 +27,40 @@ Stable Rust via rustup installieren, dann `cargo build --workspace` und
 Die Windows-GNU-Linker-Konfiguration ist target-spezifisch und wird hier nicht
 benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
+## Web-Player / Pages (M5)
+
+- Einmal installieren: `rustup target add wasm32-unknown-unknown` und
+  `cargo install wasm-bindgen-cli --version 0.2.100 --locked`.
+- Im Projektroot: `cargo run -- --export-web examples/coin_game/scene.json target/site/coin_game`.
+  Oder MCP: `export_web {out_dir, scene?}` (`scene`: JSON oder Dateipfad).
+  Ohne Szene: Authoring-Snapshot, unverändert und ohne GPU/Blender. Zielordner
+  muss neu/leer sein. Zum erneuten Export einen anderen leeren Ordner wählen.
+- `python3 -m http.server 8000 --directory target/site`; `/coin_game/` öffnen.
+  Niemals `file://`. Alle JS-/WASM-/three.js- und GLB-Abhängigkeiten sind lokal;
+  GLBs mit externen Ressourcen werden abgelehnt. Projekt-/assets-relative Rhai-
+  Dateien werden gebündelt, Inline-Skripte bleiben inline. Dynamisch gespawnte
+  Scripts müssen inline oder schon im Bundle enthalten sein.
+- `crates/engine-web` ist ein wasm-bindgen-cdylib über **engine-runtime**.
+  Keine JS-Spielregeln/Physik hinzufügen. WebGame: `load(scene_json,scripts_json)`
+  und `tick(inputs_json)` → JSON (`transforms/state/logs/removed/spawned/tick`).
+  In-Memory-Quellen umgehen nur das native Dateisystem; Rapier/Rhai sind identisch.
+  Export speichert GLB-Lokalbounds in `props.web_mesh_bounds` für Bounds-Collider.
+- WebGL2, three.js **0.160.1 vendort** mit GLTFLoader und Lizenz; kein WebGPU/CDN.
+  Loader/Utils/Versionshinweis zusammen aktualisieren.
+- Deutschsprachiger Touch-Joystick (move_x/z), Aktion (jump/action), WASD/Pfeile/
+  Space, Player-Tag-Kamera (Fallback Szenenkamera), State-HUD, Pause/Neustart.
+  Sieg-Overlay reagiert auf `state.won`/`gewonnen`; Zielprüfung im Rhai-Skript.
+  iPhone-Vollbild-Fallback: „Teilen → Zum Home-Bildschirm“.
+- `.github/workflows/pages.yml`: Landingpage + `/coin_game/`, Push `main` oder
+  workflow_dispatch, deploy-pages. Repo Settings → Pages → GitHub Actions aktivieren.
+- Checks: `cargo test --workspace -- --nocapture` (Export-Strukturtest benutzt
+  minimales Fixture-WASM, braucht deshalb kein WASM-Tooling im nativen CI).
+  Echter WASM-Build/Export plus Browser-Touch/Tastatur bis Score=3/„Gewonnen!“
+  separat prüfen; Desktop, iPhone Hoch-/Querformat fotografieren und ansehen.
+  Bei verfügbarem Simulator Mobile Safari auf iPhone **und** iPad öffnen;
+  Screenshots nach `docs/web_*.png`. Headless-Chrome in GPU-losen macOS-VMs
+  benötigt ggf. `--use-angle=swiftshader --enable-unsafe-swiftshader`.
+
 ## Swarm-Server
 
 `ai-engine --serve 127.0.0.1:7777`: JSON-RPC per `POST /mcp`, eine gemeinsame

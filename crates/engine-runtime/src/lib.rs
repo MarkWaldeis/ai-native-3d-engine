@@ -56,6 +56,7 @@ pub struct Simulation {
     scripts: BTreeMap<u64, ScriptInstance>,
     physics: Physics,
     root: PathBuf,
+    sources: Option<BTreeMap<String, String>>,
     pub tick: u64,
     pub failed: bool,
 }
@@ -64,10 +65,28 @@ impl Simulation {
     pub fn check_script(script: &Script, name: &str, root: &Path) -> Result<()> {
         let simulation = Self::new(Scene::default(), root)?;
         let (label, source) = simulation.source(script, name)?;
-        if source.len()>65_536 { bail!("{label}:1: script exceeds 65536 bytes"); }
-        simulation.engine.compile(&source).map(|_| ()).map_err(|e| anyhow::anyhow!("{label}:{}: {e}", e.position().line().unwrap_or(1)))
+        if source.len() > 65_536 {
+            bail!("{label}:1: script exceeds 65536 bytes");
+        }
+        simulation
+            .engine
+            .compile(&source)
+            .map(|_| ())
+            .map_err(|e| anyhow::anyhow!("{label}:{}: {e}", e.position().line().unwrap_or(1)))
     }
-    pub fn new(mut scene: Scene, root: &Path) -> Result<Self> {
+    pub fn new(scene: Scene, root: &Path) -> Result<Self> {
+        Self::create(scene, root.canonicalize()?, None)
+    }
+
+    pub fn from_sources(scene: Scene, sources: BTreeMap<String, String>) -> Result<Self> {
+        Self::create(scene, PathBuf::new(), Some(sources))
+    }
+
+    fn create(
+        mut scene: Scene,
+        root: PathBuf,
+        sources: Option<BTreeMap<String, String>>,
+    ) -> Result<Self> {
         if scene.entities.len() > MAX_ENTITIES {
             bail!("simulation supports at most {MAX_ENTITIES} entities");
         }
@@ -101,7 +120,8 @@ impl Simulation {
             engine,
             scripts: BTreeMap::new(),
             physics: Physics::new(),
-            root: root.canonicalize()?,
+            root,
+            sources,
             tick: 0,
             failed: false,
         };
@@ -132,6 +152,19 @@ impl Simulation {
         if requested.is_absolute() || requested.extension().and_then(|s| s.to_str()) != Some("rhai")
         {
             bail!("script {path}: use a relative .rhai path inside project/assets");
+        }
+        if let Some(sources) = &self.sources {
+            if requested
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+            {
+                bail!("script {path}: path escapes source map");
+            }
+            let source = sources
+                .get(path)
+                .or_else(|| sources.get(&format!("assets/{path}")))
+                .with_context(|| format!("script {path}: missing from bundled scripts map"))?;
+            return Ok((path.clone(), source.clone()));
         }
         let file = [
             self.root.join(requested),

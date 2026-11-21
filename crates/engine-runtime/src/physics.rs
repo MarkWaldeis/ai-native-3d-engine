@@ -187,20 +187,35 @@ impl Physics {
 }
 
 fn collider(entity: &Entity, shape: &Shape) -> Result<ColliderBuilder> {
-    let mesh = match &entity.mesh {
-        shared::scene::PrimitiveKind::Gltf { path } => {
-            engine_geo::load_gltf(std::path::Path::new(path))?
-        }
-        kind => engine_geo::generate(kind),
-    };
-    if mesh.vertices.is_empty() {
+    let positions: Vec<[f32; 3]> =
+        if matches!(entity.mesh, shared::scene::PrimitiveKind::Gltf { .. })
+            && entity.props.get("web_mesh_bounds").is_some()
+        {
+            let [min, max]: [[f32; 3]; 2] =
+                serde_json::from_value(entity.props["web_mesh_bounds"].clone())?;
+            if (0..3).any(|i| !min[i].is_finite() || !max[i].is_finite() || min[i] > max[i]) {
+                bail!("invalid web mesh bounds");
+            }
+            (0..8)
+                .map(|n| std::array::from_fn(|i| if n & (1 << i) == 0 { min[i] } else { max[i] }))
+                .collect()
+        } else {
+            let mesh = match &entity.mesh {
+                shared::scene::PrimitiveKind::Gltf { path } => {
+                    engine_geo::load_gltf(std::path::Path::new(path))?
+                }
+                kind => engine_geo::generate(kind),
+            };
+            mesh.vertices.into_iter().map(|v| v.position).collect()
+        };
+    if positions.is_empty() {
         bail!("entity {} has no mesh bounds", entity.name);
     }
     let mut min = [f32::INFINITY; 3];
     let mut max = [f32::NEG_INFINITY; 3];
-    for vertex in mesh.vertices {
+    for vertex in positions {
         for i in 0..3 {
-            let p = vertex.position[i] * entity.transform.scale[i];
+            let p = vertex[i] * entity.transform.scale[i];
             min[i] = min[i].min(p);
             max[i] = max[i].max(p);
         }

@@ -16,6 +16,7 @@ pub mod http;
 mod blender;
 mod runtime;
 mod qa;
+pub mod web;
 
 pub struct Engine {
     pub world: World,
@@ -321,6 +322,16 @@ impl Engine {
                     let scene = self.simulation.as_ref().map(|s| s.scene()).unwrap_or_else(|| self.world.scene.clone());
                     let project = self.assets_dir.parent().unwrap_or_else(|| Path::new("."));
                     Ok(text_result(qa::validate_scene(&scene, project).to_string()))
+                }
+                "export_web" => {
+                    let out = args["out_dir"].as_str().filter(|s|!s.is_empty()).ok_or_else(||anyhow::anyhow!("export_web requires nonempty out_dir"))?;
+                    let scene = match args.get("scene") {
+                        None => self.world.scene.clone(),
+                        Some(Value::String(path)) => serde_json::from_str(&std::fs::read_to_string(path)?)?,
+                        Some(scene) => serde_json::from_value(scene.clone())?,
+                    };
+                    let root = self.assets_dir.parent().unwrap_or_else(||Path::new("."));
+                    Ok(text_result(web::export_web(&scene, root, Path::new(out))?.to_string()))
                 }
                 other => anyhow::bail!("unknown tool: {other}{}", shared::suggestions::hint(other, shared::mcp_protocol::builtin_tools().iter().map(|t| t.name))),
             }

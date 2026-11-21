@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#101e2b">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Münzenpfad · AI Engine</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+  <canvas id="game" aria-label="3D-Spielfeld"></canvas>
+  <header id="hud">
+    <div class="brand"><span class="eyebrow">AI ENGINE · WEB-PLAYER</span><h1 id="title">Münzenpfad</h1></div>
+    <div id="state" class="state" aria-live="polite"><span>Wird geladen …</span></div>
+    <button id="pause" class="icon-button" aria-label="Spiel pausieren" disabled>Ⅱ</button>
+  </header>
+  <div class="mission" id="mission">Sammle alle Münzen. Erreiche das grüne Ziel.</div>
+  <div id="controls" aria-label="Spielsteuerung">
+    <div class="joystick-area"><div id="joystick" role="application" aria-label="Joystick: Bewegen"><div class="joystick-ring"></div><div id="stick"></div><span>BEWEGEN</span></div></div>
+    <button id="action" aria-label="Aktion oder Springen"><span>↑</span>AKTION</button>
+  </div>
+  <footer><span id="help">WASD / Pfeile · Leertaste: Aktion</span><div><button id="logs-toggle">Protokoll</button><button id="fullscreen">Vollbild</button></div></footer>
+  <pre id="logs" hidden></pre>
+  <section id="modal" class="modal" aria-labelledby="modal-title">
+    <div class="modal-card">
+      <span id="modal-badge" class="eyebrow">ECHTE RUST-SIMULATION · WEBASSEMBLY</span>
+      <div id="modal-symbol" aria-hidden="true">✦</div>
+      <h2 id="modal-title">Ein kleiner Weg.<br>Drei goldene Münzen.</h2>
+      <p id="modal-text">Bewege die blaue Kugel mit dem Joystick oder den Pfeiltasten. Sammle die Münzen und erreiche das grüne Ziel.</p>
+      <button id="start" disabled>Spiel wird geladen …</button>
+      <span class="modal-note" id="modal-note">Ohne Installation. Ohne Anmeldung. Direkt im Browser.</span>
+    </div>
+  </section>
+  <script>window.addEventListener('error', function (e) { document.getElementById('modal-text').textContent='Startfehler: '+e.message; });</script>
+  <script type="module" src="./player.js"></script>
+</body>
+</html>

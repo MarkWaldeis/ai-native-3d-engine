@@ -13,6 +13,18 @@ use std::io::{BufRead, Write};
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
+    if let Some(pos) = args.iter().position(|a| a == "--export-web") {
+        let result = (|| -> anyhow::Result<()> {
+            let scene = args.get(pos+1).ok_or_else(||anyhow::anyhow!("usage: ai-engine --export-web <scene.json> <out_dir>"))?;
+            let out = args.get(pos+2).ok_or_else(||anyhow::anyhow!("usage: ai-engine --export-web <scene.json> <out_dir>"))?;
+            let scene = serde_json::from_str(&std::fs::read_to_string(scene)?)?;
+            let report = ai_engine::web::export_web(&scene, &std::env::current_dir()?, std::path::Path::new(out))?;
+            println!("{report}"); Ok(())
+        })();
+        if let Err(error) = result { eprintln!("web export failed: {error:#}"); std::process::exit(1); }
+        return;
+    }
+
     if let Some(pos) = args.iter().position(|a| a == "--serve") {
         let result = args.get(pos + 1).ok_or_else(|| anyhow::anyhow!("usage: ai-engine --serve 127.0.0.1:7777"))
             .and_then(|addr| ai_engine::http::serve_addr(addr));

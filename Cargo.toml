@@ -17,6 +17,7 @@ members = [
     "crates/asset-pipeline",
     "crates/engine-tests",
     "crates/engine-runtime",
+    "crates/engine-web",
 ]
 
 [dependencies]

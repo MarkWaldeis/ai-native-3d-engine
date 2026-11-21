@@ -37,6 +37,7 @@ crates/
   engine-render/         wgpu headless renderer → PNG readback → base64
   engine-geo/            procedural mesh generation (box, plane, sphere, cylinder, wall_with_door)
   engine-runtime/        deterministic Rapier physics, sandboxed Rhai hooks, assertions/query
+  engine-web/            wasm-bindgen adapter + offline three.js WebGL2/touch player
   engine-mcp/            JSON-RPC framing + MCP lifecycle (initialize, ping, tools/list, tools/call)
   asset-pipeline/        finds Blender, runs `blender --background --factory-startup --python`,
                          watches assets/ for changed files
@@ -54,6 +55,7 @@ crates/
 | `remove_entity` | delete by id |
 | `set_camera` | position / target / fov |
 | `get_screenshot` | headless render → base64 PNG (`content[].type = "image"`) |
+| `export_web` | authoring scene (or `scene` JSON/path) → self-contained WebGL2/WASM static folder; requires new/empty `out_dir` |
 | `save_scene` / `load_scene` | persist scene to/from `.json` |
 | `get_revision` | current world revision (concurrency token) |
 | `rollback` | restore scene to an earlier revision |
@@ -70,6 +72,69 @@ crates/
 Every mutating tool accepts an optional `expected_revision` integer.
 
 ## Quickstart
+
+### Web-Player: iPhone, iPad und Desktop (M5)
+
+**[Münzenpfad spielen](https://markwaldeis.github.io/ai-native-3d-engine/coin_game/)**
+— verfügbar, sobald der Pages-Workflow nach dem Push erfolgreich deployed wurde.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.100 --locked
+cargo run -- --export-web examples/coin_game/scene.json target/site/coin_game
+python3 -m http.server 8000 --directory target/site
+# http://localhost:8000/coin_game/ — auch Mobile Safari im lokalen Simulator
+```
+
+Der Export baut `engine-web` aus diesem Workspace (Rust-Quellen und Toolchain
+müssen beim Export installiert sein). Alternativ per MCP:
+`export_web {"out_dir":"target/site/coin_game","scene":"examples/coin_game/scene.json"}`.
+Ohne `scene` wird der **Authoring-Stand**, nicht die laufende Simulation, exportiert.
+Vorhandene nicht-leere Zielordner werden aus Sicherheitsgründen abgelehnt.
+Skripte werden wie nativ relativ zum Projektverzeichnis bzw. `assets/` aufgelöst;
+das CLI daher im Projektverzeichnis starten. Der Export braucht weder GPU noch Blender.
+
+Das Ergebnis enthält `index.html`, `player.js`, `style.css`, `pkg/*.wasm` und
+WASM-JS-Glue, `scene.json`, `scripts.json`, `scripts/`, `assets/` und vendortes
+**three.js 0.160.1** einschließlich GLTFLoader und MIT-Lizenz. Kein CDN, kein
+Engine-Prozess und keine externen Netzwerkanfragen zur Laufzeit. Das komplette
+Verzeichnis auf einen beliebigen statischen HTTP(S)-Host kopieren; `file://`
+funktioniert nicht. Relative URLs funktionieren auch unter Repository-Unterpfaden.
+GLBs müssen Texturen/Buffer einbetten (Blender: GLB); externe `.gltf`-Ressourcen
+werden mit einer verständlichen Fehlermeldung abgelehnt. Exportierte lokale
+Mesh-Bounds ermöglichen dieselben Rapier-Bounds-Collider ohne Browser-Dateisystem.
+Referenzierte Datei-Skripte werden gebündelt; zur Laufzeit erzeugte Entities sollten
+Inline-Skripte oder bereits gebündelte Skriptpfade verwenden.
+
+- **Touch:** linker Joystick → `move_x` / `move_z`; rechte Aktionstaste →
+  `jump` und `action`. Pointer-Capture unterstützt gleichzeitiges Bewegen/Aktion.
+- **Desktop:** WASD / Pfeile; Leertaste → Aktion. Der Münzenpfad benötigt keinen Sprung.
+- Kamera folgt dem Tag `player`, sonst bleibt die Szenenkamera aktiv.
+- HUD zeigt globale `state`-Werte (Score als „Münzen“); Protokoll zeigt Skriptlogs.
+  `state.won=true` (oder `gewonnen=true`) öffnet „Gewonnen!“ und Neustart.
+  **Die Ziel-/Sieglogik liegt im Rhai-Skript, nicht im JavaScript.**
+- „Ⅱ“ pausiert, „Vollbild“ nutzt die Browser-API; auf iPhone Safari ohne
+  Fullscreen-API hilft „Teilen → Zum Home-Bildschirm“. Safe-Areas, Hoch-/Querformat,
+  `touch-action:none` und keine Scroll-/Zoom-Gesten sind berücksichtigt.
+- Exakt dieselbe `Simulation` mit Rapier + Rhai läuft als WASM bei 60 Hz.
+  JS rendert und liefert Inputs, implementiert aber keine Spielphysik/Regeln.
+  Der Wrapper `WebGame.load(scene_json, scripts_json)` akzeptiert zwei JSON-Strings
+  (`scripts_json`: Pfad → Quelltext). `tick(inputs_json)` führt einen Tick aus;
+  Eingaben sind z.B. `{"move_x":1,"move_z":0,"jump":0,"action":0}`.
+  Beide liefern JSON mit `tick`, `transforms`, `state`, `logs`, `removed` (IDs),
+  `spawned` (komplette Entities). `load` setzt die Simulation neu auf.
+  Determinismus gilt weiterhin innerhalb desselben Builds/Targets; keine Zusage
+  bitgleicher Ergebnisse zwischen nativen und WASM-Builds.
+
+**GitHub Pages:** Unter *Settings → Pages → Build and deployment → Source*
+„GitHub Actions“ wählen. `.github/workflows/pages.yml` baut und exportiert bei
+Push auf `main` (oder manuell), legt eine deutsche Landingpage im Root ab und
+deployed mit `actions/deploy-pages`. Die Demo liegt in `coin_game/`.
+Der Benutzer muss nur den Link auf iPhone/iPad Safari öffnen.
+
+![Web-Player auf dem Desktop](docs/web_desktop.png)
+
+### Native Engine
 
 ```bash
 cargo build --workspace
