@@ -18,6 +18,34 @@ export function foliageSettings(config, level) {
   return {density:density*(config?.density ?? 1),trees:config?.trees ?? 1,distance:Math.min(config?.distance ?? distance,distance),tileSize:16};
 }
 
+function cellRandom(x, z, salt) {
+  let h = Math.imul(x, 0x632be59b) ^ Math.imul(z, 0x85157af5) ^ Math.imul(salt, 0x9e3779b9);
+  h = Math.imul(h ^ h >>> 16, 0x45d9f3b);
+  return ((h ^ h >>> 16) >>> 0) / 4294967296;
+}
+
+export function jungleSettings(level) {
+  return {radius:[86,116,150][level], budget:[104,176,286][level], palm:[0,1,1][level]};
+}
+
+export function junglePlacements(cx, cz, {radius,budget,palm,sample,exclude=()=>false,water=-Infinity}) {
+  const spacing=15, result=[];
+  for(let z=Math.floor((cz-radius)/spacing);z<=Math.floor((cz+radius)/spacing);z++) {
+    for(let x=Math.floor((cx-radius)/spacing);x<=Math.floor((cx+radius)/spacing);x++) {
+      const wx=(x+0.1+0.8*cellRandom(x,z,1))*spacing, wz=(z+0.1+0.8*cellRandom(x,z,2))*spacing;
+      const distance=Math.hypot(wx-cx,wz-cz);
+      if(distance>radius || exclude(wx,wz)) continue;
+      const y=sample(wx,wz);
+      if(!Number.isFinite(y) || y<water+1 ||
+        !(Math.abs(sample(wx+2,wz)-y)<=1.4 && Math.abs(sample(wx,wz+2)-y)<=1.4)) continue;
+      const hue=cellRandom(x,z,3);
+      result.push({x:wx,y,z:wz,distance,hue,variant:palm && cellRandom(x,z,4)>.77 ? 1 : 0,
+        scale:0.82+cellRandom(x,z,5)*0.88, rotation:cellRandom(x,z,6)*Math.PI*2});
+    }
+  }
+  return result.sort((a,b)=>a.distance-b.distance).slice(0,budget);
+}
+
 export function foliagePlacements(tx,tz,{density=1,size=16,water=-Infinity,sample=()=>0,trees=1,exclude=()=>false}={}) {
   const hash = n => { let x = Math.imul(tx ^ 0x9e3779b9,tz ^ 0x85ebca6b) ^ Math.imul(n+1,0x27d4eb2d); x = Math.imul(x ^ x>>>16,0x45d9f3b); return ((x ^ x>>>16)>>>0)/4294967296; };
   const result=[];
@@ -29,16 +57,24 @@ export function foliagePlacements(tx,tz,{density=1,size=16,water=-Infinity,sampl
   return result;
 }
 
-export function foliageExclusion(entities) {
+export function foliageExclusion(entities, jungle=false) {
   const cells=new Map(),size=32;
   for(const e of entities) {
     const t=e.transform;
-    if(e.kind!=='box'||!e.tags?.includes('road')||!Array.isArray(e.size)||!e.size.every(Number.isFinite)||!t?.position?.every(Number.isFinite))continue;
+    if(!Array.isArray(t?.position)||t.position.length!==3||!t.position.every(Number.isFinite))continue;
+    const road=e.kind==='box'&&e.tags?.includes('road')&&Array.isArray(e.size)&&e.size.length===3&&e.size.every(Number.isFinite);
+    const tree=jungle&&e.tags?.includes('tree');
+    const meshBounds=e.props?.web_mesh_bounds;
+    const bounds=jungle&&e.tags?.some(tag=>tag==='building'||tag==='bridge'||tag==='cover')&&
+      Array.isArray(meshBounds)&&meshBounds.length===2&&meshBounds.every(v=>Array.isArray(v)&&v.length===3&&v.every(Number.isFinite))?meshBounds:null;
+    if(!road&&!tree&&!bounds)continue;
     const angle=(t.rotation_deg?.[1]||0)*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle);
-    const road={x:t.position[0],z:t.position[2],hx:e.size[0]*Math.abs(t.scale?.[0]??1)/2+0.6,hz:e.size[2]*Math.abs(t.scale?.[2]??1)/2+0.6,c,s};
-    const rx=Math.abs(c)*road.hx+Math.abs(s)*road.hz,rz=Math.abs(s)*road.hx+Math.abs(c)*road.hz;
-    for(let x=Math.floor((road.x-rx)/size);x<=Math.floor((road.x+rx)/size);x++)for(let z=Math.floor((road.z-rz)/size);z<=Math.floor((road.z+rz)/size);z++) {
-      const key=`${x},${z}`;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(road);
+    const extent=i=>tree?5:road?e.size[i]/2:Math.max(Math.abs(bounds[0][i]),Math.abs(bounds[1][i]));
+    const margin=jungle ? 3 : 0.6;
+    const area={x:t.position[0],z:t.position[2],hx:extent(0)*Math.abs(t.scale?.[0]??1)+margin,hz:extent(2)*Math.abs(t.scale?.[2]??1)+margin,c,s};
+    const rx=Math.abs(c)*area.hx+Math.abs(s)*area.hz,rz=Math.abs(s)*area.hx+Math.abs(c)*area.hz;
+    for(let x=Math.floor((area.x-rx)/size);x<=Math.floor((area.x+rx)/size);x++)for(let z=Math.floor((area.z-rz)/size);z<=Math.floor((area.z+rz)/size);z++) {
+      const key=`${x},${z}`;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(area);
     }
   }
   return (x,z)=>(cells.get(`${Math.floor(x/size)},${Math.floor(z/size)}`)||[]).some(r=>{

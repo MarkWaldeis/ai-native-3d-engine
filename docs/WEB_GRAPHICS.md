@@ -308,6 +308,12 @@ blocking gameplay. Placement skips water and steep/non-finite sampled ground.
 The player supplies authored road footprints to exclude ground cover; ultra uses
 sparse, wider four-triangle tufts beyond 40 m. Balanced/low skip terrain detail
 texture samples and use smaller water masks.
+Set `foliage.jungle: true` for broader undergrowth and a separate decorative
+canopy around the viewer on streamed terrain. Low/Balanced/Ultra cap the
+canopy at 104/176/286 instances in frustum-culled batches; it recedes near the
+viewer, avoids roads, authored trees, buildings and bridges, and casts no
+additional shadows. `trees: 0` can still disable the original near procedural
+trees independently.
 Default heights raycast static support meshes or fall back to zero; terrain may
 replace this with `window.__aiEngineVisuals.setHeightSampler((x,z)=>y)`.
 `water` accepts false or `{level,color}` and uses animated procedural normals,

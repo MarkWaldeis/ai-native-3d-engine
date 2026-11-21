@@ -24,6 +24,59 @@ export class ShadowGrid {
   }
 }
 
+export class SunShadowCache {
+  constructor() { this.previous = []; this.valid = false; }
+
+  reset() { this.previous.length = 0; this.valid = false; }
+
+  changed(sun, scene, camera) {
+    const previous = this.previous;
+    let index = 0, dirty = !this.valid || !sun.shadow.map, dynamic = false;
+    const record = value => {
+      if (previous[index] !== value) dirty = true;
+      previous[index++] = value;
+    };
+    const attribute = value => { record(value); record(value?.data?.version ?? value?.version); };
+    sun.shadow.updateMatrices(sun);
+    for (const value of sun.shadow.matrix.elements) record(value);
+    record(sun.shadow.map);
+    const frustum = sun.shadow.getFrustum();
+    scene.traverseVisible(mesh => {
+      if (!(mesh.isMesh || mesh.isLine || mesh.isPoints) || !mesh.castShadow || !mesh.layers.test(camera.layers) ||
+          (mesh.frustumCulled && !frustum.intersectsObject(mesh))) return;
+      // Custom depth shaders, deformation and textured cutouts can change without a version bump.
+      if (!mesh.isMesh || mesh.isSkinnedMesh || mesh.isBatchedMesh || mesh.morphTargetInfluences ||
+          mesh.customDepthMaterial || mesh.onBeforeShadow !== THREE.Object3D.prototype.onBeforeShadow ||
+          mesh.onAfterShadow !== THREE.Object3D.prototype.onAfterShadow) {
+        dynamic = true; return;
+      }
+      record(mesh);
+      for (const value of mesh.matrixWorld.elements) record(value);
+      const {geometry, material} = mesh;
+      record(geometry);
+      attribute(geometry.index);
+      attribute(geometry.attributes.position);
+      record(geometry.drawRange.start); record(geometry.drawRange.count);
+      if (mesh.isInstancedMesh) { record(mesh.count); attribute(mesh.instanceMatrix); }
+      const recordMaterial = m => {
+        if (!m) return;
+        if (m.alphaTest > 0 || m.displacementMap || m.clipShadows) dynamic = true;
+        record(m); record(m.visible); record(m.shadowSide); record(m.side); record(m.wireframe); record(m.wireframeLinewidth);
+      };
+      if (Array.isArray(material)) {
+        for (const group of geometry.groups) {
+          record(group.start); record(group.count); record(group.materialIndex);
+          recordMaterial(material[group.materialIndex]);
+        }
+      } else recordMaterial(material);
+    });
+    if (previous.length !== index) dirty = true;
+    previous.length = index;
+    this.valid = !dynamic;
+    return dirty || dynamic;
+  }
+}
+
 export class GameEffects {
   constructor(renderer, scene, skyColor, graphics) {
     this.renderer = renderer; this.scene = scene; this.time = 0;
@@ -53,7 +106,18 @@ export class GameEffects {
       near: 0.5 * shadowScale, far: 55 * shadowScale,
     });
     this.sun.shadow.normalBias = 0.045; this.sun.shadow.bias = -0.00015;
-    if (graphics) this.shadowGrid = new ShadowGrid(this.sunOffset, this.sun.shadow.camera.up);
+    if (graphics) {
+      this.shadowGrid = new ShadowGrid(this.sunOffset, this.sun.shadow.camera.up);
+      this.sunShadowCache = new SunShadowCache();
+      renderer.domElement.addEventListener('webglcontextrestored', () => this.sunShadowCache.reset());
+      const beforeRender = scene.onBeforeRender;
+      scene.onBeforeRender = (...args) => {
+        beforeRender.apply(scene, args);
+        if (this.sun.shadow.autoUpdate || !this.sun.castShadow) return;
+        const changed = this.sunShadowCache.changed(this.sun, scene, args[2]);
+        this.sun.shadow.needsUpdate ||= changed;
+      };
+    }
     scene.add(this.sun, this.sun.target);
     if (!graphics) {
       const fill = new THREE.DirectionalLight(0x9fc8ff, 0.7); fill.position.set(4, 5, -8); scene.add(fill);
@@ -101,6 +165,7 @@ export class GameEffects {
     this.renderer.domElement.dataset.quality = String(this.level);
     this.renderer.domElement.dataset.graphics = this.hdr?.sceneTarget ? 'hdr' : this.graphics ? 'standard' : 'legacy';
     this.renderer.shadowMap.needsUpdate = true;
+    this.sunShadowCache?.reset();
     if (this.nature && this.nature.level !== this.level) this.nature.setQuality(this.level);
     this.atmosphere?.setQuality(this.level);
   }
@@ -122,6 +187,7 @@ export class GameEffects {
   }
   reset() {
     this.hdr?.resetExposure();
+    this.sunShadowCache?.reset();
     this.localLights?.reset();
     this.nature?.clearTiles();
     this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = this.fast = 0;
@@ -130,6 +196,10 @@ export class GameEffects {
     this.frameDelta = Math.min(frameElapsed, 0.25);
     this.time += elapsed;
     if (this.level > 0 || ++this.shadowFrame % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
+    const cacheSun = this.sunShadowCache && this.level === 2 && shadowTarget && !this.renderer.clippingPlanes.length &&
+      this.renderer.shadowMap.type === THREE.PCFSoftShadowMap;
+    if (!cacheSun && !this.sun.shadow.autoUpdate) this.sunShadowCache.reset();
+    this.sun.shadow.autoUpdate = !cacheSun;
     for (const [id, group] of objects) {
       const collectible = group.userData.tags.some(tag => tag === 'coin' || tag === 'crystal');
       if (collectible) {

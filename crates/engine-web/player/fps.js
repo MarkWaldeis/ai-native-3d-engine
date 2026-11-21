@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyLook, combatCues, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
+import { applyLook, combatCues, defeated, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
 import { ShooterFx, flashTexture } from './fx.js';
 import { ShooterHud } from './hud.js';
 
@@ -17,6 +17,7 @@ export class FirstPerson {
     this.firePointers = new Set(); this.lookPointer = null; this.lastLook = null;
     this.fx = new ShooterFx(world, this.coarse); this.hud = new ShooterHud(ui);
     this.eye = new THREE.Vector3(); this.lastEye = null; this.speed = 0; this.phase = 0; this.recoil = 0; this.kick = 0;
+    this.muzzlePoint = new THREE.Vector3(); this.muzzleWorld = [0, 0, 0]; this.flashFresh = false;
     this.reloadTotal = 0; this.flash = 0; this.fov = camera.fov = 75; camera.near = 0.05; camera.updateProjectionMatrix();
     document.body.classList.add('fps');
     this.buildViewmodel(); this.bind();
@@ -47,13 +48,15 @@ export class FirstPerson {
   }
   mountModel(model, authored = false) {
     if (this.model) this.weapon.remove(this.model);
-    this.model = model; this.weapon.add(model);
+    this.model = model; model.removeFromParent();
     if (authored) {
       const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
       const scale = 0.4 / Math.max(size.x, size.y, size.z, 1e-3); model.scale.multiplyScalar(scale);
       const center = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3()); model.position.sub(center);
-      model.userData.muzzle = new THREE.Vector3(0, 0.02, -0.2 / model.scale.x);
+      model.updateMatrix();
+      model.userData.muzzle = new THREE.Vector3(0, 0.02, -0.2).applyMatrix4(model.matrix.clone().invert());
     }
+    this.weapon.add(model);
     model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
     model.updateMatrix(); this.muzzleFlash.position.copy(model.userData.muzzle).applyMatrix4(model.matrix); this.weapon.add(this.muzzleFlash);
   }
@@ -108,21 +111,22 @@ export class FirstPerson {
     const muzzle = this.worldMuzzle();
     for (const fx of result.fx || []) {
       const own = this.lastEye && Math.hypot(fx.pos[0] - this.lastEye.x, fx.pos[1] - this.lastEye.y, fx.pos[2] - this.lastEye.z) < 1.5;
-      if (own && fx.kind === 'muzzle') continue;
-      this.fx.emit(fx, own && fx.kind === 'tracer' ? muzzle : null);
+      this.fx.emit(fx, own && (fx.kind === 'tracer' || fx.kind === 'muzzle') ? muzzle : null, own && fx.kind === 'muzzle');
     }
-    if (cues.shots) { this.recoil = Math.min(1, this.recoil + 0.5); this.kick += 0.012; this.flash = 0.05; }
+    if (cues.shots) { this.recoil = Math.min(1, this.recoil + 0.5); this.kick += 0.012; this.flash = 0.05; this.flashFresh = true; }
     this.hud.cues(cues); this.hud.state(result.state);
     const reload = Number(result.state._reload) || 0;
     if (reload > 0 && this.reloadTotal === 0) this.reloadTotal = reload;
     if (reload <= 0) this.reloadTotal = 0;
-    this.reloadRemaining = reload; this.dead = Number(result.state.health) <= 0;
+    this.reloadRemaining = reload; this.dead = defeated(result.state);
   }
   worldMuzzle() {
     if (!this.model) return null;
-    const point = this.model.userData.muzzle.clone(); this.model.localToWorld(point);
+    const point = this.muzzlePoint.copy(this.model.userData.muzzle); this.model.localToWorld(point);
     point.applyMatrix4(this.vmCamera.matrixWorldInverse);
-    return point.applyMatrix4(this.camera.matrixWorld).toArray();
+    point.x *= this.vmCamera.projectionMatrix.elements[0] / this.camera.projectionMatrix.elements[0];
+    point.y *= this.vmCamera.projectionMatrix.elements[5] / this.camera.projectionMatrix.elements[5];
+    return point.applyMatrix4(this.camera.matrixWorld).toArray(this.muzzleWorld);
   }
   updateCamera(player, elapsed, sprinting) {
     if (!player) return;
@@ -141,17 +145,18 @@ export class FirstPerson {
     if (Math.abs(this.camera.fov - fov) > 0.05) { this.camera.fov += (fov - this.camera.fov) * Math.min(1, elapsed * 8); this.camera.updateProjectionMatrix(); }
     this.camera.updateMatrixWorld();
   }
-  frame(elapsed, markers) {
+  frame(elapsed, markers, quality = 1) {
+    this.fx.setQuality(quality); this.fx.resize(this.renderer.domElement.height);
     this.fx.update(elapsed); this.hud.update(elapsed, this.look, this.speed);
     this.hud.drawMinimap(this.lastEye?.toArray(), this.look.yaw, markers);
-    this.recoil = Math.max(0, this.recoil - elapsed * 6); this.flash = Math.max(0, this.flash - elapsed);
+    this.recoil = Math.max(0, this.recoil - elapsed * 6); this.flash = Math.max(0, this.flash - (this.flashFresh ? 0 : elapsed)); this.flashFresh = false;
     const bob = weaponBob(this.phase, this.speed), dip = reloadDip(this.reloadRemaining, this.reloadTotal);
     this.weapon.position.set(this.rest.x + bob.x, this.rest.y + bob.y - dip * 0.07 - (this.dead ? 0.5 : 0), this.rest.z + this.recoil * 0.05);
     this.weapon.rotation.set(this.recoil * 0.12 - dip * 0.35, bob.x * 2, dip * 0.45);
     this.muzzleFlash.visible = this.flash > 0; this.muzzleFlash.material.rotation = Math.random() * Math.PI;
     if (this.muzzleFlash.visible) this.muzzleFlash.scale.setScalar(0.055 + Math.random() * 0.03);
-    this.muzzleLight.intensity = this.flash > 0 ? 3 : 0;
-    if (this.model) { const tip = this.model.userData.muzzle.clone(); this.model.localToWorld(tip); this.muzzleLight.position.copy(tip); }
+    this.muzzleLight.visible = this.fx.level > 0; this.muzzleLight.intensity = this.flash > 0 && this.fx.level > 0 ? 3 : 0;
+    if (this.model) { const tip = this.muzzlePoint.copy(this.model.userData.muzzle); this.model.localToWorld(tip); this.muzzleLight.position.copy(tip); }
   }
   /** Draws the viewmodel on top of the world without touching world depth. */
   renderOverlay() {
@@ -160,5 +165,5 @@ export class FirstPerson {
     const autoClear = this.renderer.autoClear; this.renderer.autoClear = false; this.renderer.clearDepth();
     this.renderer.render(this.vmScene, this.vmCamera); this.renderer.autoClear = autoClear;
   }
-  reset() { this.fx.reset(); this.hud.reset(); this.look = { yaw: this.config.yaw, pitch: 0 }; this.lastEye = null; this.recoil = 0; this.kick = 0; this.reloadTotal = 0; this.dead = false; this.resetInput(); }
+  reset() { this.fx.reset(); this.hud.reset(); this.look = { yaw: this.config.yaw, pitch: 0 }; this.lastEye = null; this.recoil = 0; this.kick = 0; this.flash = 0; this.flashFresh = false; this.muzzleFlash.visible = false; this.muzzleLight.intensity = 0; this.reloadTotal = 0; this.dead = false; this.resetInput(); }
 }
