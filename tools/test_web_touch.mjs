@@ -47,6 +47,27 @@ test('independent touch pointers retain held actions, queue short taps until a t
   state.press(1, 7); state.reset(); assert.deepEqual(state.sample(), {});
 });
 
+test('touch placement reserves radar, health, ammo, compass, HUD widgets and footer, including joystick label space', () => {
+  const config = parseTouchConfig({ buttons: ['bottom-right', 'bottom-left', 'right', 'top-right'].map(anchor => ({ action: 'fire', anchor })), joystick: { side: 'left', size: 130 } }).config;
+  const obstacles = [
+    { x: 20, y: 96, width: 110, height: 110 },
+    { x: 320, y: 316, width: 204, height: 28 },
+    { x: 700, y: 96, width: 120, height: 48 },
+    { x: 212, y: 92, width: 420, height: 58 },
+    { x: 152, y: 160, width: 130, height: 44 },
+    { x: 24, y: 354, width: 796, height: 28 },
+  ];
+  const copy = structuredClone(obstacles), boxes = layoutTouch(config, { width: 844, height: 390, fps: true, obstacles });
+  assert.equal(boxes.length, 8);
+  for (const box of boxes) for (const b of obstacles) {
+    const height = box.height + (box.id === 'joystick' ? 22 : 0);
+    assert.ok(box.x + box.width <= b.x || b.x + b.width <= box.x || box.y + height <= b.y || b.y + b.height <= box.y);
+  }
+  assert.deepEqual(obstacles, copy, 'reserved rectangles are not mutated');
+  assert.deepEqual(layoutTouch(config, { width: 844, height: 390, obstacles: [{ x: 0, y: 0, width: 844, height: 390 }] }), []);
+  assert.deepEqual(layoutTouch(config, { width: 844, height: 390, obstacles: [{ x: NaN }] }), layoutTouch(config, { width: 844, height: 390 }));
+});
+
 test('custom touch actions share InputSystem movement/analog look and action sampling', () => {
   const input = new InputSystem({ invert_y: true, look_sensitivity: 2 });
   const sampled = input.sample({ keys: new Set(['KeyW']), touch: { x: 1, actions: { move_right: 1, fire: 1, reload: 1, sprint: 1, action: 1, pause: 1, look_y: 1, unknown: 1 } } });

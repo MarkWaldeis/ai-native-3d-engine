@@ -41,7 +41,7 @@ function showTouch() {
 }
 function updateHelp() {
   const help = gamepadActive ? gamepadHelp(input.config, !!fps) : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
-  if (help && $('help').textContent !== help) $('help').textContent = help;
+  for (const id of ['help', 'input-help']) if (help && $(id).textContent !== help) $(id).textContent = help;
 }
 if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch-input');
 window.addEventListener('touchstart', showTouch, { passive: true });
@@ -481,6 +481,7 @@ function startRunning() {
   if (previewingRoute() && previewMission === null) { previewMission = $('mission').textContent; $('mission').textContent = 'Zielvorschau · Bewegen überspringt'; }
   $('pause').textContent = 'Ⅱ'; $('pause').setAttribute('aria-label', 'Spiel pausieren');
   fps?.start();
+  touchControls?.layout();
 }
 
 bindActivation($('start'), async () => {

@@ -1,5 +1,7 @@
 import { parseTouchConfig, layoutTouch, TouchState, TOUCH_LABELS } from './touch.js';
 
+const reserved = '#hud,#mission,#objective,.fps-top,.fps-minimap,.fps-vitals,.fps-ammo,.fps-killfeed,[data-hud-id],footer';
+
 export class TouchControls {
   constructor(authored, { fps = false, enabled, onInteract, onLayout }) {
     const parsed = parseTouchConfig(authored);
@@ -28,6 +30,10 @@ export class TouchControls {
     });
     if (this.authored) document.getElementById('action').hidden = this.config.hide_default_action;
     window.addEventListener('resize', () => this.layout());
+    if ((this.authored || fps) && typeof ResizeObserver === 'function') {
+      this.observer = new ResizeObserver(() => this.layout());
+      for (const node of document.querySelectorAll(reserved)) this.observer.observe(node);
+    }
     this.layout();
   }
   sample() { return this.state.sample(); }
@@ -38,10 +44,16 @@ export class TouchControls {
     this.nodes.forEach((node, i) => node.classList.toggle('pressed', held.has(i)));
   }
   layout() {
-    if (!this.authored) return;
+    if (!this.authored && !this.fps) return;
     const style = getComputedStyle(this.root);
     const insets = Object.fromEntries(['top', 'right', 'bottom', 'left'].map(side => [side, parseFloat(style.getPropertyValue(`padding-${side}`)) || 0]));
-    const positions = layoutTouch(this.config, { width: innerWidth, height: innerHeight, insets, fps: this.fps });
+    const obstacles = [...document.querySelectorAll(reserved)].filter(node => node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden').map(node => {
+      const { x, y, width, height } = node.getBoundingClientRect(); return { x, y, width, height };
+    });
+    const key = JSON.stringify([innerWidth, innerHeight, insets, obstacles]);
+    if (this.layoutKey === key) return;
+    this.layoutKey = key;
+    const positions = layoutTouch(this.config, { width: innerWidth, height: innerHeight, insets, fps: this.fps, obstacles });
     for (const position of positions) {
       const { id, x, y, width, height } = position;
       const node = id === 'joystick' ? document.querySelector('.joystick-area') : id === 'action' ? document.getElementById('action') : id === 'fire' ? document.querySelector('.fps-fire') : id === 'reload' ? document.querySelector('.fps-reload-button') : this.nodes[Number(id.slice(6))];

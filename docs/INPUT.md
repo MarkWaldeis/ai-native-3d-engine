@@ -92,8 +92,10 @@ Look-Bindungen; Tastatur-/Gamepad-Remaps ändern die logischen Touch-Aktionen ni
 Joystick-Seite: `left` (Standard) oder `right`. Größe: 80–180 px, alternativ
 `md` = 120 und `lg` = 150; im Querformat maximal 100 px. Authored Controls
 ordnen auch Standard-Aktion und FPS-Feuer/Nachladen kollisionsfrei neu an.
-Safe-Area und Footer bleiben frei; benutzerdefinierte HUDs berücksichtigen
-alle Touch-Tasten. Ohne `ai_touch` bleiben bestehende Control-Positionen erhalten.
+Safe-Area, ShooterHud, Mission/Ziel und Footer bleiben frei; benutzerdefinierte
+HUDs berücksichtigen alle Touch-Tasten. FPS-Touch-Controls vermeiden das
+ShooterHud auch ohne `ai_touch`. Auf Touch-Geräten steht die Hilfe im
+Steuerungsdialog statt über dem HUD im Footer.
 Maximal 12 Zusatztasten; ungültige Felder nutzen Standards und erzeugen Warnungen.
 Bei zu kleinen Viewports werden nicht platzierbare Tasten mit Warnung verborgen.
 `hide_default_action:true` verbirgt nur die normale Aktions-/Sprungtaste.

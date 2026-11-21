@@ -20,7 +20,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', ({ '.wasm': 'application/wasm', '.js': 'text/javascript', '.json': 'application/json', '.html': 'text/html', '.css': 'text/css', '.svg': 'image/svg+xml' })[path.extname(file)] || 'application/octet-stream');
     if (file === path.join(site, 'coin_game/scene.json') || file === path.join(site, 'fps_arena/scene.json')) {
       const scene = JSON.parse(await fs.readFile(file, 'utf8')), player = scene.entities.find(e => e.tags?.includes('player'));
-      player.props = { ...player.props, ai_touch: config(file.includes('fps_arena')), ai_input: { haptics: { enabled: true, strength: 0.7 } }, ai_hud: { widgets: [{ id: 'touch-info', type: 'text', text: 'Touch bereit', anchor: 'bottom-right', width: 130 }] } };
+      player.props = { ...player.props, ai_touch: config(file.includes('fps_arena')), ai_input: { haptics: { enabled: true, strength: 0.7 } }, ai_hud: { widgets: [{ id: 'touch-info', type: 'text', text: 'Touch bereit', anchor: 'top-left', offset: [140, 148], width: 130, phone: { anchor: 'left', offset: [0, 0] } }] } };
       res.end(JSON.stringify(scene));
     } else res.end(await fs.readFile(file));
   } catch { res.writeHead(404); res.end('Not found'); }
@@ -55,15 +55,20 @@ try {
     assert.equal(await page.locator('[data-touch-action]').count(), 4);
     assert.equal(await page.locator('#action').isHidden(), game === 'fps_arena');
     const problems = await page.evaluate(() => {
-      const nodes = [...document.querySelectorAll('#joystick,#action,.fps-fire,.fps-reload-button,[data-touch-action]')].filter(n => n.getClientRects().length);
-      const rects = nodes.map(n => ({ name: n.getAttribute('aria-label'), r: n.getBoundingClientRect() })), failures = [];
+      const visible = n => n.getClientRects().length && getComputedStyle(n).visibility !== 'hidden' && getComputedStyle(n).opacity !== '0';
+      const controls = [...document.querySelectorAll('#joystick,#action,.fps-fire,.fps-reload-button,[data-touch-action]')].filter(visible);
+      const panels = [...document.querySelectorAll('#hud,#mission,#objective,.fps-top,.fps-minimap,.fps-vitals,.fps-ammo,.fps-killfeed,#hud-layout>.hud-widget,footer')].filter(visible);
+      const rects = [...controls, ...panels].map(n => {
+        const r = n.getBoundingClientRect(), label = n.id === 'joystick' ? n.querySelector('span')?.getBoundingClientRect() : null;
+        return { name: n.getAttribute('aria-label') || n.dataset.hudId || n.id || n.className,
+          r: { left: r.left, right: r.right, top: r.top, bottom: Math.max(r.bottom, label?.bottom || 0), width: r.width, height: r.height } };
+      }).filter(({ r }) => r.width > 0 && r.height > 0), failures = [];
       const overlap = (a, b) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
-      const hud = document.querySelector('[data-hud-id="touch-info"]').getBoundingClientRect();
       for (const [i, { name, r }] of rects.entries()) {
         if (r.left < 0 || r.right > innerWidth || r.top < 0 || r.bottom > innerHeight) failures.push(`${name}: overflow`);
-        if (overlap(r, hud)) failures.push(`${name}: HUD overlap`);
         for (const b of rects.slice(i + 1)) if (overlap(r, b.r)) failures.push(`${name} / ${b.name}: overlap`);
       }
+      if (visible(document.getElementById('help'))) failures.push('touch footer help must be in Steuerung, not over the HUD');
       if (document.documentElement.scrollWidth > innerWidth) failures.push('horizontal overflow');
       return failures;
     });
@@ -115,7 +120,7 @@ try {
       assert.match(await page.locator('#input-bindings').innerText(), /Taste E/);
       await page.locator('#input-reset').click(); assert.ok(await page.getByLabel('Vibration', { exact: true }).isChecked());
     }
-    console.log(`PASS touch ${name}: authored controls, safe layout/HUD clearance, simultaneous real touch pointers, WASM inputs${game === 'coin_game' ? ', coin pickup haptics and persisted Vibration/remap toggle' : ', held sprint/fire, release and queued one-tick reload'}`);
+    console.log(`PASS touch ${name}: no overlap/overflow across controls, ShooterHud, mission/objective, ai_hud and footer; simultaneous real touch pointers, WASM inputs${game === 'coin_game' ? ', coin pickup haptics and persisted Vibration/remap toggle' : ', held sprint/fire, release and queued one-tick reload'}`);
     await page.close();
   }
   assert.deepEqual(errors, []); console.log('PASS touch browser: no console/page errors or failed assets; local WASM/assets only');

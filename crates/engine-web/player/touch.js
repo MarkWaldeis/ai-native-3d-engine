@@ -48,27 +48,28 @@ export function parseTouchConfig(value) {
   return { config, warnings };
 }
 
-export function layoutTouch(config, { width, height, insets = {}, fps = false }) {
+export function layoutTouch(config, { width, height, insets = {}, fps = false, obstacles = [] }) {
   const left = (insets.left || 0) + 12, right = width - (insets.right || 0) - 12;
-  const top = (insets.top || 0) + (height < 500 ? 110 : 160), bottom = height - (insets.bottom || 0) - (fps ? 96 : 64);
+  const top = (insets.top || 0) + (height < 500 ? 110 : 160), bottom = height - (insets.bottom || 0) - (height < 500 ? 44 : 64);
   const size = Math.min(config.joystick.size, height < 500 ? 100 : 180, right - left);
-  const joystick = { id: 'joystick', x: config.joystick.side === 'left' ? left : right - size, y: bottom - size - 22, width: size, height: size };
-  const result = [joystick], occupied = [{ ...joystick, height: size + 22 }];
+  const result = [], occupied = obstacles.filter(b => [b.x, b.y, b.width, b.height].every(Number.isFinite) && b.width > 0 && b.height > 0);
   const opposite = config.joystick.side === 'left' ? 'bottom-right' : 'bottom-left';
-  const entries = [...(config.hide_default_action ? [] : [{ id: 'action', size: height < 500 ? 64 : 78, anchor: opposite }]),
+  const entries = [{ id: 'joystick', size, extraHeight: 22, anchor: `bottom-${config.joystick.side}` },
+    ...(config.hide_default_action ? [] : [{ id: 'action', size: height < 500 ? 64 : 78, anchor: opposite }]),
     ...(fps ? [{ id: 'fire', size: height < 500 ? 72 : 84, anchor: opposite }, { id: 'reload', size: 56, anchor: opposite }] : []),
     ...config.buttons.map((button, i) => ({ id: `touch-${i}`, size: button.size === 'lg' ? 72 : 56, anchor: button.anchor }))];
   for (const entry of entries) {
     let best, score = Infinity;
+    const occupiedHeight = entry.size + (entry.extraHeight || 0);
     const tx = entry.anchor === 'bottom-left' ? left : right - entry.size;
-    const ty = entry.anchor === 'top-right' ? top : entry.anchor === 'right' ? (top + bottom - entry.size) / 2 : bottom - entry.size;
-    for (let y = bottom - entry.size; y >= top; y -= 8) for (let x = left; x + entry.size <= right; x += 8) {
+    const ty = entry.anchor === 'top-right' ? top : entry.anchor === 'right' ? (top + bottom - occupiedHeight) / 2 : bottom - occupiedHeight;
+    for (let y = bottom - occupiedHeight; y >= top; y -= 8) for (let x = left; x + entry.size <= right; x += 8) {
       const rect = { id: entry.id, x, y, width: entry.size, height: entry.size };
-      if (occupied.some(b => x < b.x + b.width + 8 && x + entry.size + 8 > b.x && y < b.y + b.height + 8 && y + entry.size + 8 > b.y)) continue;
+      if (occupied.some(b => x < b.x + b.width + 8 && x + entry.size + 8 > b.x && y < b.y + b.height + 8 && y + occupiedHeight + 8 > b.y)) continue;
       const distance = (x - tx) ** 2 + (y - ty) ** 2;
       if (distance < score) { best = rect; score = distance; }
     }
-    if (best) { result.push(best); occupied.push(best); }
+    if (best) { result.push(best); occupied.push({ ...best, height: occupiedHeight }); }
   }
   return result;
 }

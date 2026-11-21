@@ -39,6 +39,9 @@ body.touch-input .joystick-area,body.touch-input #action{z-index:1}
 footer{position:absolute;bottom:max(16px,env(safe-area-inset-bottom));left:max(24px,env(safe-area-inset-left));right:max(24px,env(safe-area-inset-right));display:flex;align-items:center;justify-content:space-between;color:#1d3949;font-size:11px;gap:12px}
 footer button{border-radius:16px;background:#ffffffad;color:#183647;padding:7px 11px;margin-left:5px;font-size:10px;font-weight:600}
 footer{z-index:4;flex-wrap:wrap}
+body.touch-input #help{display:none}
+body.touch-input footer{justify-content:flex-end}
+#input-help{overflow-wrap:anywhere}
 footer>div{display:flex;flex-wrap:wrap;gap:5px}
 #input-panel{width:620px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 32px);overflow:auto;touch-action:pan-y;border:1px solid #91b5aa;background:linear-gradient(145deg,#193e46,#101f33);color:#f4f6f7;border-radius:22px;padding:24px;box-shadow:0 24px 100px #07152588}
 #input-panel::backdrop{background:#091d30b8;backdrop-filter:blur(7px)}
@@ -126,3 +129,4 @@ body.fps-active #game{cursor:crosshair}
   body.touch-input.fps .fps-health{width:150px}
   body.touch-input.fps .fps-vitals{left:50%;transform:translateX(-50%);bottom:max(46px,calc(env(safe-area-inset-bottom) + 34px))}
 @media(max-width:600px){.fps-top{top:max(150px,calc(env(safe-area-inset-top) + 135px))}.fps-objective{font-size:11px}}
+@media(max-width:600px){body.touch-input .fps-top{top:max(224px,calc(env(safe-area-inset-top) + 208px))}}
