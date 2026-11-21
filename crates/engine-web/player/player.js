@@ -354,6 +354,7 @@ async function restart() {
 }
 
 function startRunning() {
+  if (document.activeElement?.matches('button')) document.activeElement.blur();
   audio.unlock();
   $('restart').hidden = true; $('start').disabled = false;
   resetInput(); modal.hidden = true; mode = 'pause'; running = true; previous = performance.now(); accumulator = 0;
@@ -410,6 +411,7 @@ $('fullscreen').addEventListener('click', async () => {
 });
 
 window.addEventListener('keydown', e => {
+  if (running && ['Space', 'Enter'].includes(e.code) && e.target.closest?.('footer button')) e.preventDefault();
   if (inputSettings?.open || (!running && e.target.closest?.('button, input, dialog'))) return;
   const actions = Object.keys(input.config.bindings).filter(action => input.config.bindings[action].some(binding => binding.type === 'key' && binding.code === e.code));
   if (!actions.length) return;

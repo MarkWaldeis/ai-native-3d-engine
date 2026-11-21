@@ -70,6 +70,7 @@ try {
   assert.match(await page.locator('#input-bindings li').filter({ has: page.locator('[data-action="action"]') }).innerText(), /Taste E/);
   await page.screenshot({ path: path.join(shots, 'steuerung-desktop.png') });
   await page.reload(); await page.waitForFunction(() => document.getElementById('start')?.disabled === false, null, { polling: 50 });
+  assert.match(await page.locator('#help').innerText(), /Taste E: Aktion/, 'loaded bindings refresh keyboard help');
   await page.locator('#input-settings').click();
   assert.match(await page.locator('#input-bindings li').filter({ has: page.locator('[data-action="action"]') }).innerText(), /Taste E/);
   await page.locator('[data-action="fire"]').click(); await page.keyboard.press('Escape');
@@ -82,6 +83,19 @@ try {
   await page.locator('#input-close').click();
   assert.ok(await page.locator('#input-settings').evaluate(element => element === document.activeElement));
   console.log('PASS input remapping: KeyE survives reload; Escape cancels; gamepad button/axis capture; focus restored');
+  await page.evaluate(() => { testPad.axes[0] = 0; });
+  await page.locator('#start').click();
+  assert.equal(await page.evaluate(() => document.activeElement?.tagName === 'BUTTON'), false, 'starting releases UI button focus');
+  await button(page, 9, true); await button(page, 9, false);
+  await page.locator('#input-settings').click(); await page.locator('#input-close').click();
+  await button(page, 9, true); await button(page, 9, false);
+  assert.equal(await page.evaluate(() => document.activeElement?.tagName === 'BUTTON'), false, 'gamepad resume releases footer focus');
+  await page.keyboard.press('Space'); assert.ok(await page.locator('#input-panel').isHidden());
+  await page.locator('#input-settings').focus();
+  for (const key of ['Space', 'Enter']) {
+    await page.keyboard.press(key); assert.ok(await page.locator('#input-panel').isHidden(), `${key} must not activate footer while running`);
+  }
+  console.log('PASS input focus: start/gamepad resume blur UI buttons; unbound Space and Enter cannot reopen settings during gameplay');
   await page.close();
   }
 
