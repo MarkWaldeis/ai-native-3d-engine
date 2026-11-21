@@ -111,8 +111,9 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     };
     const offset = entity.transform?.position || [0, 0, 0];
     for (let z = 0; z < map.manifest.grid[1]; z++) for (let x = 0; x < map.manifest.grid[0]; x++) {
-      const chunk = {map, x, z, offset, material, mesh: null, stride: null};
-      chunk.coarse = buildMesh(chunk, null, 1); world.add(chunk.coarse); chunks.push(chunk);
+      const chunk = {map, x, z, offset, material, visible: entity.visible !== false, mesh: null, stride: null};
+      if(chunk.visible) {chunk.coarse = buildMesh(chunk, null, 1); world.add(chunk.coarse);}
+      chunks.push(chunk);
     }
   }
 
@@ -220,12 +221,14 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     mesh.geometry.dispose();
   }
   function update(camera, now = performance.now()) {
-    if(camera.far!==6000) {camera.far=6000; camera.updateProjectionMatrix();}
-    world.fog.near=1800; world.fog.far=4500;
+    if(chunks.some(chunk=>chunk.visible)) {
+      if(camera.far!==6000) {camera.far=6000; camera.updateProjectionMatrix();}
+      world.fog.near=1800; world.fog.far=4500;
+    }
     if(now-lastPoll>=500) {lastPoll=now; connectVisuals(); physicsTiles().catch(onError);}
     if(now-lastRender>=250) {
       lastRender=now;
-      const nearest=[...chunks].sort((a,b)=>distance(a)-distance(b));
+      const nearest=chunks.filter(chunk=>chunk.visible).sort((a,b)=>distance(a)-distance(b));
       function distance(chunk) {const c=chunk.map.manifest.config; return Math.hypot(camera.position.x-chunk.offset[0]-(chunk.x+0.5)*c.tile_m,camera.position.z-chunk.offset[2]-(chunk.z+0.5)*c.tile_m);}
       for(const chunk of nearest) {
         const d=distance(chunk); chunk.coarse.visible=d<4800;
@@ -248,6 +251,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
     for(const chunk of chunks) {
+      if(!chunk.visible) {chunk.inView=false; continue;}
       const mesh=chunk.mesh||chunk.coarse;
       mesh.updateMatrixWorld(); chunk.inView=mesh.visible && frustum.intersectsObject(mesh);
     }

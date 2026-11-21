@@ -78,6 +78,19 @@ test('initial spawn preload rejects failed tiles rather than allowing a coarse-d
   await assert.rejects(terrainFixture(t,{entities:[{props:{ai_terrain:'terrain.json'}},{tags:['player']}],failTile:true}),/HTTP 404/);
 });
 
+test('hidden terrain keeps physics and heights but creates no coarse or fine meshes',async t=>{
+  const {api,world,registered,inserted,errors}=await terrainFixture(t,{entities:[{visible:false,props:{ai_terrain:'terrain.json'}},{tags:['player']}]});
+  assert.equal(registered.length,1); assert.equal(inserted.length,4);
+  assert.equal(world.children.length,0);
+  assert.ok(Math.abs(api.heightAt(1,1)-75)<.001);
+  const camera=new THREE.PerspectiveCamera(),far=camera.far;
+  api.update(camera,0); await new Promise(resolve=>setImmediate(resolve)); api.update(camera,500);
+  assert.equal(world.children.length,0);
+  assert.equal(camera.far,far); assert.equal(world.fog.near,1); assert.equal(world.fog.far,100);
+  assert.equal(api.stats().terrainTilesVisible,0); assert.equal(api.stats().terrainTriangles,0);
+  assert.deepEqual(errors,[]);
+});
+
 test('terrain quantization decodes LE heights and rejects malformed and empty fields', () => {
   const bytes = new Uint8Array(20), view = new DataView(bytes.buffer);
   bytes.set(new TextEncoder().encode('AITC')); view.setUint32(4,2,true); view.setUint32(8,2,true);
