@@ -219,8 +219,13 @@ Checks: `node --test tools/test_web_*.mjs`, Web-Export und Release-Parität.
   --scene examples/net_arena/scene.json --rtt-ms 120 --jitter-ms 20 --loss 0.05`.
 - Checks: `cargo test -p engine-net`; `cargo test -p engine-tests --test netcode`;
   `cargo build -p engine-net --target wasm32-unknown-unknown`. Doku: `docs/NETCODE.md`.
-  Kein Spawn-Replikat, keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
-  Browser-Transport fehlt noch.
+  Spawn-Replikation mit Definitionen; keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
+  Browser: `cargo run -- --export-web examples/net_arena/scene.json target/site/net_arena_ws`,
+  `cargo run -- --net-serve examples/net_arena/scene.json --addr 127.0.0.1:7790`,
+  `python3 -m http.server 8000 --bind 127.0.0.1 --directory target/site`;
+  zwei Tabs `http://127.0.0.1:8000/net_arena_ws/?net=ws://127.0.0.1:7790`.
+  NetGame rechnet in Rust, JS transportiert/rendert; HUD/Diagnose `window.__engineNet`.
+  Nur vertrauenswürdiges Netz, kein TLS; ohne `?net` bleibt Singleplayer unverändert.
 
 ## Shooter / First Person
 

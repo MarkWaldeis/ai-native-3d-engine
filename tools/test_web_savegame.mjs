@@ -11,7 +11,7 @@ function setup(pathname = '/game/') {
   const loaded = [];
   const window = { addEventListener(type, fn) { this[type] = fn; } };
   const context = vm.createContext({
-    window, location: { pathname }, ready: true, console,
+    window, location: { pathname }, ready: true, netEndpoint: null, console,
     game: { save_game: () => '{"version":1}' },
     localStorage: { setItem: (k, v) => values.set(k, v), getItem: k => values.get(k) ?? null },
     restart: async save => loaded.push(save), startRunning: () => loaded.push('running'),
@@ -53,4 +53,13 @@ test('F5 and F9 suppress browser navigation and ignore held repeats', async () =
   key('F9'); await new Promise(resolve => setImmediate(resolve));
   assert.equal(loaded.length, 2);
   key('KeyA'); assert.equal(prevented, 3);
+});
+
+test('authoritative multiplayer rejects local save/load without touching storage or restarting', async () => {
+  const {context,window,values,loaded}=setup();
+  context.netEndpoint='ws://localhost:7790';
+  assert.throws(()=>window.__aiSaveGame(),/Multiplayer/);
+  await assert.rejects(window.__aiLoadGame(),/Multiplayer/);
+  assert.equal(values.size,0);
+  assert.deepEqual(loaded,[]);
 });

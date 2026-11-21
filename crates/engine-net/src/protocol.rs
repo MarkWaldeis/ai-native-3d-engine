@@ -3,6 +3,7 @@ use anyhow::{bail, Result};
 use engine_runtime::NetEntityState;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
+use shared::scene::Entity;
 use std::collections::BTreeMap;
 
 pub type Actions = BTreeMap<String, f64>;
@@ -18,6 +19,7 @@ pub struct InputFrame {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
+    Pause,
     Hello {
         name: String,
     },
@@ -40,9 +42,17 @@ pub enum ServerMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     pub server_tick: u64,
+    #[serde(default)]
+    pub next_id: Option<u64>,
     pub last_processed_seq: Option<u64>,
     pub input_late_ticks: u64,
     pub entities: Vec<NetEntityState>,
+    #[serde(default)]
+    pub spawned: Vec<Entity>,
+    #[serde(default)]
+    pub pending_starts: Vec<u64>,
+    #[serde(default)]
+    pub players: Vec<u64>,
     pub removed: Vec<u64>,
     pub script_state: Value,
     pub baseline_tick: Option<u64>,
@@ -65,6 +75,7 @@ impl Snapshot {
         let old: BTreeMap<_, _> = baseline.entities.iter().map(|e| (e.id, e)).collect();
         let mut delta = self.clone();
         delta.baseline_tick = Some(baseline.server_tick);
+        delta.spawned.retain(|e| !old.contains_key(&e.id));
         delta
             .entities
             .retain(|e| old.get(&e.id).is_none_or(|b| different(e, b, epsilon)));
@@ -96,6 +107,19 @@ impl Snapshot {
                 entities.insert(entity.id, entity.clone());
             }
             full.entities = entities.into_values().collect();
+            let mut definitions: BTreeMap<_, _> = baseline
+                .spawned
+                .iter()
+                .cloned()
+                .map(|e| (e.id, e))
+                .collect();
+            for id in &self.removed {
+                definitions.remove(id);
+            }
+            for entity in &self.spawned {
+                definitions.insert(entity.id, entity.clone());
+            }
+            full.spawned = definitions.into_values().collect();
         }
         full.baseline_tick = None;
         full.removed.clear();

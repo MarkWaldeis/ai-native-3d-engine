@@ -431,6 +431,10 @@ impl Simulation {
     }
 
     fn prepare_scripts(&mut self) -> Result<()> {
+        self.prepare_net_scripts(true)
+    }
+
+    fn prepare_net_scripts(&mut self, run_start: bool) -> Result<()> {
         let entities: Vec<_> = self.data.borrow().scene.entities.iter()
             .filter(|entity| entity.script.is_some()).cloned().collect();
         self.scripts
@@ -460,7 +464,7 @@ impl Simulation {
                 ast.set_source(&label);
                 self.scripts
                     .insert(entity.id, ScriptInstance { ast, label });
-                if !self.loading { self.hook(entity.id, "on_start")?; }
+                if run_start && !self.loading { self.hook(entity.id, "on_start")?; }
             }
         }
         Ok(())

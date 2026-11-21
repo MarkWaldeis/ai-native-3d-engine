@@ -133,30 +133,58 @@ fn arena_four_slots_scoring_and_scene_overrides_work() {
 }
 
 #[test]
-fn net_simulate_rejects_terrain_explicitly_without_mutating_authoring_or_play() {
+fn net_simulate_terrain_lands_and_converges_without_mutating_authoring_or_play() {
     let mut engine = host();
     data(call(&mut engine, "play", json!({})));
     let play = data(call(&mut engine, "get_sim_state", json!({})));
     let revision = engine.world.revision;
-    let mut terrain = arena();
-    terrain.entities[0].props["ai_terrain"] = json!("terrain/terrain.json");
+    let project = root().join("target").join(format!(
+        "net-terrain-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(project.join("assets")).unwrap();
+    let mut terrain = engine_terrain::Terrain::generate(engine_terrain::TerrainConfig {
+        size_m: [256.0; 2],
+        samples: 9,
+        height_scale: 0.0,
+        ..Default::default()
+    })
+    .unwrap();
+    for tile in &mut terrain.tiles {
+        tile.heights.fill(7.0);
+    }
+    terrain.manifest.height_range = [7.0; 2];
+    terrain.save(&project.join("map")).unwrap();
+    let scene:Scene=serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"terrain","kind":"box","size":[1,1,1],"props":{"ai_terrain":"map/terrain.json","ai_terrain_radius":32}},
+        {"id":2,"name":"player","kind":"box","size":[1,1,1],"tags":["net_player"],
+         "transform":{"position":[128,12,128]},"collider":{"shape":"box"},"rigidbody":{"type":"dynamic"}}
+    ]})).unwrap();
+    engine.assets_dir = project.join("assets");
     for args in [
-        json!({"clients":1,"ticks":1,"scene":terrain.clone()}),
-        json!({"clients":1,"ticks":1}),
+        json!({"clients":1,"ticks":240,"scene":scene.clone(),"rtt_ms":100,"jitter_ms":20,"loss":0.05}),
+        json!({"clients":1,"ticks":240,"rtt_ms":100,"jitter_ms":20,"loss":0.05}),
     ] {
-        engine.world.scene = terrain.clone();
-        let result = call(&mut engine, "net_simulate", args);
-        assert_eq!(result["isError"], true, "{result}");
+        engine.world.scene = scene.clone();
+        let result = data(call(&mut engine, "net_simulate", args));
+        assert_eq!(result["converged"], true, "{result}");
         assert!(
-            result
-                .to_string()
-                .contains("net_simulate does not support props.ai_terrain"),
+            (result["clients"][0]["server_position"][1].as_f64().unwrap() - 7.5).abs() < 0.05,
             "{result}"
         );
-        assert_eq!(engine.world.scene, terrain);
+        assert!(
+            result["max_position_delta"].as_f64().unwrap() < 1e-3,
+            "{result}"
+        );
+        assert_eq!(engine.world.scene, scene);
         assert_eq!(engine.world.revision, revision);
         assert_eq!(data(call(&mut engine, "get_sim_state", json!({}))), play);
     }
+    std::fs::remove_dir_all(project).unwrap();
 }
 
 #[test]

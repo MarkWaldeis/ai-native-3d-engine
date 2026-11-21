@@ -5,6 +5,8 @@ pub mod protocol;
 mod server;
 pub mod simulate;
 pub mod transport;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod websocket;
 
 pub use client::{ClientConfig, NetClient};
 use engine_runtime::Input;
@@ -12,6 +14,31 @@ pub use interpolation::Interpolator;
 pub use protocol::{Actions, ClientMessage, InputFrame, PeerId, ServerMessage, Snapshot};
 use serde::Serialize;
 pub use server::{NetServer, ServerConfig};
+use shared::scene::Scene;
+use std::{collections::BTreeMap, path::PathBuf};
+
+#[derive(Clone, Debug)]
+pub enum SimSource {
+    InMemory(BTreeMap<String, String>),
+    ProjectRoot(PathBuf),
+}
+
+impl From<BTreeMap<String, String>> for SimSource {
+    fn from(sources: BTreeMap<String, String>) -> Self {
+        Self::InMemory(sources)
+    }
+}
+
+impl SimSource {
+    pub(crate) fn build(&self, scene: Scene) -> anyhow::Result<engine_runtime::Simulation> {
+        match self {
+            Self::InMemory(sources) => {
+                engine_runtime::Simulation::from_sources(scene, sources.clone())
+            }
+            Self::ProjectRoot(root) => engine_runtime::Simulation::new(scene, root),
+        }
+    }
+}
 
 pub const TICK_MS: f64 = 1000.0 / 60.0;
 

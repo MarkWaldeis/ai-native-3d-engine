@@ -1,4 +1,4 @@
-use crate::{inputs, protocol::*, valid_actions, NetStats, TICK_MS};
+use crate::{inputs, protocol::*, valid_actions, NetStats, SimSource, TICK_MS};
 use anyhow::{bail, Result};
 use engine_runtime::{Input, Simulation};
 use shared::scene::Scene;
@@ -40,6 +40,7 @@ pub struct NetServer {
     simulation: Simulation,
     config: ServerConfig,
     slots: Vec<u64>,
+    initial_ids: BTreeSet<u64>,
     clients: BTreeMap<PeerId, Client>,
     released: Vec<Input>,
     stats: NetStats,
@@ -47,11 +48,7 @@ pub struct NetServer {
 }
 
 impl NetServer {
-    pub fn new(
-        scene: Scene,
-        sources: BTreeMap<String, String>,
-        config: ServerConfig,
-    ) -> Result<Self> {
+    pub fn new(scene: Scene, sources: impl Into<SimSource>, config: ServerConfig) -> Result<Self> {
         if config.snapshot_interval == 0
             || config.history_capacity < 2
             || config.timeout_ticks == 0
@@ -68,7 +65,8 @@ impl NetServer {
             .collect();
         slots.sort_unstable();
         Ok(Self {
-            simulation: Simulation::from_sources(scene, sources)?,
+            initial_ids: scene.entities.iter().map(|e| e.id).collect(),
+            simulation: sources.into().build(scene)?,
             config,
             slots,
             clients: BTreeMap::new(),
@@ -87,6 +85,13 @@ impl NetServer {
         self.clients.get(&peer).map(|c| c.entity)
     }
 
+    /// Transport-level liveness without manufacturing gameplay input frames.
+    pub fn activity(&mut self, peer: PeerId) {
+        if let Some(client) = self.clients.get_mut(&peer) {
+            client.last_heard = self.simulation.tick;
+        }
+    }
+
     pub fn receive(
         &mut self,
         peer: PeerId,
@@ -94,6 +99,20 @@ impl NetServer {
     ) -> Result<Option<ServerMessage>> {
         let tick = self.simulation.tick;
         match message {
+            ClientMessage::Pause => {
+                if let Some(client) = self.clients.get_mut(&peer) {
+                    client.last_heard = tick;
+                    self.released.extend(inputs(
+                        tick,
+                        client.entity,
+                        &Actions::new(),
+                        &client.last,
+                    ));
+                    client.last.clear();
+                    client.frames.clear();
+                }
+                Ok(None)
+            }
             ClientMessage::Hello { name } => {
                 if name.len() > 128 {
                     bail!("name too long");
@@ -211,13 +230,24 @@ impl NetServer {
             return Ok(vec![]);
         }
         let mut messages = vec![];
+        let players: Vec<_> = self.clients.values().map(|client| client.entity).collect();
         for (&peer, client) in &mut self.clients {
             let full = Snapshot {
                 server_tick: tick,
+                next_id: Some(self.simulation.net_next_id()),
                 last_processed_seq: client.processed,
                 input_late_ticks: client.late,
                 entities: self.simulation.net_entity_states(),
+                pending_starts: self.simulation.net_pending_starts(),
+                spawned: self
+                    .simulation
+                    .scene()
+                    .entities
+                    .into_iter()
+                    .filter(|e| !self.initial_ids.contains(&e.id))
+                    .collect(),
                 removed: vec![],
+                players: players.clone(),
                 script_state: self.simulation.net_script_state(),
                 baseline_tick: None,
             };
