@@ -274,7 +274,19 @@ def build(scene, rng, density, with_terrain_entity):
         bx = river_x(bz)
         for k in (-1, 0, 1):
             E.asset(f"bridge-{label}-{k}", "bridge", bx + k * 40.0, bz, yaw=90.0, y=WATER_Y,
-                    collider={"shape": "mesh"}, tags=["bridge"])
+                    tags=["bridge"])
+        deck = WATER_Y + 4.0
+        E.add(f"bridge-{label}-deck", "box", [bx, deck - 0.15, bz], size=[120.0, 0.3, 6.8],
+              collider={"shape": "box"}, tags=["bridge", "ground"], visible=False)
+        for side in (-1, 1):
+            bank = height(bx + side * 100.0, bz)
+            angle = side * math.atan2(bank - deck, 40.0)
+            E.add(f"bridge-{label}-ramp-{side}", "box",
+                  [bx + side * 80.0 + math.sin(angle) * 0.15,
+                   (deck + bank) / 2.0 - math.cos(angle) * 0.15, bz],
+                  size=[math.hypot(40.0, bank - deck) + 0.4, 0.3, 6.8],
+                  rotation_deg=[0.0, 0.0, math.degrees(angle)],
+                  collider={"shape": "box"}, color=[0.36, 0.28, 0.18, 1], tags=["bridge", "ground"])
         if label == "south":
             E.add("bridge-marker", "sphere", [bx, WATER_Y + 4.5, bz], radius=0.3, segments=6,
                   color=[1, 0.8, 0.2, 1], tags=["marker", "floating"])

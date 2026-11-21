@@ -228,3 +228,30 @@ fn shooter_reload_exposes_animation_time_and_refills_from_reserve() {
     assert_eq!(simulation.state()["state"]["ammo_reserve"],149);
     assert_eq!(simulation.state()["state"]["_reload"],0.0);
 }
+
+#[test]
+fn shooter_player_walks_across_both_generated_bridges_without_jumping() {
+    for label in ["south", "north"] {
+        let mut scene: Scene = serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
+        let prefix = format!("bridge-{label}-");
+        let center = scene.entities.iter().find(|e| e.name == format!("{prefix}0")).unwrap().transform.position;
+        scene.entities.retain(|e| e.name == "player" || e.name == "terrain" || e.name == "intel" || e.name.starts_with(&prefix));
+        scene.entities.iter_mut().find(|e| e.name == "player").unwrap().transform.position = [center[0] - 110.0, 50.0, center[2]];
+        let mut simulation = Simulation::new(scene, &root()).unwrap();
+        simulation.step(240, &[]).unwrap();
+        simulation.step(1, &[Input {tick:240,action:"move_x".into(),value:1.0}]).unwrap();
+        for _ in 0..48 {
+            simulation.step(60, &[]).unwrap();
+            let snapshot = simulation.scene();
+            let p = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
+            if (p[0] - center[0]).abs() < 59.0 {
+                assert!(p[1] > 5.3, "{label}: fell below deck at {p:?}");
+            }
+        }
+        let snapshot = simulation.scene();
+        let p = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
+        assert!(p[0] > center[0] + 105.0, "{label}: bridge crossing blocked at {p:?}");
+        assert!(!simulation.failed, "{}", simulation.state());
+        println!("Shooter bridge {label}: crossed deck and both ramps without jumping");
+    }
+}
