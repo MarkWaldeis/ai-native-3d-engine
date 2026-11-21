@@ -3,6 +3,7 @@ import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame } from './controls.js';
 import { GameEffects } from './effects.js';
 import { worldConfig } from './streaming.js';
+import { Visuals, renderConfig } from './render.js';
 import { StreamingWorld, loadAsset } from './world.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 
@@ -19,7 +20,7 @@ const audio = new GameAudio();
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
-let streaming, statsOverlay, playerId;
+let streaming, statsOverlay, playerId, visuals;
 const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
 const loading = new Set();
 const benchMarks = {};
@@ -280,6 +281,7 @@ function resize() {
   const width = innerWidth, height = innerHeight;
   effects.configure();
   camera.aspect = width / height; camera.updateProjectionMatrix(); updateCamera(true);
+  visuals?.resize(width, height);
 }
 
 async function restart() {
@@ -421,13 +423,15 @@ function frame(now) {
     updateCamera(false, elapsed);
     streaming?.update(camera);
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streaming && objects.get(playerId)?.position);
-    updateShadows(); updateObjective(); renderer.render(world, camera);
+    if (!visuals) updateShadows(); updateObjective();
+    if (visuals) { visuals.update(rawElapsed, camera, objects.get(playerId)?.position); visuals.render(camera); Object.assign(stats, visuals.stats()); }
+    else renderer.render(world, camera);
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
-    if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances`;
+    if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${visuals ? ` · ${stats.quality}` : ''}`;
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
 }
@@ -482,6 +486,8 @@ async function boot() {
   game = new WebGame();
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
   if (config) camera.far = config.draw_distance;
+  const visualConfig = renderConfig(source.entities, location.search);
+  if (visualConfig) { visuals = new Visuals(renderer, world, camera, visualConfig); effects.configure = () => visuals.resize(innerWidth, innerHeight); }
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
   resize(); await restart(); $('pause').disabled = false;

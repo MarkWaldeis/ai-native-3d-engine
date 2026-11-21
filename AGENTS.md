@@ -100,6 +100,23 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   Screenshots nach `docs/web_*.png`. Headless-Chrome in GPU-losen macOS-VMs
   benötigt ggf. `--use-angle=swiftshader --enable-unsafe-swiftshader`.
 
+## Render-Qualität (ai_render)
+
+- Optionales Player-Prop `ai_render` (Objekt/JSON-String): `preset` ultra/high/
+  medium/low, `sky`, `fog` (bool oder `{density}`), `time_of_day` (Default 15),
+  `shadows`, `foliage` (bool oder `{density}`), `water:{level}`, `exposure`,
+  `bloom`, `ao`, `dof`, `auto_quality`. Ohne Prop/URL unveränderte Darstellung.
+- Alias `ai_graphics` (Objekt/JSON-String), auch `{}` aktiviert die Defaults.
+  Beide Props werden zusammengeführt; `ai_render` gewinnt bei gleichen Feldern.
+  Render-Poststack bleibt eigenständig in render.js (ein Composer-Besitzer).
+- `?quality=ultra|high|medium|low` erzwingt Qualität ohne Automatik;
+  `?quality=auto` aktiviert Automatik. Mobil startet maximal medium ohne Override.
+- Sky/PMREM, CSM, Bloom/GTAO/SMAA (ultra), FXAA (medium), prozedurales Wasser
+  und gekachelte GPU-Vegetation; ausschließlich Darstellung, keine Spielphysik.
+- Terrain: `window.__aiEngineVisuals.setHeightSampler((x,z)=>y)`; sonst statische
+  Ground-Raycasts/Nullhöhe. `?stats=1` zeigt Qualitätsstufe; Details: docs/WEB_VISUALS.md.
+- Tests: `node --test tools/test_web_render.mjs`; Addons three@0.160.1 lokal vendort.
+
 ## Große Web-Welten / Streaming
 
 - Optionales Player-Prop `ai_world` (Objekt oder JSON-String): `chunk_size` (128 m),
