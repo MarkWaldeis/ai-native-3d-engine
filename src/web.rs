@@ -14,6 +14,7 @@ use std::{
 
 const PLAYER_FILES: &[(&str, &str)] = &[
     ("input.js", include_str!("../crates/engine-web/player/input.js")),
+    ("input-settings.js", include_str!("../crates/engine-web/player/input-settings.js")),
     ("animation.js", include_str!("../crates/engine-web/player/animation.js")),
     ("favicon.svg", include_str!("../crates/engine-web/favicon.svg")),
     ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),

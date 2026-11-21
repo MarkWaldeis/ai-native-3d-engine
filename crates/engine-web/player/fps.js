@@ -67,15 +67,6 @@ export class FirstPerson {
     });
     listen(window, 'mouseup', e => { if (e.button === 0) this.buttons.fire = false; });
     listen(document, 'mousemove', e => { if (this.active && this.locked()) this.look = applyLook(this.look, e.movementX, e.movementY, this.config.mouse_sens); });
-    listen(window, 'keydown', e => {
-      if (!this.active) return;
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.buttons.sprint = true;
-      if (e.code === 'KeyR') this.buttons.reload = true;
-    });
-    listen(window, 'keyup', e => {
-      if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') this.buttons.sprint = false;
-      if (e.code === 'KeyR') this.buttons.reload = false;
-    });
     this.touchLook = document.createElement('div'); this.touchLook.className = 'fps-look-zone'; this.canvas.after(this.touchLook);
     listen(this.touchLook, 'pointerdown', e => { if (!this.active) return; e.preventDefault(); this.lookPointer = e.pointerId; this.lastLook = [e.clientX, e.clientY]; capture(this.touchLook, e.pointerId); });
     listen(this.touchLook, 'pointermove', e => {
@@ -104,8 +95,12 @@ export class FirstPerson {
   stop() { this.active = false; document.body.classList.remove('fps-active'); this.resetInput(); if (this.locked()) document.exitPointerLock?.(); }
   resetInput() { this.buttons = { fire: false, reload: false, sprint: false }; this.firePointers.clear(); this.lookPointer = null; this.lastLook = null; }
   /** Contract inputs for one simulation tick; `move` is local (x strafe, z: -1 forward). */
-  inputs(move, jump) {
-    return fpsInputs(move, this.look, { ...this.buttons, fire: this.buttons.fire || this.firePointers.size > 0, jump });
+  gamepadLook(x, y, dt) {
+    if (this.active) this.look = applyLook(this.look, x, y, dt);
+  }
+  inputs(move, jump, actions = {}) {
+    return fpsInputs(move, this.look, { fire: actions.fire || this.buttons.fire || this.firePointers.size > 0,
+      reload: actions.reload || this.buttons.reload, sprint: actions.sprint || this.buttons.sprint, jump });
   }
   apply(result, playerObject) {
     if (playerObject) playerObject.visible = false;

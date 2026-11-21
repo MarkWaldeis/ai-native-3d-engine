@@ -157,6 +157,17 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 - `python3 tools/gen_large_world.py target/large_world.json` erzeugt die große
   Demo (nicht einchecken); danach regulär mit `--export-web` exportieren.
 
+## Eingabe / Gamepad
+
+Web-Player: WASD/Pfeile, Leertaste sowie Standard-Gamepads (linker Stick/D-Pad:
+Bewegen, rechter Stick: Zielen, A: Aktion, RT: Feuer, X: Nachladen, L3: Sprint,
+Start: Pause). A startet auch das sichtbare Start-/Neustart-Modal.
+Player-Prop `ai_input` (Objekt/JSON): `bindings`, `deadzone` (0.15),
+`look_sensitivity` (1 rad/s), `invert_y` (false). Footer „Steuerung“ pausiert,
+erlaubt Neubelegung und speichert pro Spieltitel lokal. Touch-Steuerung wird bei
+groben Zeigern oder erster Touch-Eingabe sichtbar. Schema/Details: `docs/INPUT.md`.
+Checks: `node --test tools/test_web_*.mjs`, Web-Export und Release-Parität.
+
 ## Shooter / First Person
 
 Player-Prop `ai_fps` schaltet den Web-Player auf Ego-Perspektive (Pointer Lock,

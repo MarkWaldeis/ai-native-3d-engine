@@ -1,4 +1,27 @@
 export const ACTIONS = Object.freeze(['move_left', 'move_right', 'move_forward', 'move_back', 'action', 'fire', 'reload', 'sprint', 'pause', 'look_x', 'look_y']);
+export class InputEdges {
+  previous = new Set();
+  sample(actions) {
+    const held = new Set(Object.keys(actions).filter(action => actions[action] > 0.5));
+    const pressed = new Set([...held].filter(action => !this.previous.has(action)));
+    this.previous = held;
+    return pressed;
+  }
+}
+
+export function pushedBindings(pads) {
+  const bindings = [];
+  for (const pad of Array.from(pads ?? [])) {
+    if (!pad || pad.connected === false) continue;
+    Array.from(pad.buttons ?? []).forEach((b, index) => {
+      if (typeof b === 'number' ? b > 0.6 : b?.pressed || b?.value > 0.6) bindings.push({ type: 'button', index });
+    });
+    Array.from(pad.axes ?? []).forEach((value, index) => {
+      if (Number.isFinite(value) && Math.abs(value) > 0.6) bindings.push({ type: 'axis', index, dir: Math.sign(value) });
+    });
+  }
+  return bindings;
+}
 const key = code => ({ type: 'key', code });
 const button = index => ({ type: 'button', index });
 const axis = (index, dir) => ({ type: 'axis', index, dir });

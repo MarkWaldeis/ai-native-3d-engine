@@ -1,9 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, InputSystem, parseInputConfig, radialDeadzone, sampleGamepads, describeBinding } from '../crates/engine-web/player/input.js';
+import { ACTIONS, InputSystem, InputEdges, pushedBindings, parseInputConfig, radialDeadzone, sampleGamepads, describeBinding } from '../crates/engine-web/player/input.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 const pad = (axes = [], pressed = []) => ({ axes, buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0 })) });
+
+test('gamepad modal/pause edges trigger once until released', () => {
+  const edges = new InputEdges();
+  assert.deepEqual([...edges.sample({})], []);
+  assert.deepEqual([...edges.sample({ action: 1, pause: 1 })], ['action', 'pause']);
+  assert.deepEqual([...edges.sample({ action: 1, pause: 1 })], []);
+  edges.sample({ action: 0, pause: 0 });
+  assert.deepEqual([...edges.sample({ action: 1 })], ['action']);
+});
+
+test('capture detects buttons and signed axes only beyond threshold, tolerating empty pads', () => {
+  assert.deepEqual(pushedBindings([null, {}, { connected: false, axes: [1] }]), []);
+  assert.deepEqual(pushedBindings([pad([0.6, -0.61, NaN], [2])]), [
+    { type: 'button', index: 2 }, { type: 'axis', index: 1, dir: -1 },
+  ]);
+});
 
 test('default keyboard map preserves arrows/WASD, Space and shooter keys', () => {
   const input = new InputSystem();
