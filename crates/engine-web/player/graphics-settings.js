@@ -45,6 +45,8 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     exposure: bounded(config.exposure, 1, 0.1, 4),
     toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
     hdrAntialias: config.hdr_antialias !== false,
+    contactStrength: bounded(config.contact_occlusion, 0, 0, 1),
+    contactRadius: bounded(config.contact_radius, 1.2, 0.1, 3),
     bloomStrength: bounded(config.bloom_strength, 0.22, 0, 2),
     bloomThreshold: bounded(config.bloom_threshold, 1.1, 0, 8),
     foliage: config.foliage === true || foliage ? {density:bounded(foliage?.density,1,0,4),distance:bounded(foliage?.distance,64,16,128)} : false,
@@ -53,11 +55,12 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
   };
 }
 
-export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false) {
+export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false) {
   const bloom = level > 0 && supported && strength > 0;
-  const enabled = bloom || (level === 2 && supported && antialias);
+  const contact = level === 2 && supported && contactOcclusion;
+  const enabled = bloom || contact || (level === 2 && supported && antialias);
   return {
-    enabled, bloom,
+    enabled, bloom, contact,
     pixelRatio: enabled ? Math.min(pixelRatio, Math.sqrt(2_600_000 / (width * height))) : pixelRatio,
     bloomScale: level === 2 ? 0.5 : 0.25,
   };

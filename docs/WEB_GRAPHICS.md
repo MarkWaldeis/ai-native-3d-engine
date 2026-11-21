@@ -68,6 +68,13 @@ to bright saturated materials and lights. Both curves respect `exposure` and
 work on direct and HDR paths. The HDR composite dithers the final sRGB output
 to reduce visible banding in gradients.
 
+On Ultra, set `contact_occlusion` (0–1, default 0) for soft grounding where
+geometry meets. `contact_radius` controls its reach in metres (0.1–3, default
+1.2). It samples the rendered depth in one half-resolution pass and filters
+across nearby depths without re-rendering geometry. It does not see off-screen
+surfaces or transparent objects that don't write depth. Lower tiers and GPUs
+without the necessary framebuffer support skip this effect.
+
 For primitives, set `props.ai_material` (object or JSON string) to supply
 `roughness`, `metalness`, `clearcoat`, and `clearcoat_roughness` (all 0–1).
 `emissive` is an sRGB `#rrggbb` color; `emissive_intensity` is a linear

@@ -110,6 +110,66 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.agx.rgb.every((channel, i) => Math.abs(channel - result.directAgx.rgb[i]) <= 2), 'direct and HDR compositing apply AgX once');
     console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
 
+    const contact = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { HDRPipeline } = await import('./hdr.js');
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x436b93);
+      const camera = new THREE.PerspectiveCamera(46, 1, 0.05, 150);
+      camera.position.set(3, 2.8, 4);
+      camera.lookAt(0, 0.1, 0);
+      const gray = new THREE.MeshBasicMaterial({color: 0xaaaaaa});
+      const floor = new THREE.Mesh(new THREE.PlaneGeometry(7, 7), gray);
+      floor.rotation.x = -Math.PI / 2;
+      const block = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.2, 1.5), gray);
+      block.position.y = 0.6;
+      scene.add(floor, block);
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      const gl = renderer.getContext();
+      const config = {bloomStrength: 0, hdrAntialias: false, contactStrength: 1, contactRadius: 1.25};
+      const pipeline = new HDRPipeline(renderer, config);
+      try {
+        const size = 193;
+        const sharp = new Uint8Array(size * size * 4), shaded = new Uint8Array(sharp.length);
+        pipeline.resize(1, size, size, 1);
+        pipeline.render(scene, camera);
+        gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, sharp);
+        pipeline.resize(2, size, size, 1);
+        pipeline.render(scene, camera);
+        gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, shaded);
+        let darkened = 0, flat = 0, sky = 0;
+        for (let i = 0; i < sharp.length; i += 4) {
+          if (sharp[i] - shaded[i] > 8) darkened++;
+          if (sharp[i] > 155 && Math.abs(shaded[i] - sharp[i]) <= 1) flat++;
+          if (sharp[i + 2] - sharp[i] > 35 && Math.abs(shaded[i] - sharp[i]) <= 1) sky++;
+        }
+        const draws = renderer.info.render.calls, half = pipeline.contact.target.width;
+        pipeline.resize(0, size, size, 1);
+        const released = !pipeline.sceneTarget && !pipeline.contact;
+        const check = gl.checkFramebufferStatus.bind(gl);
+        let rejectDepth = true;
+        gl.checkFramebufferStatus = target => {
+          if (rejectDepth) { rejectDepth = false; return gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT; }
+          return check(target);
+        };
+        const fallback = new HDRPipeline(renderer, {...config, bloomStrength: 0.2});
+        try {
+          fallback.resize(2, size, size, 1);
+          fallback.render(scene, camera);
+          return {darkened, flat, sky, half, draws, released,
+            fallback: !!fallback.bright && !fallback.contact && !fallback.sceneTarget.depthTexture,
+            glError: gl.getError()};
+        } finally { fallback.release(); gl.checkFramebufferStatus = check; }
+      } finally {
+        pipeline.release();
+        block.geometry.dispose(); floor.geometry.dispose(); gray.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(contact.darkened > 50 && contact.flat > 5000 && contact.sky > 500, JSON.stringify(contact));
+    assert.deepEqual([contact.half, contact.draws, contact.released, contact.fallback, contact.glError], [97, 4, true, true, 0]);
+    console.log('PASS contact occlusion: local grounding, unchanged open surfaces and sky, and GPU/tier fallback');
+
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
     await page.setViewportSize({ width: 1100, height: 750 });
@@ -145,6 +205,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
     const [loaded, floor, reflected] = await Promise.all([
       page.waitForResponse(map), page.waitForResponse(response => response.url().startsWith(studio) && response.url().endsWith('.glb')), render(),
     ]);
+    await page.screenshot({ path: `${shots}/material-studio-contact.png` });
     assert.equal(loaded.status(), 200, 'the exported panorama is loaded from its bundle');
     assert.equal(floor.status(), 200, 'the textured floor loads from a bundled GLB');
     assert.equal(reflected.title, 'Materiallabor');
@@ -171,6 +232,15 @@ export async function verifyGraphics(browser, base, errors, shots) {
       callback(scene);
       await route.fulfill({ response, json: scene });
     };
+    const noContact = patchScene(scene => {
+      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.contact_occlusion = 0;
+    });
+    await page.route(background, noContact);
+    const open = await render();
+    await page.screenshot({ path: `${shots}/material-studio-no-contact.png` });
+    await page.unroute(background, noContact);
+    assert.equal(open.error, 0);
+    assert.notDeepEqual(open.pixels, reflected.pixels, 'the exported studio enables contact occlusion');
     const agxToneMapping = patchScene(scene => {
       scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.tone_mapping = 'agx';
     });

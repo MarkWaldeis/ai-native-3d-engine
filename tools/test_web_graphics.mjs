@@ -27,6 +27,10 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(config.bloomStrength, 0);
   assert.equal(config.hdrAntialias, true);
   assert.equal(graphicsConfig({hdr_antialias:false}, 'ultra').hdrAntialias, false);
+  assert.equal(config.contactStrength, 0);
+  assert.equal(config.contactRadius, 1.2);
+  assert.equal(graphicsConfig({contact_occlusion:9}, 'ultra').contactStrength, 1);
+  assert.equal(graphicsConfig({contact_radius:0}, 'ultra').contactRadius, 0.1);
   assert.equal(config.sky, '#4d88cb');
   assert.equal(config.horizon, '#abcdef');
   assert.deepEqual(config.sunDirection, [0, 0.8, 0.6]);
@@ -121,7 +125,7 @@ test('point lights resolve flexible props and remain bounded as emitters move or
 test('HDR respects fallback, render-pixel budget, and quality levels', () => {
   for (const [level, supported, strength] of [[0, true, 1], [2, false, 1], [2, true, 0]]) {
     assert.deepEqual(hdrSettings(level, supported, strength, 2560, 1440, 1.5), {
-      enabled: false, bloom: false, pixelRatio: 1.5, bloomScale: level === 2 ? 0.5 : 0.25,
+      enabled: false, bloom: false, contact: false, pixelRatio: 1.5, bloomScale: level === 2 ? 0.5 : 0.25,
     });
   }
   const high = hdrSettings(2, true, 0.2, 2560, 1440, 1.5);
@@ -129,9 +133,12 @@ test('HDR respects fallback, render-pixel budget, and quality levels', () => {
   assert.equal(high.bloomScale, 0.5);
   assert.equal(high.bloom, true);
   assert.deepEqual(hdrSettings(2, true, 0, 500, 500, 1, true), {
-    enabled: true, bloom: false, pixelRatio: 1, bloomScale: 0.5,
+    enabled: true, bloom: false, contact: false, pixelRatio: 1, bloomScale: 0.5,
   });
   assert.equal(hdrSettings(1, true, 0, 500, 500, 1, true).enabled, false);
+  assert.ok(hdrSettings(2, true, 0, 500, 500, 1, false, true).contact);
+  assert.equal(hdrSettings(2, false, 1, 500, 500, 1, true, true).contact, false);
+  assert.equal(hdrSettings(1, true, 1, 500, 500, 1, true, true).contact, false);
   assert.equal(hdrSettings(1, true, 1, 500, 500, 1).bloomScale, 0.25);
 });
 
