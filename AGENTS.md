@@ -163,6 +163,21 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 - `python3 tools/gen_large_world.py target/large_world.json` erzeugt die große
   Demo (nicht einchecken); danach regulär mit `--export-web` exportieren.
 
+## Multiplayer / Netcode
+
+- `engine-net`: 60-Hz-Autorität, `net_player`-Slots nach ID, eigene Inputs,
+  Prediction/Rollback, Snapshot-Deltas und 100-ms-Interpolation; `shared/` frozen.
+- MCP `net_simulate {clients:2,ticks:600,rtt_ms:120,jitter_ms:20,loss:0.05,seed:1,
+  inputs:[[{tick:0,action:"move_x",value:1}],[]]}`: isoliert von Authoring/Play;
+  optional `scene` als JSON oder projektgebundener Pfad. Positionsvergleich am
+  gleichen Tick; `null` bedeutet kein Vergleich, nicht Konvergenz.
+- Arena: `examples/net_arena/`; `cargo run -p engine-net --example loopback --
+  --scene examples/net_arena/scene.json --rtt-ms 120 --jitter-ms 20 --loss 0.05`.
+- Checks: `cargo test -p engine-net`; `cargo test -p engine-tests --test netcode`;
+  `cargo build -p engine-net --target wasm32-unknown-unknown`. Doku: `docs/NETCODE.md`.
+  Kein Spawn-Replikat, keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
+  Browser-Transport fehlt noch.
+
 ## Shooter / First Person
 
 Player-Prop `ai_fps` schaltet den Web-Player auf Ego-Perspektive (Pointer Lock,

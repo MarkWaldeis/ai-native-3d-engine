@@ -134,7 +134,7 @@ fn contact_grounding_preserves_gravity_and_wall_is_not_ground() {
     assert!(sim.state()["state"]["vy"].as_f64().unwrap().abs() < 0.01);
     sim.step(
         10,
-        &[Input {
+        &[Input { entity: None,
             tick: 150,
             action: "jump".into(),
             value: 1.0,

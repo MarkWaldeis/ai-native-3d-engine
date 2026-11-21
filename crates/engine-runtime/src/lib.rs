@@ -3,6 +3,8 @@ mod combat;
 pub mod animation;
 pub mod navigation;
 mod physics;
+mod netcode;
+pub use netcode::{NetEntityState, SimState};
 mod terrain_stream;
 pub mod report;
 mod script;
@@ -71,9 +73,11 @@ mod entity_limit_tests {
 }
 pub const MAX_TICKS: u64 = 36_000;
 
+#[derive(Clone)]
 struct Data {
     scene: Scene,
     inputs: BTreeMap<String, f64>,
+    entity_inputs: BTreeMap<u64, BTreeMap<String, f64>>,
     state: BTreeMap<String, Value>,
     logs: VecDeque<String>,
     forces: Vec<Force>,
@@ -84,6 +88,10 @@ struct Data {
     combat: combat::Combat,
 }
 impl Data {
+    fn input(&self, id: u64, name: &str) -> f64 {
+        self.entity_inputs.get(&id).and_then(|inputs| inputs.get(name))
+            .or_else(|| self.inputs.get(name)).copied().unwrap_or(0.0)
+    }
     fn refresh_player(&mut self) {
         self.combat.player = self
             .scene
@@ -115,6 +123,7 @@ impl Data {
     }
 }
 
+#[derive(Clone)]
 struct ScriptInstance {
     ast: AST,
     label: String,
@@ -131,6 +140,8 @@ struct ActiveRegion {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
+    #[serde(default)]
+    pub entity: Option<u64>,
     pub tick: u64,
     pub action: String,
     pub value: f64,
@@ -214,6 +225,7 @@ impl Simulation {
         let data = Rc::new(RefCell::new(Data {
             scene,
             inputs: BTreeMap::new(),
+            entity_inputs: BTreeMap::new(),
             state: BTreeMap::new(),
             logs: VecDeque::new(),
             forces: vec![],
@@ -475,10 +487,12 @@ impl Simulation {
         let result = (|| {
             while self.tick < end {
                 for input in inputs.iter().filter(|i| i.tick == self.tick) {
-                    self.data
-                        .borrow_mut()
-                        .inputs
-                        .insert(input.action.clone(), input.value);
+                    let mut data = self.data.borrow_mut();
+                    let inputs = match input.entity {
+                        Some(id) => data.entity_inputs.entry(id).or_default(),
+                        None => &mut data.inputs,
+                    };
+                    inputs.insert(input.action.clone(), input.value);
                 }
                 {
                     let mut data = self.data.borrow_mut();
