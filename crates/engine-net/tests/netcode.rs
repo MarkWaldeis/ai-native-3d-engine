@@ -220,6 +220,48 @@ fn reconciliation_replays_history_smooths_visual_error_and_recovers_baselines() 
 }
 
 #[test]
+fn reconciliation_restores_predicted_pickups_and_ignores_unknown_entities() -> Result<()> {
+    let mut scene = support::scene();
+    scene
+        .entities
+        .iter_mut()
+        .find(|e| e.id == 2)
+        .unwrap()
+        .script = Some(shared::components::Script::Inline {
+        source: "fn on_tick(ctx, dt) { if ctx.input(\"pickup\") > 0.0 { ctx.remove(4); } }".into(),
+    });
+    let mut server = NetServer::new(scene.clone(), BTreeMap::new(), ServerConfig::default())?;
+    let mut client = NetClient::new(scene, BTreeMap::new(), ClientConfig::default())?;
+    join(&mut server, &mut client, 1)?;
+    for tick in 0..2 {
+        client.tick(BTreeMap::from([("pickup".into(), 1.0)]), tick as f64 * 17.0)?;
+        let messages = server.tick()?;
+        if tick == 1 {
+            assert!(!client
+                .simulation()
+                .scene()
+                .entities
+                .iter()
+                .any(|e| e.id == 4));
+            let (_, ServerMessage::Snapshot(mut snapshot)) = messages.into_iter().next().unwrap()
+            else {
+                panic!("snapshot expected");
+            };
+            let mut unknown = snapshot.entities[0].clone();
+            unknown.id = 999;
+            snapshot.entities.push(unknown);
+            client.receive(ServerMessage::Snapshot(snapshot), 34.0)?;
+        }
+    }
+    assert_bits(
+        &client.simulation().net_entity_states(),
+        &server.simulation().net_entity_states(),
+    );
+    assert_eq!(client.stats().corrections, 1);
+    Ok(())
+}
+
+#[test]
 fn invalid_inputs_configs_and_removed_entities_have_explicit_behavior() -> Result<()> {
     assert!(NetServer::new(
         support::scene(),

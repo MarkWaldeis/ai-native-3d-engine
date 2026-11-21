@@ -41,6 +41,7 @@ struct Checkpoint {
 
 pub struct NetClient {
     simulation: Simulation,
+    initial_scene: Scene,
     sources: BTreeMap<String, String>,
     config: ClientConfig,
     entity: Option<u64>,
@@ -91,6 +92,7 @@ impl NetClient {
             ..NetStats::default()
         };
         let mut client = Self {
+            initial_scene: scene.clone(),
             simulation: Simulation::from_sources(scene, sources.clone())?,
             sources,
             config,
@@ -326,6 +328,10 @@ impl NetClient {
     }
 
     fn reconcile(&mut self, snapshot: &Snapshot) -> Result<()> {
+        let mut snapshot = snapshot.clone();
+        snapshot
+            .entities
+            .retain(|state| self.initial_scene.entities.iter().any(|e| e.id == state.id));
         let entity = self.entity.unwrap();
         let server = snapshot
             .entities
@@ -367,17 +373,18 @@ impl NetClient {
             // Out-of-window corrections cannot replay missing inputs. Bootstrap
             // at T and retain only the history that is still available.
             self.simulation =
-                Simulation::from_sources(self.simulation.scene(), self.sources.clone())?;
+                Simulation::from_sources(self.initial_scene.clone(), self.sources.clone())?;
         }
         let ids: std::collections::BTreeSet<_> = snapshot.entities.iter().map(|s| s.id).collect();
         let mut scene = self.simulation.scene();
-        if ids
-            .iter()
-            .any(|id| !scene.entities.iter().any(|e| e.id == *id))
-        {
-            bail!("snapshot contains an entity absent from the shared scene");
+        let mut changed = false;
+        for entity in &self.initial_scene.entities {
+            if ids.contains(&entity.id) && !scene.entities.iter().any(|e| e.id == entity.id) {
+                scene.entities.push(entity.clone());
+                changed = true;
+            }
         }
-        if scene.entities.iter().any(|e| !ids.contains(&e.id)) {
+        if changed || scene.entities.iter().any(|e| !ids.contains(&e.id)) {
             scene.entities.retain(|e| ids.contains(&e.id));
             self.simulation = Simulation::from_sources(scene, self.sources.clone())?;
         }
