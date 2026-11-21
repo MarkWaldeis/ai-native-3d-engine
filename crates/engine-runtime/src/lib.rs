@@ -1,4 +1,5 @@
 //! Deterministic, isolated gameplay runtime.
+mod combat;
 mod physics;
 pub mod report;
 mod script;
@@ -77,8 +78,32 @@ struct Data {
     velocities: BTreeMap<u64, [f32;3]>,
     grounded: BTreeSet<u64>,
     next_id: u64,
+    combat: combat::Combat,
 }
 impl Data {
+    fn refresh_player(&mut self) {
+        self.combat.player = self
+            .scene
+            .entities
+            .iter()
+            .find(|e| e.tags.iter().any(|t| t == "player"))
+            .map(|e| e.id);
+        let combat = &mut self.combat;
+        let stale = combat.vars.len() + combat.health.len() + combat.hits.len() > self.scene.entities.len() + 64;
+        if stale {
+            let live: BTreeSet<u64> = self.scene.entities.iter().map(|e| e.id).collect();
+            combat.vars.retain(|id, _| live.contains(id));
+            combat.health.retain(|id, _| live.contains(id));
+            combat.hits.retain(|id, _| live.contains(id));
+        }
+    }
+    fn entity_index(&self, id: u64) -> Option<usize> {
+        let entities = &self.scene.entities;
+        match entities.binary_search_by_key(&id, |e| e.id) {
+            Ok(index) => Some(index),
+            Err(_) => entities.iter().position(|e| e.id == id),
+        }
+    }
     fn log(&mut self, message: String) {
         if self.logs.len() == 1024 {
             self.logs.pop_front();
@@ -112,7 +137,7 @@ pub struct Simulation {
     data: Rc<RefCell<Data>>,
     engine: rhai::Engine,
     scripts: BTreeMap<u64, ScriptInstance>,
-    physics: Physics,
+    physics: Rc<RefCell<Physics>>,
     root: PathBuf,
     sources: Option<BTreeMap<String, String>>,
     active_region: Option<ActiveRegion>,
@@ -180,13 +205,15 @@ impl Simulation {
             velocities: BTreeMap::new(),
             grounded: BTreeSet::new(),
             next_id,
+            combat: combat::Combat::default(),
         }));
+        let physics = Rc::new(RefCell::new(Physics::new(root.clone())));
         let engine = script::engine(data.clone());
         let mut simulation = Self {
             data,
             engine,
             scripts: BTreeMap::new(),
-            physics: Physics::new(root.clone()),
+            physics,
             root,
             sources,
             active_region: None,
@@ -194,10 +221,13 @@ impl Simulation {
             tick: 0,
             failed: false,
         };
+        simulation.data.borrow_mut().refresh_player();
         simulation.prepare_scripts()?;
-        simulation
-            .physics
-            .reconcile(&simulation.data.borrow().scene)?;
+        {
+            let mut physics = simulation.physics.borrow_mut();
+            physics.reconcile(&simulation.data.borrow().scene)?;
+            physics.refresh_queries();
+        }
         Ok(simulation)
     }
 
@@ -254,6 +284,11 @@ impl Simulation {
                 self.inactive.remove(&entity.id);
             }
         }
+    }
+
+    /// Drains `{fx, events}` requested by scripts since the last `step` call began.
+    pub fn take_events(&self) -> Value {
+        self.data.borrow_mut().combat.take_output()
     }
 
     pub fn state(&self) -> Value {
@@ -346,6 +381,7 @@ impl Simulation {
         let ctx = script::Context {
             id,
             data: self.data.clone(),
+            physics: self.physics.clone(),
         };
         let options = CallFnOptions::new().eval_ast(false);
         let result = if hook == "on_start" {
@@ -397,6 +433,7 @@ impl Simulation {
     pub fn step(&mut self, ticks: u64, inputs: &[Input]) -> Result<()> {
         self.validate_step(ticks, inputs)?;
         let end = self.tick + ticks;
+        self.data.borrow_mut().combat.clear_output();
         let result = (|| {
             while self.tick < end {
                 for input in inputs.iter().filter(|i| i.tick == self.tick) {
@@ -404,6 +441,11 @@ impl Simulation {
                         .borrow_mut()
                         .inputs
                         .insert(input.action.clone(), input.value);
+                }
+                {
+                    let mut data = self.data.borrow_mut();
+                    data.refresh_player();
+                    data.combat.raycasts = 0;
                 }
                 self.prepare_scripts()?;
                 self.refresh_active_region();
@@ -417,8 +459,9 @@ impl Simulation {
                 let mut data = self.data.borrow_mut();
                 let forces = std::mem::take(&mut data.forces);
                 let dirty = std::mem::take(&mut data.dirty);
-                self.physics.step(&mut data.scene, &dirty, forces, &self.inactive)?;
-                let (velocities, grounded) = self.physics.motion();
+                let mut physics = self.physics.borrow_mut();
+                physics.step(&mut data.scene, &dirty, forces, &self.inactive)?;
+                let (velocities, grounded) = physics.motion();
                 data.velocities=velocities; data.grounded=grounded;
                 self.tick += 1;
             }

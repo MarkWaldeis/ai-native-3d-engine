@@ -10,10 +10,11 @@ use std::rc::Rc;
 pub(crate) struct Context {
     pub id: u64,
     pub data: Rc<RefCell<Data>>,
+    pub physics: Rc<RefCell<crate::physics::Physics>>,
 }
 type ScriptResult<T> = Result<T, Box<EvalAltResult>>;
 
-fn vector(value: Array) -> ScriptResult<[f32; 3]> {
+pub(crate) fn vector(value: Array) -> ScriptResult<[f32; 3]> {
     if value.len() != 3 {
         return Err("expected a three-number vector".into());
     }
@@ -31,7 +32,7 @@ fn vector(value: Array) -> ScriptResult<[f32; 3]> {
     Ok(out)
 }
 
-fn array(value: [f32; 3]) -> Array {
+pub(crate) fn array(value: [f32; 3]) -> Array {
     value.into_iter().map(|n| Dynamic::from(n as f64)).collect()
 }
 
@@ -57,6 +58,7 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
         .set_max_map_size(256)
         .set_max_variables(256)
         .set_max_functions(128);
+    crate::combat::register(&mut engine);
     // Only deterministic primitives and the explicit Context API are exposed.
     for symbol in ["eval", "sleep", "timestamp", "elapsed"] {
         engine.disable_symbol(symbol);

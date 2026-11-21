@@ -23,6 +23,15 @@ pub(crate) struct Physics {
     root: std::path::PathBuf,
     terrain: BTreeMap<u64, (String, engine_terrain::Terrain)>,
     terrain_handles: BTreeMap<(u64, u32, u32), ColliderHandle>,
+    query: QueryPipeline,
+    owners: std::collections::HashMap<RigidBodyHandle, u64>,
+}
+
+pub(crate) struct RayHit {
+    pub id: u64,
+    pub point: [f32; 3],
+    pub normal: [f32; 3],
+    pub distance: f32,
 }
 
 fn pose(t: &Transform) -> Isometry<Real> {
@@ -162,7 +171,46 @@ impl Physics {
             multibody: MultibodyJointSet::new(),
             ccd: CCDSolver::new(),
             handles: BTreeMap::new(),
+            query: QueryPipeline::new(),
+            owners: std::collections::HashMap::new(),
         }
+    }
+
+    pub(crate) fn refresh_queries(&mut self) {
+        self.query.update(&self.colliders);
+    }
+
+    /// Casts a ray against enabled, non-sensor colliders. `id` 0 means terrain/unowned.
+    pub(crate) fn raycast(&self, origin: [f32; 3], dir: [f32; 3], max_dist: f32, exclude: Option<u64>) -> Option<RayHit> {
+        let length = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();
+        if !(length > 1e-6) || !(max_dist > 0.0) || origin.iter().any(|v| !v.is_finite()) {
+            return None;
+        }
+        let ray = Ray::new(
+            point![origin[0], origin[1], origin[2]],
+            vector![dir[0] / length, dir[1] / length, dir[2] / length],
+        );
+        let bodies = &self.bodies;
+        let enabled = |_: ColliderHandle, collider: &Collider| {
+            collider.parent().map_or(true, |parent| bodies.get(parent).is_some_and(|b| b.is_enabled()))
+        };
+        let mut filter = QueryFilter::new().exclude_sensors().predicate(&enabled);
+        if let Some(handle) = exclude.and_then(|id| self.handles.get(&id)) {
+            filter = filter.exclude_rigid_body(*handle);
+        }
+        let (collider, hit) = self.query.cast_ray_and_get_normal(bodies, &self.colliders, &ray, max_dist, true, filter)?;
+        let id = self.colliders[collider]
+            .parent()
+            .and_then(|parent| self.owners.get(&parent).copied())
+            .or_else(|| self.terrain_handles.iter().find(|(_, h)| **h == collider).map(|(k, _)| k.0))
+            .unwrap_or(0);
+        let p = ray.point_at(hit.time_of_impact);
+        Some(RayHit {
+            id,
+            point: [p.x, p.y, p.z],
+            normal: [hit.normal.x, hit.normal.y, hit.normal.z],
+            distance: hit.time_of_impact,
+        })
     }
 
     pub(crate) fn reconcile(&mut self, scene: &Scene) -> Result<()> {
@@ -176,6 +224,7 @@ impl Physics {
             .collect();
         for id in removed {
             let handle = self.handles.remove(&id).unwrap();
+            self.owners.remove(&handle);
             self.bodies.remove(
                 handle,
                 &mut self.islands,
@@ -242,6 +291,7 @@ impl Physics {
                 );
             }
             self.handles.insert(entity.id, handle);
+            self.owners.insert(handle, entity.id);
         }
         Ok(())
     }
@@ -413,7 +463,7 @@ impl Physics {
             &mut self.joints,
             &mut self.multibody,
             &mut self.ccd,
-            None,
+            Some(&mut self.query),
             &(),
             &(),
         );
