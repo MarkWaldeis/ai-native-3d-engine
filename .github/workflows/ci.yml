@@ -38,6 +38,7 @@ jobs:
           rm -rf target/m9-site target/web-release-shots
           cargo run -- --export-web examples/coin_game/scene.json target/m9-site/coin_game
           cargo run -- --export-web examples/sky_garden/scene.json target/m9-site/sky_garden
+          cargo run -- --export-web examples/material_studio/scene.json target/m9-site/material_studio
           cargo run -- --project examples/lantern_maze --export-web scene.json web
           mv examples/lantern_maze/web target/m9-site/lantern_maze
       - name: Native simulate reference for recorded traces

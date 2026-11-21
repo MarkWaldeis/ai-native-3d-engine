@@ -199,3 +199,60 @@ fn web_export_empty_scene_and_missing_sources_are_safe() {
         .iter()
         .any(|t| t["name"] == "export_web"));
 }
+
+#[test]
+fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
+    let fixture = Fixture::new();
+    let repo = root();
+    let mut scene: Scene = serde_json::from_slice(
+        &std::fs::read(repo.join("examples/material_studio/scene.json")).unwrap(),
+    )
+    .unwrap();
+    let pkg = fixture.0.join("pkg");
+    let out = fixture.0.join("site");
+    let original = scene.clone();
+    let report = export_bundle(&scene, &repo, &out, &pkg).unwrap();
+    assert_eq!(scene, original);
+    assert_eq!(report["assets"], 1);
+    assert!(out.join("vendor/addons/loaders/RGBELoader.js").is_file());
+    let hdr = std::fs::read(repo.join("examples/material_studio/studio.hdr")).unwrap();
+    assert_eq!(
+        std::fs::read(out.join("assets/environment.hdr")).unwrap(),
+        hdr
+    );
+    let exported: Scene =
+        serde_json::from_slice(&std::fs::read(out.join("scene.json")).unwrap()).unwrap();
+    let config = &exported.entities[1].props["ai_graphics"];
+    assert_eq!(config["environment_map"], "assets/environment.hdr");
+    assert_eq!(config["environment_background"], false);
+    assert_eq!(config["exposure"], 0.93);
+
+    // The JSON-string form is used by Blender custom properties.
+    scene.entities[1].props["ai_graphics"] =
+        json!(r#"{"environment_map":"examples/material_studio/studio.hdr"}"#);
+    assert_eq!(
+        export_bundle(&scene, &repo, &fixture.0.join("string"), &pkg).unwrap()["assets"],
+        1
+    );
+
+    let assets = &fixture.0;
+    let broken = assets.join("broken.hdr");
+    std::fs::write(&broken, &hdr[..hdr.len() - 1]).unwrap();
+    scene.entities[1].script = None;
+    for (path, expected) in [
+        (json!(42), "project-relative .hdr path"),
+        (json!("photo.jpg"), "project-relative .hdr path"),
+        (
+            json!("../escaped.hdr"),
+            "invalid ai_graphics.environment_map path",
+        ),
+        (json!("absent.hdr"), "environment map not found"),
+        (json!("broken.hdr"), "truncated RGBE scanline packet"),
+    ] {
+        scene.entities[1].props["ai_graphics"] = json!({"environment_map":path});
+        let invalid = assets.join("invalid");
+        let err = export_bundle(&scene, assets, &invalid, &pkg).unwrap_err();
+        assert!(format!("{err:#}").contains(expected), "{err:#}");
+        assert!(!invalid.exists());
+    }
+}
