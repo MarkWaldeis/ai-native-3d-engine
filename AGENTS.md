@@ -135,6 +135,16 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- HLOD: `ai_world.hlod` (true), `hlod_distance` (1600 m, größer als
+  `draw_distance`), `hlod_cluster` (4×4 Chunks), `hlod_min_radius` (1,5 m).
+  Statische Fernobjekte werden mit Welttransforms/Farben zusammengeführt,
+  GLBs durch lokale Bounds ersetzt. Ein Cluster-Aufbau pro Frame, gemeinsame
+  Materialien und zusammenhängende Chunk-Indexbereiche sparen Draw Calls.
+  Chunkweiser Wechsel mit Hysterese; bei asynchroner Nah-LOD bleibt der Proxy
+  bis zur Bereitschaft erhalten. `hlod:false` erhält den bisherigen Renderpfad.
+  Nebel/Kamera reichen bis `hlod_distance`; Stats/Bench: `hlodClusters`,
+  `hlodDrawCalls`, `hlodTriangles`. Optionaler Occluder über `setHlodOcclusion`.
+
 - `ai_graphics`: `time_of_day`, `foliage:{density,distance}`, `water:{level,color}`,
   `fog_density`; deprecated Alias `ai_render` überschreibt gleiche Felder.
   Vegetation/Wasser folgen der bestehenden Grafikqualität; Terrain-Sampler:

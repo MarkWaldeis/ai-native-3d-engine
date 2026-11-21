@@ -61,3 +61,11 @@ test('summary reports terrain counters and leaves absent terrain measurements mi
   assert.match(report,/desktop \| 42\.00 \| 8\.00 \| 123456\.00 \| 2345678\.00 \| 0\.00/);
   assert.match(report,/mobile \| — \| — \| — \| — \| —/);
 });
+
+test('summary reports HLOD counters and missing-profile markers',()=>{
+  const results={browserVersion:'test',config:{},scene:{entities:10,colliders:0},profiles:{desktop:{hlod:{hlodClusters:4,hlodDrawCalls:5,hlodTriangles:120}},mobile:{}},violations:[]};
+  const report=summary(results);
+  assert.match(report,/HLOD draw calls/);
+  assert.match(report,/desktop \| 4\.00 \| 5\.00 \| 120\.00/);
+  assert.match(report,/mobile \| — \| — \| —/);
+});

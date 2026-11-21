@@ -83,6 +83,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "nature-settings.js",
         "streaming.js",
         "world.js",
+        "hlod.js",
         "effects.js",
         "presentation.js",
         "graphics-settings.js",

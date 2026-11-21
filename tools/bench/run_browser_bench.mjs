@@ -144,7 +144,7 @@ async function runProfile(browser, name, config, url, output) {
       const load = Object.fromEntries(['wasmInitialized','sceneFetched','webGameLoaded','assetsReady'].map(k=>[`${k}Ms`,marks[k]-marks.bootStart]));
       const stats=window.__engineStats;
       const terrain=window.__aiTerrain ? {loadedTiles:stats.terrainTilesLoaded,visibleTiles:stats.terrainTilesVisible,triangles:stats.terrainTriangles,bytesFetched:stats.terrainBytesFetched,pendingFetches:stats.terrainPendingFetches} : null;
-      return {marks,load,loadAssetsReadyMs:load.assetsReadyMs,renderer:__aiEngineBench.stats(),terrain,
+      return {hlod:{hlodClusters:stats.hlodClusters,hlodDrawCalls:stats.hlodDrawCalls,hlodTriangles:stats.hlodTriangles},marks,load,loadAssetsReadyMs:load.assetsReadyMs,renderer:__aiEngineBench.stats(),terrain,
         navigation:{ttfbMs:navigation.responseStart-navigation.requestStart,domContentLoadedMs:navigation.domContentLoadedEventEnd,
           transferredBytes:{scene:sum(resources.filter(e=>new URL(e.name).pathname.endsWith('/scene.json'))),wasm:sum(resources.filter(e=>new URL(e.name).pathname.endsWith('.wasm'))),total:sum(resources)+navigation.transferSize}}};
     }));
@@ -171,6 +171,8 @@ export function summary(results, baseline) {
     const t=p.terrain;
     lines.push(`| ${name} | ${number(t?.loadedTiles)} | ${number(t?.visibleTiles)} | ${number(t?.triangles)} | ${number(t?.bytesFetched)} | ${number(t?.pendingFetches)} |`);
   }
+  lines.push('', '## HLOD', '', '| Profile | HLOD clusters | HLOD draw calls | HLOD triangles |', '|---|---:|---:|---:|');
+  for(const [name,p] of Object.entries(results.profiles)) lines.push(`| ${name} | ${number(p.hlod?.hlodClusters)} | ${number(p.hlod?.hlodDrawCalls)} | ${number(p.hlod?.hlodTriangles)} |`);
   lines.push('','Terrain counters are end-of-run snapshots; fetched bytes include manifest/coarse/tile payloads, not HTTP overhead. Missing terrain is shown as —.', '', 'Tick time includes the WASM simulation and snapshot serialization; heap excludes total process memory. Mobile uses Chromium with iPhone emulation, not Safari.', '', '## Violations',...(results.violations.length?results.violations.map(v=>`- ${v}`):['None.']),'');
   return lines.join('\n');
 }

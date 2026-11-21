@@ -31,7 +31,7 @@ const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -472,13 +472,14 @@ function frame(now) {
     fps?.renderOverlay();
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
+    Object.assign(stats,streaming?.hlod?.stats() || {hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0});
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
-      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
@@ -537,7 +538,7 @@ async function boot() {
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config,assets);
-    if (world.fog?.isFog) { world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance; }
+    if (world.fog?.isFog) { const distance=config.hlod ? config.hlod_distance : config.draw_distance; world.fog.near = distance * 0.65; world.fog.far = distance; }
   }
   if (new URLSearchParams(location.search).get('stats') === '1') {
     gpuTimer = new GpuTimer(context);
@@ -549,7 +550,7 @@ async function boot() {
   game = new WebGame();
   terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
-  if (config) camera.far = config.draw_distance;
+  if (config) camera.far = config.hlod ? config.hlod_distance : config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
   const firstPerson = fpsConfig(source.entities);
