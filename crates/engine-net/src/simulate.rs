@@ -1,4 +1,4 @@
-//! Reproducible finite headless sessions; no file, socket, or wall-clock access.
+//! Reproducible finite headless sessions with bundled or project-root sources.
 use crate::{
     protocol::{decode, encode},
     transport::{LinkConfig, SimNetwork, SimTransport, Transport},
@@ -8,7 +8,6 @@ use anyhow::{ensure, Result};
 use engine_runtime::MAX_TICKS;
 use serde::{Deserialize, Serialize};
 use shared::scene::Scene;
-use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -130,10 +129,11 @@ impl Session {
 
 pub fn run(
     scene: Scene,
-    sources: BTreeMap<String, String>,
+    sources: impl Into<crate::SimSource>,
     mut options: Options,
 ) -> Result<SimulationReport> {
     options.validate()?;
+    let sources = sources.into();
     let slots = scene
         .entities
         .iter()

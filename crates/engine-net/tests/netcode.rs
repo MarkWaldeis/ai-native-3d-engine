@@ -78,6 +78,154 @@ fn assert_bits(a: &[NetEntityState], b: &[NetEntityState]) {
 }
 
 #[test]
+fn spawned_entities_survive_loss_removal_and_late_join() -> Result<()> {
+    let mut scene = support::scene();
+    scene.entities[0].script = Some(shared::components::Script::Inline {
+        source: r#"
+        fn on_tick(ctx, dt) {
+            let t = ctx.state_get("spawn_tick");
+            if t == () { t = 0; }
+            if t < 180 && t % 30 == 0 {
+                let old = ctx.state_get("old_box");
+                if old != () { ctx.remove(old); }
+                let id = ctx.spawn_entity(#{name:"network box",kind:"box",size:[0.5,0.5,0.5],
+                    tags:["replicated"],transform:#{position:[0.0,2.0,10.0]},
+                    collider:#{shape:"box"},rigidbody:#{type:"dynamic"},
+                    script:#{source:"fn on_tick(ctx,dt) { ctx.state_set(\"box_alive\",true); }"}});
+                ctx.state_set("old_box",id);
+            }
+            ctx.state_set("spawn_tick",t+1);
+        }
+    "#
+        .into(),
+    });
+    let mut run = support::Harness::with_scene(
+        scene.clone(),
+        LinkConfig {
+            latency_ms: 50.0,
+            jitter_ms: 20.0,
+            loss: 0.05,
+            ..LinkConfig::default()
+        },
+        6,
+    )?;
+    let mut observed = std::collections::BTreeSet::new();
+    for _ in 0..600 {
+        run.step(240)?;
+        for client in &run.clients {
+            observed.extend(
+                client
+                    .entity_definitions()
+                    .into_iter()
+                    .filter(|e| e.tags.iter().any(|t| t == "replicated"))
+                    .map(|e| e.id),
+            );
+        }
+    }
+    assert!(
+        observed.len() >= 3,
+        "spawn/removal cycles must reach the renderer"
+    );
+    assert!(run.network.dropped_packets() > 0);
+    let authoritative = run.server.simulation().net_entity_states();
+    for client in &run.clients {
+        let predicted = client.simulation().net_entity_states();
+        assert_eq!(
+            predicted.iter().map(|e| e.id).collect::<Vec<_>>(),
+            authoritative.iter().map(|e| e.id).collect::<Vec<_>>()
+        );
+        for (a, b) in predicted.iter().zip(&authoritative) {
+            assert!(
+                distance(a.position, b.position) < 1e-3,
+                "entity {}: {:?} vs {:?}",
+                a.id,
+                a.position,
+                b.position
+            );
+        }
+        let definitions = client.entity_definitions();
+        assert_eq!(definitions.len(), authoritative.len());
+        assert_eq!(client.simulation().net_script_state()["box_alive"], true);
+        assert!(definitions
+            .iter()
+            .any(|e| e.name == "network box" && e.script.is_some() && e.collider.is_some()));
+    }
+    run.server.disconnect(2);
+    let mut late = NetClient::new(scene, BTreeMap::new(), ClientConfig::default())?;
+    join(&mut run.server, &mut late, 3)?;
+    for _ in 0..2 {
+        for (peer, message) in run.server.tick()? {
+            if peer == 3 {
+                let ServerMessage::Snapshot(snapshot) = &message else {
+                    panic!("snapshot expected");
+                };
+                assert!(snapshot.baseline_tick.is_none());
+                assert_eq!(snapshot.spawned.len(), 1);
+                late.receive(message, 10050.0)?;
+            }
+        }
+    }
+    assert!(late
+        .latest_snapshot()
+        .unwrap()
+        .spawned
+        .iter()
+        .any(|e| e.name == "network box"));
+    assert_eq!(
+        late.simulation().net_entity_states(),
+        run.server.simulation().net_entity_states()
+    );
+    Ok(())
+}
+
+#[test]
+fn authoritative_spawn_definition_replaces_same_predicted_id() -> Result<()> {
+    let mut scene = support::scene();
+    scene.entities[1].script = Some(shared::components::Script::Inline { source: r#"
+        fn on_tick(ctx,dt) {
+            if ctx.state_get("created") == () {
+                ctx.spawn_entity(#{name:"spawn",kind:"box",size:[ctx.input("size")+1.0,1.0,1.0],
+                    transform:#{position:[0.0,5.0,10.0]},collider:#{shape:"box"},rigidbody:#{type:"dynamic"}});
+                ctx.state_set("created",true);
+            }
+        }
+    "#.into() });
+    let mut server = NetServer::new(scene.clone(), BTreeMap::new(), ServerConfig::default())?;
+    let mut client = NetClient::new(scene, BTreeMap::new(), ClientConfig::default())?;
+    join(&mut server, &mut client, 1)?;
+    for tick in 0..2 {
+        client.tick(BTreeMap::from([("size".into(), 1.0)]), tick as f64 * 17.0)?;
+        for (_, message) in server.tick()? {
+            client.receive(message, 34.0)?;
+        }
+    }
+    assert_eq!(
+        client.simulation().scene().entities,
+        server.simulation().scene().entities
+    );
+    assert_eq!(
+        client
+            .simulation()
+            .scene()
+            .entities
+            .iter()
+            .filter(|e| e.id == 5)
+            .count(),
+        1
+    );
+    assert_eq!(
+        client
+            .entity_definitions()
+            .iter()
+            .find(|e| e.id == 5)
+            .unwrap()
+            .mesh,
+        shared::scene::PrimitiveKind::Box { size: [1.0; 3] }
+    );
+    Ok(())
+}
+
+#[test]
 fn lossy_two_client_prediction_converges_with_bounded_corrections() -> Result<()> {
     let mut run = support::Harness::new(
         LinkConfig {
@@ -348,6 +496,7 @@ fn snapshot(tick: u64, x: f32) -> Snapshot {
             linvel: [2.0, 0.0, 0.0],
             angvel: [0.0; 3],
         }],
+        spawned: vec![],
         removed: vec![],
         script_state: json!({}),
     }
@@ -387,6 +536,44 @@ fn interpolation_is_bracketed_monotone_and_extrapolation_is_bounded() {
     assert!((far - (20.0 / 30.0 + 0.5)).abs() < 1e-6);
     interp.push(&snapshot(10, 10.0 / 30.0)); // reordered arrival cannot rewind render time
     assert!(interp.render(0.0)[0].position[0] >= previous.unwrap().1);
+}
+
+#[test]
+fn spawned_definitions_delta_roundtrip_and_interpolated_lifetimes() -> Result<()> {
+    let baseline = snapshot(10, 0.0);
+    let mut full = snapshot(12, 0.0);
+    let mut definition = support::scene().entities[3].clone();
+    definition.id = 5;
+    let mut state = full.entities[0].clone();
+    state.id = 5;
+    full.spawned.push(definition.clone());
+    full.entities.push(state);
+    let delta = full.delta(&baseline, 1e-6);
+    assert_eq!(delta.spawned, vec![definition]);
+    let decoded: Snapshot = decode(&encode(&delta)?)?;
+    let expanded = decoded.expand(Some(&baseline))?;
+    assert_eq!(expanded.spawned, full.spawned);
+    assert_eq!(expanded.entities, full.entities);
+    let mut next = full.clone();
+    next.server_tick = 14;
+    assert!(next.delta(&expanded, 1e-6).spawned.is_empty());
+    let retained = next.delta(&expanded, 1e-6).expand(Some(&expanded))?;
+    assert_eq!(retained.spawned, full.spawned);
+    next.server_tick = 16;
+    next.entities.retain(|e| e.id != 5);
+    next.spawned.clear();
+    let removal = next.delta(&retained, 1e-6);
+    assert_eq!(removal.removed, vec![5]);
+    assert!(removal.expand(Some(&retained))?.spawned.is_empty());
+    let mut interp = Interpolator::default();
+    interp.push(&baseline);
+    interp.push(&full);
+    interp.push(&next);
+    assert!(!interp.sample(11.0).iter().any(|e| e.id == 5));
+    assert!(interp.sample(12.0).iter().any(|e| e.id == 5));
+    assert!(interp.sample(15.0).iter().any(|e| e.id == 5));
+    assert!(!interp.sample(16.0).iter().any(|e| e.id == 5));
+    Ok(())
 }
 
 #[test]

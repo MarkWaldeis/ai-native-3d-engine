@@ -1,4 +1,4 @@
-use crate::{inputs, protocol::*, valid_actions, NetStats, TICK_MS};
+use crate::{inputs, protocol::*, valid_actions, NetStats, SimSource, TICK_MS};
 use anyhow::{bail, Result};
 use engine_runtime::{Input, Simulation};
 use shared::scene::Scene;
@@ -40,6 +40,7 @@ pub struct NetServer {
     simulation: Simulation,
     config: ServerConfig,
     slots: Vec<u64>,
+    initial_ids: BTreeSet<u64>,
     clients: BTreeMap<PeerId, Client>,
     released: Vec<Input>,
     stats: NetStats,
@@ -47,11 +48,7 @@ pub struct NetServer {
 }
 
 impl NetServer {
-    pub fn new(
-        scene: Scene,
-        sources: BTreeMap<String, String>,
-        config: ServerConfig,
-    ) -> Result<Self> {
+    pub fn new(scene: Scene, sources: impl Into<SimSource>, config: ServerConfig) -> Result<Self> {
         if config.snapshot_interval == 0
             || config.history_capacity < 2
             || config.timeout_ticks == 0
@@ -68,7 +65,8 @@ impl NetServer {
             .collect();
         slots.sort_unstable();
         Ok(Self {
-            simulation: Simulation::from_sources(scene, sources)?,
+            initial_ids: scene.entities.iter().map(|e| e.id).collect(),
+            simulation: sources.into().build(scene)?,
             config,
             slots,
             clients: BTreeMap::new(),
@@ -217,6 +215,13 @@ impl NetServer {
                 last_processed_seq: client.processed,
                 input_late_ticks: client.late,
                 entities: self.simulation.net_entity_states(),
+                spawned: self
+                    .simulation
+                    .scene()
+                    .entities
+                    .into_iter()
+                    .filter(|e| !self.initial_ids.contains(&e.id))
+                    .collect(),
                 removed: vec![],
                 script_state: self.simulation.net_script_state(),
                 baseline_tick: None,

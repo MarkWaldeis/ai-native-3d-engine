@@ -148,11 +148,13 @@ These are numerical/headless checks, not visual verification of the arena.
 
 ## Limits
 
-- MCP `net_simulate` explicitly rejects scenes with `props.ai_terrain`; terrain
-  sources/project-root loading are not yet wired into the network runner.
-
-- No spawned-entity replication: snapshots contain no new mesh, collider or
-  script definitions; unknown IDs are rejected. Removal of known IDs works.
+- Script-spawned entities carry full definitions in full snapshots and on first
+  appearance in deltas. Script file references must be available on every peer;
+  this is not an asset-transfer protocol. Renderer mesh lifetimes can be driven
+  by diffing `NetClient::entity_definitions()` IDs (aligned with interpolation).
+- `SimSource::ProjectRoot(root)` loads native terrain and scripts via
+  `Simulation::new`; MCP `net_simulate` uses the project root. Bundled-script
+  callers can keep passing a map or `SimSource::InMemory(map)`.
 - No authentication, encryption, reliable event channel or congestion control.
   Do not expose the UDP prototype to untrusted networks.
 - UDP has **no fragmentation**: each encoded message must fit one datagram.

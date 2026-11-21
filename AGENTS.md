@@ -175,7 +175,7 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   --scene examples/net_arena/scene.json --rtt-ms 120 --jitter-ms 20 --loss 0.05`.
 - Checks: `cargo test -p engine-net`; `cargo test -p engine-tests --test netcode`;
   `cargo build -p engine-net --target wasm32-unknown-unknown`. Doku: `docs/NETCODE.md`.
-  Kein Spawn-Replikat, keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
+  Spawn-Replikation mit Definitionen; keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
   Browser-Transport fehlt noch.
 
 ## Shooter / First Person
