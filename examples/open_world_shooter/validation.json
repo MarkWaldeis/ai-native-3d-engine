@@ -1,0 +1,34 @@
+{
+  "ticks": 90,
+  "inputs": [
+    {
+      "tick": 0,
+      "action": "look_pitch",
+      "value": -0.035
+    },
+    {
+      "tick": 0,
+      "action": "fire",
+      "value": 1
+    },
+    {
+      "tick": 35,
+      "action": "fire",
+      "value": 0
+    }
+  ],
+  "asserts": [
+    {
+      "state": "kills",
+      "equals": 1
+    },
+    {
+      "state": "_dead_alpha",
+      "equals": 1
+    },
+    {
+      "state": "lost",
+      "equals": false
+    }
+  ]
+}

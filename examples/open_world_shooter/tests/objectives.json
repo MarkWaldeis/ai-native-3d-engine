@@ -1,0 +1,116 @@
+{
+  "name": "Rio Verde mission fixture",
+  "entities": [
+    {
+      "id": 1,
+      "name": "player",
+      "kind": "sphere",
+      "radius": 0.3,
+      "segments": 8,
+      "transform": {
+        "position": [
+          -2700,
+          30.9,
+          -2700
+        ]
+      },
+      "tags": [
+        "player"
+      ],
+      "script": "examples/open_world_shooter/scripts/player.rhai"
+    },
+    {
+      "id": 2,
+      "name": "alpha-soldier",
+      "kind": "sphere",
+      "radius": 0.3,
+      "segments": 8,
+      "transform": {
+        "position": [
+          -2700,
+          30,
+          -2708
+        ]
+      },
+      "tags": [
+        "enemy",
+        "soldier",
+        "grp_alpha"
+      ],
+      "script": "examples/open_world_shooter/scripts/soldier.rhai"
+    },
+    {
+      "id": 3,
+      "name": "commander",
+      "kind": "sphere",
+      "radius": 0.3,
+      "segments": 8,
+      "transform": {
+        "position": [
+          -2700,
+          30,
+          -2717
+        ]
+      },
+      "tags": [
+        "enemy",
+        "soldier",
+        "grp_citadel",
+        "commander"
+      ],
+      "script": "examples/open_world_shooter/scripts/soldier.rhai"
+    },
+    {
+      "id": 4,
+      "name": "radio-tower",
+      "kind": "sphere",
+      "radius": 0.3,
+      "segments": 8,
+      "transform": {
+        "position": [
+          -2700,
+          23.65,
+          -2730
+        ]
+      },
+      "tags": [
+        "objective_target"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "bridge-marker",
+      "kind": "sphere",
+      "radius": 0.3,
+      "segments": 8,
+      "transform": {
+        "position": [
+          -2700,
+          30,
+          -2700
+        ]
+      },
+      "tags": [
+        "marker"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "intel",
+      "kind": "sphere",
+      "radius": 0.3,
+      "segments": 8,
+      "transform": {
+        "position": [
+          -2699,
+          30,
+          -2700
+        ]
+      },
+      "tags": [
+        "intel",
+        "trigger"
+      ]
+    }
+  ]
+}
