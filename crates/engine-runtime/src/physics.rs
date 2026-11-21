@@ -75,6 +75,13 @@ impl Physics {
                 continue;
             }
             let config = entity.rigidbody.clone().unwrap_or_default();
+            let friction_rule = match entity.props.get("ai_friction_combine").and_then(|v| v.as_str()) {
+                None | Some("average") => CoefficientCombineRule::Average,
+                Some("min") => CoefficientCombineRule::Min,
+                Some("max") => CoefficientCombineRule::Max,
+                Some("multiply") => CoefficientCombineRule::Multiply,
+                Some(_) => bail!("ai_friction_combine must be average, min, max, or multiply"),
+            };
             if !config.mass.is_finite()
                 || config.mass <= 0.0
                 || !config.friction.is_finite()
@@ -110,6 +117,7 @@ impl Physics {
                     collider
                         .mass(config.mass)
                         .friction(config.friction)
+                        .friction_combine_rule(friction_rule)
                         .restitution(config.restitution)
                         .build(),
                     handle,

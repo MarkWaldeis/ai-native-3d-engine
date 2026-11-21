@@ -26,8 +26,8 @@ def validations():
     jumps = [event for tick in (12, 76, 140) for event in (
         {"tick": tick, "action": "action", "value": 1},
         {"tick": tick + 1, "action": "action", "value": 0})]
-    win = {"ticks": 210, "inputs": [{"tick": 0, "action": "move_x", "value": 1},
-        {"tick": 198, "action": "move_x", "value": 0}] + jumps,
+    win = {"ticks": 240, "inputs": [{"tick": 0, "action": "move_x", "value": 1},
+        {"tick": 228, "action": "move_x", "value": 0}] + jumps,
         "asserts": [{"state": "score", "equals": 3}, {"state": "won", "equals": True},
                     {"state": "Sprünge", "equals": 3}, {"state": "Rettungen", "equals": 0},
                     {"entities_with_tag": "crystal", "count": 0},

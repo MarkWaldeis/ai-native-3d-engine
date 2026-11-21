@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import init, { WebGame } from './pkg/engine_web.js';
+import { ActionLatch, viewMovement, followDistance } from './controls.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
 const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
-let action = false, running = false, ready = false, mode = 'start';
+const actionInput = new ActionLatch();
+let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
 let previous = 0, accumulator = 0, joystickCenter;
@@ -15,10 +17,21 @@ const loader = new GLTFLoader();
 const loading = new Set();
 const followTarget = new THREE.Vector3();
 const cameraOffset = new THREE.Vector3();
+const lookDirection = new THREE.Vector3();
+const shadows = new Map();
+const shadowRay = new THREE.Raycaster();
+let spawnHeight = 0;
+const shadowCanvas = document.createElement('canvas');
+shadowCanvas.width = shadowCanvas.height = 64;
+const shadowContext = shadowCanvas.getContext('2d');
+const gradient = shadowContext.createRadialGradient(32, 32, 0, 32, 32, 32);
+gradient.addColorStop(0, '#ffffff99'); gradient.addColorStop(0.55, '#ffffff55'); gradient.addColorStop(1, '#ffffff00');
+shadowContext.fillStyle = gradient; shadowContext.fillRect(0, 0, 64, 64);
+const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
 
 function resetInput() {
   keys.clear(); joystick.x = 0; joystick.z = 0; joystick.pointer = null;
-  action = false; $('stick').style.transform = ''; $('action').classList.remove('pressed');
+  actionInput.reset(); $('stick').style.transform = ''; $('action').classList.remove('pressed');
 }
 
 function fail(error) {
@@ -77,6 +90,14 @@ function createObject(entity) {
   }
   group.add(object); group.visible = entity.visible !== false;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
+  group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
+  if (group.userData.tags.includes('player')) {
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), new THREE.MeshBasicMaterial({
+      color: 0x183a38, map: shadowTexture, transparent: true, depthWrite: false,
+      polygonOffset: true, polygonOffsetFactor: -2,
+    }));
+    shadow.renderOrder = 2; shadow.visible = false; world.add(shadow); shadows.set(entity.id, shadow);
+  }
 }
 
 function disposeObject(object) {
@@ -129,21 +150,54 @@ function showWin() {
   $('modal-note').textContent = 'Dein Spiel läuft mit derselben Simulation wie im Editor.';
 }
 
-function controls() {
+function movement() {
   let x = joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
   let z = joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
-  const length = Math.max(1, Math.hypot(x, z)); x /= length; z /= length;
-  const pressed = Number(action || keys.has('Space'));
-  return { move_x: x, move_z: z, jump: pressed, action: pressed };
+  const move = viewMovement(x, z, cameraOffset.toArray());
+  return new THREE.Vector3(move.x, 0, move.z);
 }
 
-function updateCamera(immediate = false) {
+function controls() {
+  const move = movement();
+  const pressed = actionInput.sample();
+  return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
+}
+
+function updateCamera(immediate = false, elapsed = 1 / 60) {
   const player = latest?.transforms.find(e => e.tags.includes('player'));
   if (!player) return;
-  const target = new THREE.Vector3(...player.transform.position).add(new THREE.Vector3(0, 0.25, 0));
-  followTarget.lerp(target, immediate ? 1 : 0.12);
-  const offset = cameraOffset.clone().multiplyScalar(camera.aspect < 0.8 ? 1.2 : 0.85);
+  const direction = movement();
+  if (direction.length() > 0.15) lookDirection.lerp(direction.normalize(), immediate ? 1 : 1 - Math.exp(-elapsed * 6));
+  const target = new THREE.Vector3(...player.transform.position);
+  target.y = Math.max(target.y, spawnHeight - 1) + 0.25;
+  target.addScaledVector(lookDirection, camera.aspect < 0.8 ? 1.5 : 1.1);
+  const blend = immediate || target.distanceTo(followTarget) > 6 ? 1 : 1 - Math.exp(-elapsed * 9);
+  const y = THREE.MathUtils.lerp(followTarget.y, target.y, immediate ? 1 : 1 - Math.exp(-elapsed * 3));
+  followTarget.lerp(target, blend); followTarget.y = y;
+  camera.fov = 55; camera.updateProjectionMatrix();
+  const distance = followDistance(camera.aspect, camera.fov);
+  const offset = new THREE.Vector3(cameraOffset.x, 0, cameraOffset.z).normalize().multiplyScalar(distance * 0.74);
+  offset.y = distance * 0.67;
   camera.position.copy(followTarget).add(offset); camera.lookAt(followTarget);
+}
+
+function updateShadows() {
+  world.updateMatrixWorld(true);
+  const support = [...objects.values()].filter(object => object.userData.support);
+  for (const [id, shadow] of shadows) {
+    const player = objects.get(id);
+    if (!player) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); shadows.delete(id); continue; }
+    shadowRay.set(player.position.clone(), new THREE.Vector3(0, -1, 0)); shadowRay.far = 20;
+    const hit = shadowRay.intersectObjects(support, true).find(hit => hit.face.normal.clone().transformDirection(hit.object.matrixWorld).y > 0.5);
+    shadow.visible = !!hit;
+    if (hit) {
+      const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+      shadow.position.copy(hit.point).addScaledVector(normal, 0.018);
+      shadow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+      shadow.material.opacity = 0.85 / (1 + hit.distance * 0.3);
+      shadow.scale.setScalar(1 + Math.min(hit.distance, 4) * 0.08);
+    }
+  }
 }
 
 function resize() {
@@ -155,8 +209,15 @@ function resize() {
 async function restart() {
   running = false; ready = false; resetInput();
   for (const object of objects.values()) disposeObject(object); objects.clear();
+  for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
   apply(JSON.parse(game.load(JSON.stringify(source), JSON.stringify(scripts))));
   await Promise.all([...loading]);
+  const player = latest.transforms.find(e => e.tags.includes('player'));
+  if (player) {
+    spawnHeight = player.transform.position[1];
+    lookDirection.fromArray(source.camera.target).sub(new THREE.Vector3(...player.transform.position)); lookDirection.y = 0;
+    if (lookDirection.length() > 0.1) lookDirection.normalize();
+  }
   camera.position.fromArray(source.camera.position); camera.lookAt(...source.camera.target); updateCamera(true);
   accumulator = 0; previous = performance.now(); ready = true;
 }
@@ -192,8 +253,8 @@ $('fullscreen').addEventListener('click', async () => {
 });
 
 const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
-window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) keys.add(e.code); } });
-window.addEventListener('keyup', e => keys.delete(e.code));
+window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
+window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
 window.addEventListener('blur', resetInput);
 document.addEventListener('visibilitychange', () => { resetInput(); previous = performance.now(); accumulator = 0; });
 document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
@@ -216,8 +277,11 @@ pad.addEventListener('pointermove', moveJoystick);
 for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) pad.addEventListener(event, e => {
   if (e.pointerId === joystick.pointer) { joystick.pointer = null; joystick.x = joystick.z = 0; $('stick').style.transform = ''; }
 });
-$('action').addEventListener('pointerdown', e => { if (running) { e.preventDefault(); $('action').setPointerCapture(e.pointerId); action = true; $('action').classList.add('pressed'); } });
-for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) $('action').addEventListener(event, () => { action = false; $('action').classList.remove('pressed'); });
+$('action').addEventListener('pointerdown', e => { if (running) { e.preventDefault(); $('action').setPointerCapture(e.pointerId); actionInput.press(e.pointerId); $('action').classList.add('pressed'); } });
+for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) $('action').addEventListener(event, e => {
+  actionInput.release(e.pointerId, event === 'pointercancel');
+  $('action').classList.toggle('pressed', actionInput.held.size > 0);
+});
 window.addEventListener('resize', () => { resetInput(); if (renderer && camera) resize(); });
 
 function frame(now) {
@@ -229,7 +293,7 @@ function frame(now) {
       accumulator += elapsed;
       while (accumulator >= 1 / 60 && running) { apply(JSON.parse(game.tick(JSON.stringify(controls())))); accumulator -= 1 / 60; }
     }
-    updateCamera(); renderer.render(world, camera);
+    updateCamera(false, elapsed); updateShadows(); renderer.render(world, camera);
   } catch (error) { ready = false; fail(error); }
 }
 

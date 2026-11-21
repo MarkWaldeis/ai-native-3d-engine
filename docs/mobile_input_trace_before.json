@@ -1,0 +1,400 @@
+{
+  "trace": [
+    {
+      "tick": 36,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        1.0952023267745972,
+        0.7488595247268677,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 0,
+        "_checkpoint": 0,
+        "_coyote": 6,
+        "_held": false,
+        "score": 0,
+        "won": false
+      }
+    },
+    {
+      "tick": 37,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 1,
+        "action": 1
+      },
+      "p": [
+        1.1535357236862183,
+        0.8304897546768188,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 1,
+        "_checkpoint": 0,
+        "_coyote": 0,
+        "_held": true,
+        "score": 0,
+        "won": false
+      }
+    },
+    {
+      "tick": 99,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        4.7368292808532715,
+        0.7409763932228088,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 1,
+        "_checkpoint": 3.5,
+        "_coyote": 6,
+        "_held": false,
+        "score": 1,
+        "won": false
+      }
+    },
+    {
+      "tick": 100,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        4.795161724090576,
+        0.7362878322601318,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 1,
+        "_checkpoint": 3.5,
+        "_coyote": 6,
+        "_held": false,
+        "score": 1,
+        "won": false
+      }
+    },
+    {
+      "tick": 104,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        5.028491497039795,
+        0.6902835369110107,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 1,
+        "_checkpoint": 3.5,
+        "_coyote": 2,
+        "_held": false,
+        "score": 1,
+        "won": false
+      }
+    },
+    {
+      "tick": 105,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 1,
+        "action": 1
+      },
+      "p": [
+        5.0868239402771,
+        0.7719137668609619,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 3.5,
+        "_coyote": 0,
+        "_held": true,
+        "score": 1,
+        "won": false
+      }
+    },
+    {
+      "tick": 116,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 1,
+        "action": 1
+      },
+      "p": [
+        5.728480815887451,
+        1.489996314048767,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 3.5,
+        "_coyote": 0,
+        "_held": true,
+        "score": 1,
+        "won": false
+      }
+    },
+    {
+      "tick": 150,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        7.7117838859558105,
+        1.624900460243225,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    },
+    {
+      "tick": 160,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        8.29511833190918,
+        1.0650784969329834,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    },
+    {
+      "tick": 164,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        8.52845573425293,
+        0.7648497223854065,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    },
+    {
+      "tick": 170,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        8.878461837768555,
+        0.23275671899318695,
+        1.3096469464457527e-09
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    },
+    {
+      "tick": 180,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        8.852336883544922,
+        0.060362156480550766,
+        -2.7705821636914152e-08
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    },
+    {
+      "tick": 200,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        8.851006507873535,
+        0.040310390293598175,
+        -2.7703087823738315e-08
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    },
+    {
+      "tick": 400,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        8.851006507873535,
+        -0.16396506130695343,
+        -2.7697925730763018e-08
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    },
+    {
+      "tick": 778,
+      "input": {
+        "move_x": 1,
+        "move_z": 0,
+        "jump": 0,
+        "action": 0
+      },
+      "p": [
+        8.856541633605957,
+        -0.4821067154407501,
+        -2.7698346727333956e-08
+      ],
+      "state": {
+        "Rettungen": 0,
+        "Sprünge": 2,
+        "_checkpoint": 7,
+        "_coyote": 0,
+        "_held": false,
+        "score": 2,
+        "won": false
+      }
+    }
+  ],
+  "events": [
+    {
+      "type": "pointerdown",
+      "id": 2,
+      "target": "",
+      "time": 6703.700000000186,
+      "tick": 17
+    },
+    {
+      "type": "pointerdown",
+      "id": 3,
+      "target": "",
+      "time": 7028.4000000003725,
+      "tick": 36
+    },
+    {
+      "type": "pointerup",
+      "id": 3,
+      "target": "action",
+      "time": 7230.5,
+      "tick": 49
+    },
+    {
+      "type": "lostpointercapture",
+      "id": 3,
+      "target": "action",
+      "time": 7230.5,
+      "tick": 49
+    },
+    {
+      "type": "pointerdown",
+      "id": 4,
+      "target": "",
+      "time": 8407.5,
+      "tick": 104
+    },
+    {
+      "type": "pointerup",
+      "id": 4,
+      "target": "action",
+      "time": 8604.100000000559,
+      "tick": 116
+    },
+    {
+      "type": "lostpointercapture",
+      "id": 4,
+      "target": "action",
+      "time": 8604.100000000559,
+      "tick": 116
+    }
+  ]
+}

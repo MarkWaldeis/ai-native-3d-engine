@@ -45,15 +45,47 @@ Reports und vom MCP gelieferte PNGs. GLBs betten Materialien vollständig ein.
 mit Sturz/Checkpoint-Rettung. Pages exportiert beide Spiele; bei deaktivierten
 Pages bleibt das Deployment absichtlich ein Fehler, bis Pages eingeschaltet wird.
 
-## Prüfstand / offen
+## Mobile-Politur: Ursache und Abnahme
 
 - Native Workspace-Tests: 44 bestanden, inklusive Blender/GPU und beiden
   Himmelsgarten-Simulationen. Desktop-Browser: drei Sprünge, Sieg, Neustart und
   Sturz/Rettung geprüft. Safari auf iPhone- und iPad-Simulator gestartet und gerendert.
-- **Touch-Sieg noch nicht abgenommen:** echte CDP-Multitouch-Eingaben steuern den
-  Joystick und lösen Sprünge aus; Sturz/Rettung funktioniert. Der automatisierte
-  Lauf erreicht jedoch das Sieg-Overlay nicht zuverlässig (15-s-Timeout).
-  Ein Diagnose-Lauf zeigte vor Sprung drei bereits x=8.85, y=-0.11 und nur zwei
-  registrierte Sprünge. Vermutung: Eingabelatenz im SwiftShader-Test läuft am
-  Inselrand vorbei; eine reine Testursache ist nicht bewiesen. Auch nach korrektem
-  Erhalt des Joystick-Touches bleibt der Timeout offen. Keine iOS-Siegprüfung behauptet.
+- **Ursache mit Tick-/Eingabetrace:** `mobile_input_trace_before.json` zeigt
+  Sprung zwei bei Tick 105 / x=5.087, bereits am Ende der Bodengnade. Mit konstant
+  3.5 m/s fliegt Milo über die nächste Landefläche: Tick 160 x=8.295/y=1.065,
+  Tick 170 x=8.878/y=0.233, ohne erneuten Bodenkontakt. Danach hält der Joystick
+  ihn bei x≈8.85 gegen die Seitenwand der letzten Insel. Gemittelte Reibung und
+  pro Tick neu gesetzte Horizontalgeschwindigkeit bremsen das Fallen fast vollständig
+  (Tick 400 y=-0.164; Tick 778 y=-0.482). Deshalb wird die Bodenbedingung für den
+  dritten Tastendruck nie wieder wahr; im Trace fehlt kein versandter Touch.
+  Die zweite Pointer-ID bleibt korrekt vom Joystick getrennt. Eingabeverlust als
+  Hauptursache wurde damit widerlegt; Render-/CDP-Latenz kann den Absprung verspäten.
+- **Physik-Fix:** optionale Entity-Prop `ai_friction_combine` akzeptiert
+  `average` (Standard), `min`, `max`, `multiply`. Milo nutzt Reibung 0 plus `min`;
+  Blender-Quelle, Artist-Rezept und portable Szene stimmen überein. Ein nativer
+  Gegenversuch reproduziert die Wandfalle mit `average`, mit `min` fällt dieselbe
+  Figur auch bei gedrücktem Joystick. Andere Materialien behalten ihr Verhalten.
+- **Faire Steuerung:** leichte Beschleunigung, 3.2 m/s am Boden, 3.0 m/s mit
+  Luftkontrolle, 10 Ticks Bodengnade und 180 ms Sprungpuffer. Schnelle Tastendrücke
+  bleiben bis zum nächsten Simulationstick gespeichert; Pointer-Freigabe gilt nur
+  für deren Besitzer. Die native Siegvalidierung läuft wegen der geringeren
+  Geschwindigkeit 240 statt 210 Ticks; unverändert drei echte Sprünge und keine Rettung.
+- **Sicht:** kamerarelative Browser-Eingaben; nähere, höhere Kamera mit mindestens
+  6.1 m horizontalem Sichtfeld und richtungsabhängigem Vorlauf. Weicher Blob-Schatten
+  folgt per Abwärts-Ray echten tragenden Flächen, nicht Wolken oder dem Spieler.
+  Kamera, Eingabepuffer und Schatten gelten auch für Münzenpfad; dessen native
+  Skriptgeschwindigkeit und Weltachsen-Simulationsschnittstelle bleiben unverändert.
+- **Abgenommen:** Desktop-Tastatur, iPhone-Hoch-/Querformat und Münzenpfad-Touch
+  erreichen `Gewonnen!`, einschließlich Neustart; Himmelsgarten außerdem Sturz/Rettung.
+  Vorher-/Nachher-Traces liegen unter `docs/mobile_input_trace_*.json`.
+  Safari-Simulatoren iPhone/iPad: Render-/Startprüfung, kein vollständiger Safari-Sieg.
+
+Reproduzierbare Browserprüfung (Playwright-Modul und Chrome installiert):
+
+```sh
+cargo run -- --export-web examples/sky_garden/scene.json target/mobile-site/sky_garden
+cargo run -- --export-web examples/coin_game/scene.json target/mobile-site/coin_game
+python3 -m http.server 8769 --directory target/mobile-site
+PLAYWRIGHT_MODULE=/pfad/zu/playwright/index.mjs node tools/verify_mobile.mjs
+node --test tools/test_web_controls.mjs
+```

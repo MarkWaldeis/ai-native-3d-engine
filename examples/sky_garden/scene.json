@@ -875,8 +875,9 @@
       "source_uid": "sky-garden-Milo",
       "props": {
         "ai_collider": "{\"shape\": \"capsule\", \"radius\": 0.35, \"half_height\": 0.25}",
+        "ai_friction_combine": "min",
         "ai_lock_rotation": true,
-        "ai_rigidbody": "{\"type\": \"dynamic\", \"mass\": 1, \"friction\": 0.1}",
+        "ai_rigidbody": "{\"type\": \"dynamic\", \"mass\": 1, \"friction\": 0.0}",
         "ai_script": "examples/sky_garden/scripts/player.rhai",
         "ai_tags": "[\"player\"]",
         "ai_ui": "{\"title\": \"Himmelsgarten\", \"score_label\": \"Kristalle\", \"hud_keys\": [\"score\"], \"collectible_tag\": \"crystal\", \"action_label\": \"SPRINGEN\", \"sky_color\": \"#bed9dc\", \"mission\": \"Drei Kristalle. Vier Inseln. Dein Weg nach Hause.\", \"intro_title\": \"Ein Sprung ins Grüne.\", \"intro_text\": \"Hilf Milo durch den Himmelsgarten. Sammle drei Kristalle, springe über die Lücken und erreiche das leuchtende Portal. Nach einem Sturz geht es am letzten Kristall weiter.\", \"win_text\": \"Alle Kristalle leuchten. Milo hat den Weg nach Hause gefunden!\", \"win_badge\": \"DER GARTEN LEUCHTET WIEDER\", \"badge\": \"HIMMELSGARTEN · EIN KLEINES ABENTEUER\"}",
@@ -893,7 +894,7 @@
       "rigidbody": {
         "type": "dynamic",
         "mass": 1.0,
-        "friction": 0.1,
+        "friction": 0.0,
         "restitution": 0.0
       },
       "script": "examples/sky_garden/scripts/player.rhai"

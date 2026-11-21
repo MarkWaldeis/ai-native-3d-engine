@@ -161,9 +161,10 @@ player_parts += [cylinder((0, 0, 0.48), 0.033, 0.28, moss, 8),
                  torus((0, 0, 0.25), 0.26, 0.055, pink)]
 player = entity("Milo", player_parts, (0, 0, 0.81), tags=("player",), center=True,
                 collider={"shape": "capsule", "radius": 0.35, "half_height": 0.25},
-                body={"type": "dynamic", "mass": 1, "friction": 0.1},
+                body={"type": "dynamic", "mass": 1, "friction": 0.0},
                 script="examples/sky_garden/scripts/player.rhai")
 player["ai_lock_rotation"] = True
+player["ai_friction_combine"] = "min"
 player["ai_ui"] = json.dumps({"title": "Himmelsgarten", "score_label": "Kristalle", "hud_keys": ["score"],
     "collectible_tag": "crystal", "action_label": "SPRINGEN", "sky_color": "#bed9dc",
     "mission": "Drei Kristalle. Vier Inseln. Dein Weg nach Hause.",

@@ -5,6 +5,7 @@ fn on_start(ctx) {
     ctx.state_set("Rettungen", 0);
     ctx.state_set("_held", false);
     ctx.state_set("_coyote", 0);
+    ctx.state_set("_jump_buffer", 0.0);
     ctx.state_set("_checkpoint", 0.0);
     ctx.log("Willkommen, Milo! Joystick: laufen. Aktion: springen.");
 }
@@ -16,22 +17,33 @@ fn on_tick(ctx, dt) {
         ctx.set_velocity([0.0, 0.0, 0.0]);
         ctx.state_set("Rettungen", ctx.state_get("Rettungen") + 1);
         ctx.state_set("_coyote", 0);
+        ctx.state_set("_jump_buffer", 0.0);
         ctx.log("Der Wind hat dich aufgefangen. Weiter geht's!");
         return;
     }
     let coyote = ctx.state_get("_coyote");
-    if ctx.grounded() { coyote = 6; } else if coyote > 0 { coyote -= 1; }
-    let pressed = ctx.input("action") > 0.5 || ctx.input("jump") > 0.5;
     let velocity = ctx.velocity();
-    velocity[0] = ctx.input("move_x") * 3.5;
-    velocity[2] = ctx.input("move_z") * 3.5;
-    if pressed && !ctx.state_get("_held") && coyote > 0 {
+    let grounded = ctx.grounded() && velocity[1] < 0.5;
+    if grounded { coyote = 10; } else if coyote > 0 { coyote -= 1; }
+    let pressed = ctx.input("action") > 0.5 || ctx.input("jump") > 0.5;
+    let buffer = ctx.state_get("_jump_buffer") - dt;
+    if pressed && !ctx.state_get("_held") { buffer = 0.18; }
+    let speed = if grounded { 3.2 } else { 3.0 };
+    let acceleration = if grounded { 24.0 } else { 12.0 };
+    for axis in [0, 2] {
+        let target = ctx.input(if axis == 0 { "move_x" } else { "move_z" }) * speed;
+        let change = target - velocity[axis];
+        velocity[axis] += change.max(-acceleration * dt).min(acceleration * dt);
+    }
+    if buffer > 0.0 && coyote > 0 {
         velocity[1] = 5.0;
         coyote = 0;
+        buffer = 0.0;
         ctx.state_set("Sprünge", ctx.state_get("Sprünge") + 1);
     }
     ctx.state_set("_held", pressed);
     ctx.state_set("_coyote", coyote);
+    ctx.state_set("_jump_buffer", buffer.max(0.0));
     ctx.set_velocity(velocity);
     for crystal in ctx.find_by_tag("crystal") {
         let target = ctx.entity_position(crystal);

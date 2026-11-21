@@ -1,6 +1,6 @@
 {
   "win": {
-    "ticks": 210,
+    "ticks": 240,
     "inputs": [
       {
         "tick": 0,
@@ -8,7 +8,7 @@
         "value": 1
       },
       {
-        "tick": 198,
+        "tick": 228,
         "action": "move_x",
         "value": 0
       },
