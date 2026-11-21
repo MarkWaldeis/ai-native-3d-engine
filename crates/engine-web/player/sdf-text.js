@@ -40,9 +40,16 @@ export class SdfLabel extends THREE.Object3D {
     super(); this.isSdfLabel = true; this.atlas = atlas; this.config = config; this.text = null;
     this.material = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, depthTest: config.depth_test, side: THREE.DoubleSide,
       uniforms: { atlas: { value: atlas.texture }, color: { value: new THREE.Color(config.color) }, outlineColor: { value: new THREE.Color(config.outline_color) }, outlineWidth: { value: config.outline_width }, opacity: { value: 1 } },
-      vertexShader: 'varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}',
-      fragmentShader: `uniform sampler2D atlas; uniform vec3 color; uniform vec3 outlineColor; uniform float outlineWidth; uniform float opacity; varying vec2 vUv;
-        void main(){float d=texture2D(atlas,vUv).r;float w=max(fwidth(d),0.001);float fill=smoothstep(0.5-w,0.5+w,d);
+      vertexShader: `#include <common>
+        #include <logdepthbuf_pars_vertex>
+        varying vec2 vUv; void main(){vUv=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);
+        #include <logdepthbuf_vertex>
+        }`,
+      fragmentShader: `#include <logdepthbuf_pars_fragment>
+        uniform sampler2D atlas; uniform vec3 color; uniform vec3 outlineColor; uniform float outlineWidth; uniform float opacity; varying vec2 vUv;
+        void main(){
+        #include <logdepthbuf_fragment>
+        float d=texture2D(atlas,vUv).r;float w=max(fwidth(d),0.001);float fill=smoothstep(0.5-w,0.5+w,d);
         float alpha=smoothstep(0.5-outlineWidth-w,0.5-outlineWidth+w,d);if(alpha<0.003)discard;
         gl_FragColor=vec4(mix(outlineColor,color,fill),alpha*opacity);
         #include <tonemapping_fragment>
