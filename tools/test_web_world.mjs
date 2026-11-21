@@ -5,6 +5,7 @@ import test from 'node:test';
 registerHooks({resolve(specifier,context,nextResolve) {
   return nextResolve(specifier === 'three' ? new URL('../crates/engine-web/player/vendor/three.module.js',import.meta.url).href : specifier,context);
 }});
+globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
 const THREE = await import('three');
 const {StreamingWorld} = await import('../crates/engine-web/player/world.js');
 const {worldConfig} = await import('../crates/engine-web/player/streaming.js');
@@ -20,7 +21,6 @@ function glb(scale) {
 }
 
 test('authored GLB LOD paths use the existing distance levels and keep distinct batch/cache identities', async () => {
-  globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
   const {world}=fixture();let impostors=0;world.impostor=()=>{impostors++;return [];};
   const base={kind:'gltf',path:glb(3)},authored={...base,props:{web_lods:{1:glb(2),2:glb(1)}}};
   assert.notEqual(batchKey(base),batchKey(authored));
@@ -31,10 +31,10 @@ test('authored GLB LOD paths use the existing distance levels and keep distinct 
   await assert.rejects(world.template({...base,props:{web_lods:{1:'data:model/gltf-binary;base64,YmFk'}}},1));
 });
 
-test('animated GLBs switch authored LOD meshes at both distances and restore the base mesh', async () => {
+test('unbatched GLBs preserve shadow settings at both authored LOD distances', async () => {
   const {world} = fixture();
   const object = new THREE.Group(), high = new THREE.Group(); object.add(high);
-  const entity = {id:4,kind:'gltf',path:glb(3),props:{web_lods:{1:glb(2),2:glb(1)}},script:'animated.rhai',transform:{position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
+  const entity = {id:4,kind:'gltf',path:glb(3),props:{web_lods:{1:glb(2),2:glb(1)},ai_sun_shadow:{cast:false}},script:'actor.rhai',transform:{position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
   world.add(entity,object);
   const camera = new THREE.PerspectiveCamera();
   for (const [distance,level] of [[150,1],[300,2]]) {
@@ -42,7 +42,13 @@ test('animated GLBs switch authored LOD meshes at both distances and restore the
     await Promise.all(world.update(camera)); world.update(camera);
     assert.equal(high.visible,false);
     const item = world.entities.get(4);
-    assert.equal(item.lods.get(entity.props.web_lods[level]).visible,true);
+    const lod = item.lods.get(entity.props.web_lods[level]);
+    assert.equal(lod.visible,true);
+    const source = (await world.assets.load(entity.props.web_lods[level])).scene;
+    const mesh = lod.getObjectByProperty('isMesh',true);
+    assert.equal(mesh.castShadow,false);
+    assert.equal(mesh.receiveShadow,true);
+    assert.equal(source.getObjectByProperty('isMesh',true).receiveShadow,false,'per-entity flags must not alter shared assets');
     assert.equal([...item.lods.values()].filter(lod=>lod.visible).length,1);
     assert.equal(item.impostor,undefined);
   }
@@ -61,7 +67,6 @@ function fixture(addProp = false) {
 }
 
 test('streamed sun shadow flags split instance batches without duplicating templates', async () => {
-  globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
   const {world,key} = fixture();
   const path = glb(1);
   for (const [index, props] of [

@@ -157,7 +157,9 @@ export class StreamingWorld {
             if (!item.lodTasks.has(lodPath)) {
               const task = this.assets.load(lodPath).then(gltf => {
                 if (this.entities.get(id) !== item) return;
-                const lod = gltf.scene.clone(true); item.lods.set(lodPath,lod); item.object.add(lod);
+                const lod = gltf.scene.clone(true), shadows = sunShadowSettings(item.e.props?.ai_sun_shadow);
+                lod.traverse(child => { if (child.isMesh) Object.assign(child, shadows); });
+                item.lods.set(lodPath,lod); item.object.add(lod);
               });
               item.lodTasks.set(lodPath,task); tasks.push(task); task.catch(error => console.error(error));
             }
