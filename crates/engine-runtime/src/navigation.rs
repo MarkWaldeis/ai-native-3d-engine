@@ -142,7 +142,7 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
             let compound = matches!(&collider, crate::physics_config::Geometry::Compound { .. });
             e.props["ai_physics"] = json!({"collider":collider});
             if compound {
-                json!([e.props["ai_physics"], "compound_part_support_slopes"])
+                json!([e.props["ai_physics"], "compound_part_seam_steps"])
             } else {
                 e.props["ai_physics"].clone()
             }
@@ -299,15 +299,13 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
                             if corner.collider == surface.collider {
                                 return true;
                             }
-                            if !physics.nav_same_body(surface.collider, corner.collider) {
-                                return false;
-                            }
-                            let slope_rise = |normal: rapier3d::prelude::Vector<f32>| {
-                                -(normal.x * dx + normal.z * dz) * d / normal.y
-                            };
-                            let a = slope_rise(surface.normal);
-                            let b = slope_rise(corner.normal);
-                            (a.min(b) - step..=a.max(b) + step).contains(&rise)
+                            physics.nav_seam_step(
+                                [surface.collider, corner.collider],
+                                [x, z],
+                                [x + dx * d, z + dz * d],
+                                [high + 1.0, low - 1.0],
+                                slope,
+                            ).is_some_and(|seam| seam <= step)
                         })
                     {
                         supports.push(corner.collider);

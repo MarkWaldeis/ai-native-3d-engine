@@ -70,6 +70,32 @@ fn lab_reset_restores_the_target_to_its_authored_pose() {
 }
 
 #[test]
+fn nav_bake_rejects_a_step_into_a_same_compound_ramp() {
+    let scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"floor and raised ramp","kind":"box","size":[1,1,1],
+         "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
+            {"shape":"box","half_extents":[2,0.2,2],"position":[-2,-0.2,0]},
+            {"shape":"box","half_extents":[2,0.2,2],"position":[1.8320508,1.2067949,0],"rotation_deg":[0,0,30]}
+         ]}}}}
+    ]})).unwrap();
+    let params = shared::navigation::NavParams {
+        cell_size: 1.0,
+        step: 0.25,
+        ..Default::default()
+    };
+    let (mesh, _) =
+        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
+    let cells: Vec<_> = mesh
+        .tiles
+        .iter()
+        .flat_map(|tile| &tile.polygons)
+        .map(|poly| poly.cell)
+        .collect();
+    assert!(cells.contains(&[-2, 0]));
+    assert!(!cells.contains(&[-1, 0]));
+}
+
+#[test]
 fn nav_bake_connects_a_ramp_across_its_compound_part_seam() {
     let scene = serde_json::from_value(json!({"entities":[
         {"id":1,"name":"two-part ramp","kind":"box","size":[1,1,1],

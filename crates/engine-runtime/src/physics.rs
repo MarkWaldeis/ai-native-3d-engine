@@ -56,7 +56,6 @@ pub(crate) struct RayHit {
 pub(crate) struct NavSurface {
     pub y: f32,
     pub collider: ColliderHandle,
-    pub normal: Vector<Real>,
 }
 
 fn pose(t: &Transform) -> Isometry<Real> {
@@ -243,7 +242,7 @@ impl Physics {
         let mut hits=vec![];
         self.query.intersections_with_ray(&self.bodies,&self.colliders,&ray,top-bottom,true,QueryFilter::new().exclude_sensors(),|handle,hit|{
             if hit.normal.y >= slope {
-                hits.push(NavSurface { y: top - hit.time_of_impact, collider: handle, normal: hit.normal });
+                hits.push(NavSurface { y: top - hit.time_of_impact, collider: handle });
             }
             true
         });
@@ -251,8 +250,46 @@ impl Physics {
         hits
     }
 
-    pub(crate) fn nav_same_body(&self, a: ColliderHandle, b: ColliderHandle) -> bool {
-        self.colliders[a].parent().is_some_and(|parent| self.colliders[b].parent() == Some(parent))
+    pub(crate) fn nav_seam_step(
+        &self,
+        parts: [ColliderHandle; 2],
+        from: [f32; 2],
+        to: [f32; 2],
+        ray_range: [f32; 2],
+        slope: f32,
+    ) -> Option<f32> {
+        let [a, b] = parts.map(|handle| &self.colliders[handle]);
+        if a.parent().is_none() || a.parent() != b.parent() {
+            return None;
+        }
+        let [top, bottom] = ray_range;
+        let delta = [to[0] - from[0], to[1] - from[1]];
+        let ray_at = |t: f32| Ray::new(
+            point![from[0] + t * delta[0], top, from[1] + t * delta[1]],
+            vector![0.0, -1.0, 0.0],
+        );
+        let cast = |collider: &Collider, t| {
+            collider.shape().cast_ray_and_get_normal(collider.position(), &ray_at(t), top - bottom, true)
+                .filter(|hit| hit.normal.y >= slope)
+        };
+        let (mut lo, mut hi) = (0.0, 1.0);
+        let (mut left, mut right) = (cast(a, lo)?, cast(b, hi)?);
+        for _ in 0..10 {
+            let mid = (lo + hi) * 0.5;
+            match (cast(a, mid), cast(b, mid)) {
+                (Some(hit), other) if other.is_none_or(|r| hit.time_of_impact <= r.time_of_impact) => {
+                    (lo, left) = (mid, hit);
+                }
+                (_, Some(hit)) => (hi, right) = (mid, hit),
+                _ => return None,
+            }
+        }
+        let seam = (lo + hi) * 0.5;
+        let height_at_seam = |t, hit: rapier3d::parry::query::RayIntersection| {
+            top - hit.time_of_impact
+                - (seam - t) * (hit.normal.x * delta[0] + hit.normal.z * delta[1]) / hit.normal.y
+        };
+        Some((height_at_seam(lo, left) - height_at_seam(hi, right)).abs())
     }
 
     pub(crate) fn nav_clear(&self,x:f32,y:f32,z:f32,half:f32,height:f32,supports:&[ColliderHandle]) -> bool {
