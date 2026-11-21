@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { hdrSettings } from './graphics-settings.js';
-import { ContactOcclusion, contactComposite } from './contact-occlusion.js';
+import { ContactOcclusion, contactComposite, depthUniforms, readDepth, updateCameraDepth } from './contact-occlusion.js';
 
 const vertexShader = /* glsl */`
   varying vec2 vUv;
@@ -60,6 +60,38 @@ const scatter = /* glsl */`
   }
 `;
 
+const heightFog = /* glsl */`
+  #ifdef HEIGHT_FOG
+  uniform mat4 fogCameraWorld;
+  uniform bool fogPerspective;
+  uniform vec3 fogColor;
+  uniform vec3 fogProfile;
+
+  float fogAmount(vec2 uv) {
+    float depth = texture2D(sceneDepth, uv).r;
+    if (depth >= 1.0) return 0.0;
+    vec4 clip = vec4(uv * 2.0 - 1.0, logFar > 0.0 ? 0.0 : depth * 2.0 - 1.0, 1.0);
+    vec4 unprojected = inverseProjection * clip;
+    vec3 view = logFar > 0.0 ? unprojected.xyz * (viewZ(depth) / unprojected.z)
+                            : unprojected.xyz / unprojected.w;
+    vec3 origin = fogPerspective ? vec3(0.0) : vec3(view.xy, 0.0);
+    float startY = (fogCameraWorld * vec4(origin, 1.0)).y;
+    float endY = (fogCameraWorld * vec4(view, 1.0)).y;
+    float lo = (min(startY, endY) - fogProfile.y) / fogProfile.z;
+    float hi = (max(startY, endY) - fogProfile.y) / fogProfile.z;
+    // Integrate a constant density below the base and exponential density above it.
+    float span = hi - lo;
+    float density = exp(-max(0.5 * (lo + hi), 0.0));
+    if (span > 0.001) {
+      float below = max(min(hi, 0.0) - lo, 0.0);
+      float above = max(hi, 0.0) - max(lo, 0.0);
+      density = (below + exp(-max(lo, 0.0)) * (1.0 - exp(-above))) / span;
+    }
+    return 1.0 - exp(-fogProfile.x * density * length(view - origin));
+  }
+  #endif
+`;
+
 const meter = /* glsl */`
   uniform sampler2D image;
   uniform sampler2D history;
@@ -67,12 +99,20 @@ const meter = /* glsl */`
   uniform vec2 speeds;
   uniform float elapsed;
   uniform bool initialized;
+  #ifdef HEIGHT_FOG
+  ${readDepth}
+  #endif
+  ${heightFog}
   void main() {
     float sum = 0.0;
     for (int y = 0; y < 8; ++y) {
       for (int x = 0; x < 8; ++x) {
         vec2 uv = (vec2(x, y) + 0.5) / 8.0;
-        float luma = dot(max(texture2D(image, uv).rgb, 0.0), vec3(0.2126, 0.7152, 0.0722));
+        vec3 color = texture2D(image, uv).rgb;
+        #ifdef HEIGHT_FOG
+        color = mix(color, fogColor, fogAmount(uv));
+        #endif
+        float luma = dot(max(color, 0.0), vec3(0.2126, 0.7152, 0.0722));
         sum += log2(clamp(luma, 0.001, 64.0));
       }
     }
@@ -92,6 +132,9 @@ const composite = /* glsl */`
   #ifdef AUTO_EXPOSURE
   uniform sampler2D exposureMeter;
   #endif
+  #ifdef COLOR_GRADE
+  uniform vec2 colorGrade;
+  #endif
   #ifdef BLOOM
   uniform sampler2D bloom;
   uniform float strength;
@@ -102,7 +145,11 @@ const composite = /* glsl */`
   #endif
   uniform vec2 texel;
   varying vec2 vUv;
+  #if defined(CONTACT_OCCLUSION) || defined(HEIGHT_FOG)
+  ${readDepth}
+  #endif
   ${contactComposite}
+  ${heightFog}
   #ifdef EDGE_AA
   float perceptualLuma(vec3 color) {
     float luma = dot(max(color, 0.0), vec3(0.2126, 0.7152, 0.0722));
@@ -142,11 +189,20 @@ const composite = /* glsl */`
     #endif
     color += glow * strength;
     #endif
+    #ifdef HEIGHT_FOG
+    color = mix(color, fogColor, fogAmount(vUv));
+    #endif
     #ifdef AUTO_EXPOSURE
     color *= exp2(texture2D(exposureMeter, vec2(0.5)).r);
     #endif
     gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
+    #ifdef COLOR_GRADE
+    vec3 display = gl_FragColor.rgb;
+    float luma = dot(display, vec3(0.2126, 0.7152, 0.0722));
+    display = clamp(mix(vec3(luma), display, colorGrade.x), 0.0, 1.0);
+    gl_FragColor.rgb = mix(display, smoothstep(vec3(0.0), vec3(1.0), display), colorGrade.y - 1.0);
+    #endif
     #include <colorspace_fragment>
     #include <dithering_fragment>
   }
@@ -164,7 +220,7 @@ function target(depthBuffer, depthTexture = null) {
 }
 
 class ExposureMeter {
-  constructor(image, {minEV, maxEV, brightenSpeed, darkenSpeed}) {
+  constructor(image, {minEV, maxEV, brightenSpeed, darkenSpeed}, fogUniforms) {
     this.buffers = [target(false), target(false)];
     this.next = 0;
     this.material = pass(meter, {
@@ -172,7 +228,9 @@ class ExposureMeter {
       limits: {value: new THREE.Vector2(minEV, maxEV)},
       speeds: {value: new THREE.Vector2(brightenSpeed, darkenSpeed)},
       elapsed: {value: 0}, initialized: {value: false},
+      ...fogUniforms,
     });
+    if (fogUniforms) this.material.defines.HEIGHT_FOG = 1;
   }
 
   render(draw, elapsed) {
@@ -205,19 +263,25 @@ export class HDRPipeline {
     this.edgeAA = config.hdrAntialias !== false;
     this.contactConfig = config;
     this.exposureConfig = config.autoExposure;
+    this.fogConfig = config.heightFog;
+    this.colorGrade = config.colorGrade;
     this.meterSupported = renderer.capabilities.isWebGL2;
     this.contactSupported = renderer.capabilities.isWebGL2;
+    this.fogSupported = renderer.capabilities.isWebGL2;
     this.size = new THREE.Vector2();
   }
 
   resize(level, width, height, pixelRatio) {
     const meterEnabled = !!(level > 0 && this.supported && this.meterSupported && this.exposureConfig);
+    const heightFogSelected = level > 0 && this.supported && this.fogSupported && !!this.fogConfig;
+    const fogEnabled = heightFogSelected && this.fogConfig.density > 0;
+    this.zeroDensityFog = heightFogSelected && this.fogConfig.density === 0;
     const settings = hdrSettings(level, this.supported, this.strength, width, height, pixelRatio, this.edgeAA,
-      this.contactSupported && this.contactConfig.contactStrength > 0, meterEnabled);
+      this.contactSupported && this.contactConfig.contactStrength > 0, meterEnabled || fogEnabled || !!this.colorGrade);
     const wideBloom = settings.bloom && level === 2 && this.scatterRatio > 0;
     if (!settings.enabled || !!this.contact !== settings.contact || !!this.wide !== wideBloom
-      || !!this.exposureMeter !== meterEnabled) this.release();
-    if (settings.enabled && !this.sceneTarget && !this.init(settings.bloom, settings.contact, wideBloom, meterEnabled)) {
+      || !!this.exposureMeter !== meterEnabled || !!this.fogEnabled !== fogEnabled) this.release();
+    if (settings.enabled && !this.sceneTarget && !this.init(settings.bloom, settings.contact, wideBloom, meterEnabled, fogEnabled)) {
       this.resize(level, width, height, pixelRatio);
       return;
     }
@@ -246,28 +310,43 @@ export class HDRPipeline {
     }
   }
 
-  init(bloomEnabled, contactEnabled, wideBloom, meterEnabled) {
+  init(bloomEnabled, contactEnabled, wideBloom, meterEnabled, fogEnabled) {
     const renderer = this.renderer, gl = renderer.getContext();
-    const depth = contactEnabled ? new THREE.DepthTexture(1, 1) : null;
+    const depth = contactEnabled || fogEnabled ? new THREE.DepthTexture(1, 1) : null;
     const texel = {value: new THREE.Vector2()};
     this.sceneTarget = target(true, depth);
-    if (depth) this.contact = new ContactOcclusion(pass, depth, texel, this.contactConfig, renderer.capabilities.logarithmicDepthBuffer);
-    if (meterEnabled) this.exposureMeter = new ExposureMeter(this.sceneTarget.texture, this.exposureConfig);
+    if (contactEnabled) this.contact = new ContactOcclusion(pass, depth, texel, this.contactConfig, renderer.capabilities.logarithmicDepthBuffer);
+    const contactUniforms = this.contact?.compositeUniforms(this.contactConfig.contactStrength);
+    let fogUniforms = null;
+    if (fogEnabled) {
+      const {sceneDepth, inverseProjection, logFar} = contactUniforms ?? depthUniforms(depth);
+      fogUniforms = {
+        sceneDepth, inverseProjection, logFar,
+        fogColor: {value: new THREE.Color(this.fogConfig.color)},
+        fogProfile: {value: new THREE.Vector3(this.fogConfig.density, this.fogConfig.baseHeight, this.fogConfig.falloff)},
+        fogCameraWorld: {value: null}, fogPerspective: {value: true},
+      };
+    }
+    if (meterEnabled) this.exposureMeter = new ExposureMeter(this.sceneTarget.texture, this.exposureConfig, fogUniforms);
     const prev = renderer.getRenderTarget();
     const complete = renderTarget => {
       renderer.setRenderTarget(renderTarget);
       return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     };
-    let supported;
+    let sceneComplete, contactComplete;
     let meterComplete = true;
     try {
-      supported = complete(this.sceneTarget) && (!this.contact || complete(this.contact.target));
-      if (supported && meterEnabled) meterComplete = this.exposureMeter.buffers.every(complete);
+      sceneComplete = complete(this.sceneTarget);
+      contactComplete = !this.contact || (sceneComplete && complete(this.contact.target));
+      if (sceneComplete && contactComplete && meterEnabled) meterComplete = this.exposureMeter.buffers.every(complete);
     } finally { renderer.setRenderTarget(prev); }
-    if (!supported || !meterComplete) {
-      if (!meterComplete) this.meterSupported = false;
-      else if (contactEnabled) this.contactSupported = false;
-      else this.supported = false;
+    if (!sceneComplete || !contactComplete || !meterComplete) {
+      if (!sceneComplete) {
+        if (!depth) this.supported = false;
+        if (contactEnabled) this.contactSupported = false;
+        if (fogEnabled) this.fogSupported = false;
+      } else if (!contactComplete) this.contactSupported = false;
+      else this.meterSupported = false;
       this.exposureMeter?.dispose(); this.exposureMeter = null;
       this.contact?.dispose(); this.contact = null;
       this.sceneTarget.dispose(); this.sceneTarget = null;
@@ -284,16 +363,23 @@ export class HDRPipeline {
       this.wide = target(false);
       this.scatter = pass(scatter, { image: {value: this.bright.texture}, stepSize: {value: new THREE.Vector2()} });
     }
+    this.fogEnabled = fogEnabled;
     this.composite = pass(composite, {
       image: {value: this.sceneTarget.texture}, bloom: {value: this.bright?.texture},
       wideBloom: {value: this.wide?.texture}, scatterRatio: {value: this.scatterRatio},
       strength: {value: this.strength}, texel, exposureMeter: {value: null},
-      ...this.contact?.compositeUniforms(this.contactConfig.contactStrength),
+      ...fogUniforms,
+      ...contactUniforms,
     }, true);
     if (bloomEnabled) this.composite.defines.BLOOM = 1;
     if (wideBloom) this.composite.defines.BLOOM_SCATTER = 1;
     if (contactEnabled) this.composite.defines.CONTACT_OCCLUSION = 1;
     if (meterEnabled) this.composite.defines.AUTO_EXPOSURE = 1;
+    if (fogEnabled) this.composite.defines.HEIGHT_FOG = 1;
+    if (this.colorGrade) {
+      this.composite.defines.COLOR_GRADE = 1;
+      this.composite.uniforms.colorGrade = {value: new THREE.Vector2(this.colorGrade.saturation, this.colorGrade.contrast)};
+    }
     this.quadScene = new THREE.Scene(); this.camera = new THREE.Camera();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
@@ -309,15 +395,27 @@ export class HDRPipeline {
       this.prefilter, this.blur, this.scatter, this.composite, this.quad.geometry]) resource?.dispose();
     this.contact?.dispose(); this.contact = null;
     this.exposureMeter?.dispose(); this.exposureMeter = null;
+    this.fogEnabled = false;
     this.sceneTarget = this.bright = this.scratch = this.wide = null;
     this.quadScene = this.camera = this.quad = this.prefilter = this.blur = this.scatter = this.composite = null;
   }
 
   resetExposure() { this.exposureMeter?.reset(); }
 
+  renderWorld(scene, camera) {
+    if (!this.fogEnabled && !this.zeroDensityFog) {
+      this.renderer.render(scene, camera);
+      return;
+    }
+    const fog = scene.fog;
+    scene.fog = null;
+    try { this.renderer.render(scene, camera); }
+    finally { scene.fog = fog; }
+  }
+
   render(scene, camera, elapsed = 0) {
     const renderer = this.renderer;
-    if (!this.sceneTarget) { renderer.render(scene, camera); return; }
+    if (!this.sceneTarget) { this.renderWorld(scene, camera); return; }
     const previous = renderer.getRenderTarget(), autoReset = renderer.info.autoReset;
     renderer.info.autoReset = false;
     renderer.info.reset();
@@ -327,9 +425,16 @@ export class HDRPipeline {
       renderer.render(this.quadScene, this.camera);
     };
     try {
-      renderer.setRenderTarget(this.sceneTarget); renderer.render(scene, camera);
-      if (this.exposureMeter) this.composite.uniforms.exposureMeter.value = this.exposureMeter.render(draw, elapsed);
+      renderer.setRenderTarget(this.sceneTarget);
+      this.renderWorld(scene, camera);
       this.contact?.render(draw, camera);
+      if (this.fogEnabled) {
+        const {uniforms} = this.composite;
+        if (!this.contact) updateCameraDepth(uniforms, camera, renderer.capabilities.logarithmicDepthBuffer);
+        uniforms.fogCameraWorld.value = camera.matrixWorld;
+        uniforms.fogPerspective.value = !!camera.isPerspectiveCamera;
+      }
+      if (this.exposureMeter) this.composite.uniforms.exposureMeter.value = this.exposureMeter.render(draw, elapsed);
       if (this.bright) {
         draw(this.prefilter, this.bright);
         this.blur.uniforms.image.value = this.bright.texture;
