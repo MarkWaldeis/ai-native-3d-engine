@@ -50,6 +50,7 @@ fn main() -> anyhow::Result<()> {
             .map_err(anyhow::Error::msg)?;
         let report: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap())?;
         let state = &report["final_state"]["state"];
+        if name=="lantern_patrol" {anyhow::ensure!(state["_nav_patrol_visits"].as_u64().unwrap_or(0)>=3,"NPC must reach at least three patrol stops");}
         for (key, expected) in trace["expected"].as_object().unwrap() {
             anyhow::ensure!(
                 state[key] == *expected
@@ -94,7 +95,7 @@ fn main() -> anyhow::Result<()> {
         let mut animation_samples = Vec::new();
         loop {
             if animation.tick % 30 == 0 || animation.tick == ticks {
-                animation_samples.push(json!({"tick":animation.tick,"animators":animation.animator_states()}));
+                animation_samples.push(json!({"tick":animation.tick,"animators":animation.animator_states(),"nav_agents":animation.nav_agent_states()}));
             }
             if animation.tick == ticks { break; }
             let events: Vec<_> = inputs.iter().filter(|i| i.tick == animation.tick).cloned().collect();

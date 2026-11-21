@@ -26,12 +26,12 @@ export function entityRadius(e) {
 }
 
 export function isStatic(e) {
-  return !e.script && !['dynamic','kinematic'].includes(e.rigidbody?.type) && !(e.tags || []).some(t => ['player','trigger','coin','crystal','portal'].includes(t));
+  return !e.nav_agent && !e.script && !['dynamic','kinematic'].includes(e.rigidbody?.type) && !(e.tags || []).some(t => ['player','trigger','coin','crystal','portal'].includes(t));
 }
 
 export function canInstance(e) {
   const scale = e.transform?.scale || [1,1,1];
-  return !e.animator && isStatic(e) && scale[0]*scale[1]*scale[2] > 0 && ['box','plane','sphere','cylinder','gltf'].includes(e.kind);
+  return !e.animator && !e.nav_agent && isStatic(e) && scale[0]*scale[1]*scale[2] > 0 && ['box','plane','sphere','cylinder','gltf'].includes(e.kind);
 }
 
 export function selectLOD(distance, previous, config) {

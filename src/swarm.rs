@@ -110,8 +110,8 @@ impl Engine {
         if self.simulation.is_some() && (name.starts_with("prefab_") || matches!(name, "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera" | "load_scene" | "rollback" | "blender_sync" | "blender_push_props" | "write_script")) {
             return Err("authoring edits are disabled during play; call stop before editing the scene".into());
         }
-        if name == "animator_set" && self.simulation.is_some() { return Err("authoring edits are disabled during play; call stop before editing the scene".into()); }
-        let global = matches!(name, "load_scene" | "rollback");
+        if matches!(name,"animator_set"|"nav_bake") && self.simulation.is_some() { return Err("authoring edits are disabled during play; call stop before editing the scene".into()); }
+        let global = matches!(name, "load_scene" | "rollback" | "nav_bake");
         let targeted = matches!(name, "set_transform" | "set_color" | "remove_entity" | "animator_set");
         for (id, (owner, _)) in &self.swarm.locks {
             if owner != agent && (global || (targeted && args["id"].as_u64() == Some(*id))) {

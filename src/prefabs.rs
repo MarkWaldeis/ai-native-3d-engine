@@ -140,6 +140,7 @@ fn entity(key: &str, value: &Value, root: &Path) -> Result<Entity> {
         "rigidbody",
         "script",
         "animator",
+        "nav_agent",
     ];
     for field in value
         .as_object()

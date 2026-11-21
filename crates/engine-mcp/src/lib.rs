@@ -12,6 +12,7 @@ pub const SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-1
 mod discovery;
 pub mod terrain;
 pub mod animation;
+pub mod navigation;
 pub use discovery::agent_guide;
 
 /// Implemented by the host (main.rs) — executes one MCP tool call and returns

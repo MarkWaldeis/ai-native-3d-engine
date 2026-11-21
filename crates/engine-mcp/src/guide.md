@@ -188,3 +188,21 @@ accepts these JSON assert objects (all may add `at_tick:N`, default final tick):
 
 Tick 0 means after on_start. Reports include actual values and passed flags;
 `screenshot:true` adds a final PNG. Unknown names suggest close matches.
+
+## Navigation
+
+`nav_bake {params?,expected_revision?}` builds bounded tiled collision navigation
+and stores a project asset plus scene data; unchanged source tiles are reused.
+`nav_query_path {start:[x,y,z],goal:[x,y,z]}` uses foot positions, deterministic A*
+and corridor string-pulling. `nav_lint {start?}` warns about unreachable objectives.
+`get_screenshot {views:["top"],overlay_navigation:true}` draws green polygons and
+magenta routes. The bake respects global locks/CAS and is not atomic-batch safe.
+
+Attach `nav_agent:{speed:1.5,offset_y:0.22,target:[x,y,z]}` with no body or a
+kinematic body. Rhai `ctx.nav_set_target([x,y,z])` returns reachability;
+`ctx.nav_path()` returns remaining corners. Fixed ticks and inactive-region
+pausing are shared by native/WASM. Native startup, path queries and exports
+incrementally refresh after static authoring edits; persist with `nav_bake`.
+No live obstacle carving, crowd avoidance or direct streamed-heightfield bake.
+See `docs/NAVIGATION.md` for bounds/budgets, conservative collision geometry,
+parameters and the Lantern patrol parity example.

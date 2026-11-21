@@ -77,6 +77,17 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
     engine.on_print(move |message| printed.borrow_mut().log(message.to_owned()));
     engine.on_debug(move |message, _, _| data.borrow_mut().log(message.to_owned()));
     engine.register_type_with_name::<Context>("Context");
+    engine.register_fn("nav_set_target",|ctx:&mut Context,target:Array|->ScriptResult<bool>{
+        let target=vector(target)?;let mut data=ctx.data.borrow_mut();
+        let scene=&mut data.scene;let mesh=scene.navmesh.as_ref().ok_or("scene has no baked navmesh")?;
+        let entity=scene.entities.iter_mut().find(|e|e.id==ctx.id).ok_or("entity not found")?;
+        let a=entity.nav_agent.as_mut().ok_or("entity has no nav_agent")?;
+        crate::navigation::set_target(mesh,entity.transform.position,a,target).map_err(|e|e.to_string().into())
+    });
+    engine.register_fn("nav_path",|ctx:&mut Context|->ScriptResult<Array>{
+        let data=ctx.data.borrow();let a=data.scene.entities.iter().find(|e|e.id==ctx.id).and_then(|e|e.nav_agent.as_ref()).ok_or("entity has no nav_agent")?;
+        Ok(a.path[a.next.min(a.path.len())..].iter().copied().map(|p|Dynamic::from(array(p))).collect())
+    });
     engine.register_fn("has_animator", |ctx: &mut Context| ctx.data.borrow().scene.entities.iter().any(|e| e.id == ctx.id && e.animator.is_some()));
     engine.register_fn("animator_set", |ctx: &mut Context, name: &str, value: f64| animation_parameter(ctx, name, value));
     engine.register_fn("animator_set", |ctx: &mut Context, name: &str, value: INT| animation_parameter(ctx, name, value as f64));
