@@ -1,4 +1,4 @@
-"""Deterministic jungle FPS kit. Run with Blender --background --python ... -- OUT."""
+"""Deterministic jungle FPS kit. Run with Blender --background --python ... -- OUT [--vegetation-only]."""
 import json
 import math
 from pathlib import Path
@@ -11,7 +11,9 @@ from mathutils import Vector
 
 
 ROOT = Path(__file__).resolve().parents[2]
-OUT = Path(sys.argv[sys.argv.index('--') + 1]).resolve()
+args = sys.argv[sys.argv.index('--') + 1:]
+OUT = Path(args[0]).resolve()
+VEGETATION_ONLY = '--vegetation-only' in args[1:]
 OUT.mkdir(parents=True, exist_ok=True)
 random.seed(715)
 bpy.ops.object.select_all(action='SELECT')
@@ -64,11 +66,11 @@ def box(p, s, mat, bevel=0.025):
     return finish(o, mat)
 
 
-def ball(p, s, mat, sub=2, irregular=0):
+def ball(p, s, mat, sub=2, irregular=0, rng=random):
     bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=sub, radius=1, location=p)
     o = bpy.context.object
     for v in o.data.vertices:
-        v.co *= 1 + random.uniform(-irregular, irregular)
+        v.co *= 1 + rng.uniform(-irregular, irregular)
     o.scale = s
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
     return finish(o, mat)
@@ -108,7 +110,102 @@ def frond(base, angle, length, width, rise=0):
                  'leaf' if i%2 else 'leaf_light')
 
 
-def tree(kind):
+def blade(root, tip, lateral, width, oval=False):
+    middle = root.lerp(tip, .43)
+    ridge = (tip - root).cross(lateral).normalized() * width * .25
+    if oval:
+        shoulder = root.lerp(tip, .25)
+        belly = root.lerp(tip, .64)
+        return [root, shoulder - lateral * width * .75, belly - lateral * width, tip,
+                belly + lateral * width, shoulder + lateral * width * .75, middle + ridge]
+    return [root, middle - lateral * width, tip, middle + lateral * width, middle + ridge]
+
+
+def blades_mesh(blades, mat):
+    verts, faces = [], []
+    for blade_verts in blades:
+        first = len(verts)
+        verts.extend(blade_verts)
+        outline = len(blade_verts) - 1
+        for i in range(outline):
+            faces.append((first + i, first + (i + 1) % outline, first + outline))
+    if verts:
+        mesh(verts, faces, mat)
+
+
+def split_frond(base, angle, length, width, rise, mat):
+    base = Vector(base)
+    forward = Vector((math.cos(angle), math.sin(angle), 0))
+    across = Vector((-forward.y, forward.x, 0))
+    up = Vector((0, 0, 1))
+    segments = 10
+    points = [base + forward * length * t + up * (math.sin(t * math.pi) * length * .23 + rise * t)
+              for t in [i / segments for i in range(segments + 1)]]
+    ribs, faces = [], []
+    for i, p in enumerate(points):
+        half = max(.002, length * .009 * (1 - i / segments))
+        ribs.extend([p - across * half, p + up * half, p + across * half])
+        if i:
+            k = 3 * (i - 1)
+            faces.extend([(k, k + 3, k + 4, k + 1), (k + 1, k + 4, k + 5, k + 2)])
+    mesh(ribs, faces, 'leaf_light')
+    leaflets = []
+    for i, p in enumerate(points[:-1]):
+        t = (i + .55) / segments
+        reach = width * math.sin(t * math.pi) ** .72
+        for sign, stagger in [(-1, .15), (1, .42)]:
+            root = p.lerp(points[i + 1], stagger)
+            tip = root + across * sign * reach + forward * length * (.14 - .07 * t)
+            tip -= up * reach * (.1 + .25 * t)
+            leaf_axis = (tip - root).normalized()
+            lateral = leaf_axis.cross(up).normalized() * sign
+            leaflets.append(blade(root, tip, lateral, .048 * length * (1 - .64 * t)))
+    blades_mesh(leaflets, mat)
+
+
+def canopy(center, size, mat, rng, oval=True):
+    center, size = Vector(center), Vector(size)
+    ball(center, size * .87, mat, 1, .08, rng)
+    blades = []
+    count = 10 if oval else 15
+    for i in range(count):
+        z = 1 - 2 * (i + .5) / count
+        angle = i * 2.399963 + rng.uniform(-.16, .16)
+        radial = math.sqrt(1 - z * z)
+        forward = Vector((math.cos(angle) * radial, math.sin(angle) * radial, z))
+        offset = Vector(tuple(forward[j] * size[j] for j in range(3)))
+        lateral = forward.cross(Vector((0, 0, 1))).normalized()
+        lateral.rotate(forward.rotation_difference(offset.normalized()))
+        root = center + offset * .54
+        tip = center + offset * rng.uniform(.98, 1.23)
+        tip.z -= size.z * rng.uniform(.045, .22)
+        width = min(size) * rng.uniform(.15, .27) * (1 if oval else .72)
+        blades.append(blade(root, tip, lateral, width, oval))
+    blades_mesh(blades, mat)
+
+
+def hanging_vine(anchor, length, phase):
+    anchor = Vector(anchor)
+    verts, quads = [], []
+    rings, sides = 6, 4
+    for i in range(rings + 1):
+        t = i / rings
+        center = anchor + Vector((math.sin(phase + t * math.tau) - math.sin(phase),
+                                  math.cos(phase + t * math.tau) - math.cos(phase), 0)) * length * .04
+        center.z -= length * t
+        radius = length * (.009 - .007 * t)
+        for j in range(sides):
+            angle = j * math.tau / sides
+            verts.append(center + Vector((math.cos(angle) * radius, math.sin(angle) * radius, 0)))
+            if i:
+                a = (i - 1) * sides + j
+                b = (i - 1) * sides + (j + 1) % sides
+                quads.append((a, a + sides, b + sides, b))
+    mesh(verts, quads, 'leaf_dark')
+
+
+def tree(kind, detail=False):
+    rng = random.Random(kind) if detail else random
     h = {'tree_palm':10,'tree_broadleaf':14,'tree_kapok':24}[kind]
     if kind == 'tree_palm':
         for i in range(16):
@@ -117,9 +214,14 @@ def tree(kind):
                 .24*(1-i/26),'bark',12, .24*(1-(i+1)/26))
             rod((.5*(z/h)**2,0,z),(.5*(z/h)**2,0,z+.06),.245*(1-i/26),'wood',12)
         for i in range(11):
-            frond((.5,0,h-.5),i*math.tau/11,3.3,.68, -.6 if i%2 else .1)
+            angle = i * math.tau / 11
+            if detail:
+                split_frond((.5, 0, h - .5), angle + rng.uniform(-.11, .11), rng.uniform(2.85, 3.5),
+                            rng.uniform(.57, .78), rng.uniform(-.72, .16), 'leaf' if i % 3 else 'leaf_light')
+            else:
+                frond((.5,0,h-.5),angle,3.3,.68, -.6 if i%2 else .1)
         for i in range(5):
-            ball((.5+random.uniform(-.3,.3),random.uniform(-.3,.3),h-.6),(.16,.16,.20),'bark')
+            ball((.5+rng.uniform(-.3,.3),rng.uniform(-.3,.3),h-.6),(.16,.16,.20),'bark',rng=rng)
     else:
         r = .65 if h==14 else 1.2
         rod((0,0,0),(0,0,h*.76),r,'bark',14,r*.4)
@@ -128,10 +230,20 @@ def tree(kind):
             x,y=math.cos(a),math.sin(a)
             mesh([(x*r,y*r,0),(x*r*3,y*r*3,0),(x*r,y*r,h*.22),
                   (x*r-y*.3,y*r+x*.3,0)],[(0,1,2),(1,3,2),(3,0,2),(0,3,1)],'bark')
-            end=(x*h*.24,y*h*.24,h*.79)
+            reach = rng.uniform(.21, .27) if detail else .24
+            crown_height = rng.uniform(.74, .86) if detail else .79
+            end=(x*h*reach,y*h*reach,h*crown_height)
             rod((0,0,h*.5),end,r*.3,'bark',8,.1)
-            ball(end,(h*.22,h*.21,h*.16),['leaf','leaf_light','leaf_dark'][i%3],2,.17)
-        ball((0,0,h*.87),(h*.24,h*.23,h*.13),'leaf',2,.12)
+            mat = ['leaf','leaf_light','leaf_dark'][i%3]
+            if detail:
+                canopy(end, (h*.24,h*.22,h*(.15 if h==14 else .12)), mat, rng, h==14)
+                if h == 24 or i % 2 == 0:
+                    for _ in range(2 if h == 24 else 1):
+                        anchor = (end[0]+rng.uniform(-.07,.07)*h, end[1]+rng.uniform(-.07,.07)*h, end[2])
+                        hanging_vine(anchor, h*rng.uniform(.21,.52), rng.uniform(0, math.tau))
+            else: ball(end, (h*.22,h*.21,h*.16), mat, 2, .17)
+        if detail: canopy((0,0,h*.87), (h*.24,h*.23,h*.13), 'leaf', rng, h==14)
+        else: ball((0,0,h*.87), (h*.24,h*.23,h*.13), 'leaf', 2, .12)
 
 
 def roof(w,d,z,mat):
@@ -465,7 +577,10 @@ def building(name):
                 box((x,y,19.6),(1.5,1,1.2),'stone')
 
 
-def rifle(offset=(0,0,0), scale=1):
+def rifle(offset=None, scale=1):
+    viewmodel=offset is None
+    if viewmodel:
+        offset=(0,0,0)
     start=len(parts)
     box((0,.12,.12),(.105,.33,.15),'metal',.008)
     box((0,.36,.13),(.10,.24,.12),'black',.009)
@@ -484,6 +599,51 @@ def rifle(offset=(0,0,0), scale=1):
     box((0,.12,.25),(.07,.10,.08),'black',.005)
     rod((0,.07,.27),(0,.19,.27),.038,'metal',12)
     rod((0,.191,.27),(0,.195,.27),.027,'glass',12)
+    if viewmodel:
+        box((0,.105,.135),(.108,.31,.145),'metal',.012)
+        for sign in [-1,1]:
+            box((sign*.056,.105,.13),(.012,.25,.085),'black',.005)
+            for y in [.015,.075,.135,.195]:
+                rod((sign*.061,y,.115),(sign*.066,y,.115),.009,'metal',12)
+            for y in [.29,.35,.41,.47]:
+                box((sign*.052,y,.14),(.012,.042,.040),'metal',.004)
+                box((sign*.060,y,.14),(.006,.030,.024),'black',.003)
+            rod((sign*.058,-.20,.12),(sign*.058,-.10,.12),.012,'metal',12)
+            for y in [-.285,-.265,-.245]:
+                box((sign*.050,y,.105),(.012,.014,.16),'olive',.004)
+            for z in [-.13,-.085,-.04]:
+                o=box((sign*.040,.158,z),(.012,.105,.012),'black',.003)
+                o.rotation_euler.x=-.15
+            for z in [-.10,-.06,-.02]:
+                o=box((sign*.036,0,z),(.009,.052,.014),'olive',.003)
+                o.rotation_euler.x=-.25
+            for y in [.315,.375,.435]:
+                box((sign*.056,y,.077),(.018,.033,.014),'olive',.003)
+        box((.061,.12,.16),(.014,.11,.040),'black',.005)
+        box((.070,.09,.16),(.018,.032,.018),'metal',.004)
+        rod((-.075,-.025,.19),(.075,-.025,.19),.010,'metal',12)
+        box((0,-.04,.18),(.045,.055,.025),'metal',.004)
+        for z in [-.12,-.04,.04,.12]:
+            box((0,-.323,z),(.085,.012,.012),'metal',.003)
+        for y in [.025,.07,.115,.16,.205]:
+            box((0,y,.205),(.106,.022,.018),'black',.004)
+        for y in [.085,.17]:
+            box((0,y,.221),(.095,.024,.025),'metal',.005)
+        rod((0,.055,.27),(0,.205,.27),.046,'metal',24)
+        for y in [.055,.08,.185,.205]:
+            rod((0,y,.27),(0,y+.012,.27),.050,'black',24)
+        rod((0,.047,.27),(0,.052,.27),.036,'glass',24)
+        rod((0,.217,.27),(0,.222,.27),.036,'glass',24)
+        rod((.040,.125,.27),(.062,.125,.27),.020,'black',16)
+        rod((0,.125,.309),(0,.125,.328),.018,'black',16)
+        rod((0,.50,.14),(0,.77,.14),.028,'black',20)
+        for y in [.61,.66,.71,.765,.79,.82]:
+            rod((0,y,.14),(0,y+.010,.14),.033,'metal',20)
+        for sign in [-1,1]:
+            for y in [.795,.818]:
+                box((sign*.031,y,.14),(.012,.010,.022),'black',.002)
+            rod((sign*.055,.36,.07),(sign*.070,.36,.065),.012,'metal',10)
+            rod((sign*.070,.36,.065),(sign*.070,.38,.065),.009,'black',10)
     for o in parts[start:]:
         o.location=Vector(offset)+o.location*scale
         o.scale*=scale
@@ -648,20 +808,30 @@ NAMES = ['tree_palm','tree_broadleaf','tree_kapok','bush','fern','rock_a','rock_
          'barrel','jeep_wreck','medkit','ammo_box','intel_case','flag_pole','soldier',
          'drone','rifle_viewmodel']
 LOD = set(NAMES[:19] + ['soldier','drone'])
+VEGETATION = tuple(NAMES[:5])
 
 
-def build(name):
+def build(name, detail=False):
     if name.startswith('tree_'):
-        tree(name)
+        tree(name, detail)
     elif name=='bush':
+        rng = random.Random(name) if detail else random
         for i in range(9):
             a=i*2.4
-            p=(math.cos(a)*.55,math.sin(a)*.55,.65+random.random()*.35)
+            p=(math.cos(a)*.55,math.sin(a)*.55,.65+rng.random()*.35)
             rod((0,0,0),p,.035,'bark')
-            ball(p,(.65,.55,.5),'leaf_light' if i%3==0 else 'leaf',2,.18)
+            mat = 'leaf_light' if i%3==0 else 'leaf'
+            if detail: canopy(p, (.65,.55,.5), mat, rng)
+            else: ball(p, (.65,.55,.5), mat, 2, .18)
     elif name=='fern':
+        rng = random.Random(name)
         for i in range(9):
-            frond((0,0,.07),i*math.tau/9,.85,.24,.68)
+            angle = i * math.tau / 9
+            if detail:
+                split_frond((0, 0, .07), angle + rng.uniform(-.1, .1), rng.uniform(.65, .91),
+                            rng.uniform(.18, .26), rng.uniform(.48, .73), 'leaf' if i % 3 else 'leaf_light')
+            else:
+                frond((0,0,.07),angle,.85,.24,.68)
     elif name in ['rock_a','rock_b']:
         for i in range(1 if name=='rock_a' else 5):
             p=(0,0,1.1) if name=='rock_a' else (random.uniform(-1.5,1.5),random.uniform(-1,1),.3+i*.13)
@@ -707,11 +877,10 @@ def export_glb(path):
     path.write_bytes(data)
 
 
-manifest={}
-gallery=[]
-for name in NAMES:
+def assemble(name, detail=False):
+    global parts
     parts=[]
-    build(name)
+    build(name, detail)
     bpy.ops.object.select_all(action='DESELECT')
     for o in parts:
         o.select_set(True)
@@ -728,10 +897,45 @@ for name in NAMES:
         o.location+=shift
     bpy.context.scene.cursor.location=(0,0,0)
     bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+    return o
+
+
+def fit_bounds(o, target_bounds):
+    source = bounds(o)
+    for vertex in o.data.vertices:
+        for i in range(3):
+            ratio = (vertex.co[i] - source[0][i]) / (source[1][i] - source[0][i])
+            vertex.co[i] = target_bounds[0][i] + ratio * (target_bounds[1][i] - target_bounds[0][i])
+    o.data.update()
+
+
+def export_vegetation(name, entry):
+    detailed = assemble(name, detail=True)
+    lo, hi = entry['bounds']
+    fit_bounds(detailed, [(lo[0], -hi[2], lo[1]), (hi[0], -lo[2], hi[1])])
+    export_glb(OUT / (name + '.glb'))
+    entry['tris'] = triangles(detailed)
+    return detailed
+
+
+if VEGETATION_ONLY:
+    manifest_path = OUT / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text())
+    for name in VEGETATION:
+        bpy.data.objects.remove(export_vegetation(name, manifest[name]), do_unlink=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+    sys.exit(0)
+
+
+manifest={}
+gallery=[]
+for name in NAMES:
+    o = assemble(name)
     b=bounds(o)
     engine_bounds=[[b[0][0],b[0][2],-b[1][1]],[b[1][0],b[1][2],-b[0][1]]]
     high=OUT/(name+'.glb')
-    export_glb(high)
+    if name not in VEGETATION:
+        export_glb(high)
     low=None
     if name in LOD:
         lo=o.copy(); lo.data=o.data.copy(); bpy.context.collection.objects.link(lo)
@@ -751,6 +955,13 @@ for name in NAMES:
                     'tris':triangles(o)}
     gallery.append(o)
     o.hide_render=True
+
+for name in VEGETATION:
+    index = NAMES.index(name)
+    bpy.data.objects.remove(gallery[index], do_unlink=True)
+    detailed = export_vegetation(name, manifest[name])
+    gallery[index] = detailed
+    detailed.hide_render = True
 
 (OUT/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
 total=sum(p.stat().st_size for p in OUT.glob('*.glb'))

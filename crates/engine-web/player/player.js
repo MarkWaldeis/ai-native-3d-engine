@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import init, { WebGame } from './pkg/engine_web.js';
+import init, { WebGame, NetGame } from './pkg/engine_web.js';
+import { netURL, BrowserNet } from './net.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame, bindActivation } from './controls.js';
 import { GameEffects } from './effects.js';
 import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
@@ -52,6 +53,7 @@ const ragdolls = new Map();
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain, occluder, hudLayout;
+let net, netEndpoint;
 const enemies = new Map();
 const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0,assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0};
 const loading = new Set();
@@ -224,6 +226,7 @@ function applyRagdolls(states = []) {
 
 function apply(result) {
   checkpointAutosave(result.state, !ready);
+  if (netEndpoint && result.my_entity != null) playerId = result.my_entity;
   hudLayout?.update(result);
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
@@ -273,6 +276,9 @@ function apply(result) {
     }
     if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
     $('state').replaceChildren(...fragments);
+  }
+  if (netEndpoint) {
+    $('state').textContent = `${result.connected ? `Spieler ${result.player_number}` : 'Verbinde …'} · ${Math.round(result.stats?.rtt_ms || 0)} ms · ${result.players || 0} Spieler verbunden`;
   }
   $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
@@ -373,6 +379,7 @@ function resize() {
 }
 
 async function restart(save = null) {
+  if (netEndpoint && save !== null) throw new Error('Lokale Spielstände sind im Multiplayer nicht verfügbar.');
   running = false; ready = false; resetInput();
   stopPreview();
   previewRemaining = 3.5;
@@ -383,9 +390,14 @@ async function restart(save = null) {
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
+  net?.close();
   const initial = save === null
     ? game.load(JSON.stringify(source), JSON.stringify(scripts))
     : game.load_game(JSON.stringify(source), JSON.stringify(scripts), save);
+  if (netEndpoint) {
+    net = new BrowserNet(game, netEndpoint, fail, undefined, {onDisconnect: showNetworkDisconnect});
+    window.__engineNet = net.status;
+  }
   await terrain?.preload();
   mark('webGameLoaded');
   apply(JSON.parse(initial));
@@ -399,7 +411,7 @@ async function restart(save = null) {
   }
   camera.position.fromArray(source.camera.position); camera.lookAt(...source.camera.target); updateCamera(true);
   if (streaming) await Promise.all(streaming.update(camera));
-  accumulator = 0; previous = performance.now(); ready = true;
+  accumulator = 0; previous = performance.now(); ready = true; $('pause').disabled = false;
   mark('assetsReady');
 }
 
@@ -426,6 +438,7 @@ function checkpointAutosave(state, initial = false) {
   catch (error) { saveNote('Speichern fehlgeschlagen'); console.error('Spielstand:', error); }
 }
 window.__aiSaveGame = () => {
+  if (netEndpoint) throw new Error('Lokale Spielstände sind im Multiplayer nicht verfügbar.');
   if (!ready) throw new Error('Spiel ist noch nicht bereit.');
   const save = game.save_game();
   localStorage.setItem(saveKey, save);
@@ -434,6 +447,7 @@ window.__aiSaveGame = () => {
   return save;
 };
 window.__aiLoadGame = async () => {
+  if (netEndpoint) throw new Error('Lokale Spielstände sind im Multiplayer nicht verfügbar.');
   const save = localStorage.getItem(saveKey);
   if (save === null) return false;
   await restart(save);
@@ -559,6 +573,19 @@ for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) $('act
 });
 window.addEventListener('resize', () => { resetInput(); if (renderer && camera) resize(); });
 
+function showNetworkDisconnect() {
+  if (mode === 'error' || (!modal.hidden && modal.dataset.screen === 'disconnected')) return;
+  fps?.stop(); running = false; resetInput(); mode = 'restart';
+  $('state').textContent = 'Verbindung getrennt';
+  modal.hidden = false; modal.dataset.screen = 'disconnected';
+  $('modal-badge').textContent = 'MULTIPLAYER'; $('modal-symbol').textContent = '↻';
+  $('modal-title').textContent = 'Verbindung getrennt';
+  $('modal-text').textContent = 'Der Server ist nicht erreichbar. Verbinde dich erneut, um weiterzuspielen.';
+  $('modal-note').textContent = 'Der Server bestimmt deinen aktuellen Spielstand.';
+  $('start').textContent = 'Neu verbinden'; $('start').disabled = false;
+  $('restart').hidden = true; $('pause').disabled = true;
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
   hudLayout?.frame(now);
@@ -584,7 +611,11 @@ function frame(now) {
       }
     }
     renderer.info.reset();
-    if (running) {
+    if (net) {
+      const result = net.tick(running ? controls() : {});
+      if (result) apply(result);
+      if (!net.status.connected && net.socket.readyState >= 2) showNetworkDisconnect();
+    } else if (running) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
       if (previewRemaining === 0) stopPreview();
       accumulator += elapsed;
@@ -608,7 +639,7 @@ function frame(now) {
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
-    if (fps) fps.frame(elapsed, fpsMarkers()); else { updateShadows(); updateObjective(); }
+    if (fps) fps.frame(elapsed, fpsMarkers(), effects.level); else { updateShadows(); updateObjective(); }
     if (gpuTimer) {
       gpuTimer.begin();
       const renderStart = performance.now();
@@ -674,7 +705,8 @@ async function boot() {
     init().then(result => { mark('wasmInitialized'); return result; }),
   ]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
-  const props = source.entities.find(e => e.tags?.includes('player'))?.props;
+  const props = source.entities.find(e => e.tags?.includes('player'))?.props || source.entities.find(e => e.tags?.includes('net_player'))?.props;
+  netEndpoint = netURL(location.href, props?.ai_net);
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   hudLayout = new HudLayout(props?.ai_hud, source.entities);
@@ -706,7 +738,7 @@ async function boot() {
     statsOverlay.style.cssText = 'position:fixed;left:8px;top:8px;z-index:1000;background:#000b;color:white;padding:6px;font:12px monospace;pointer-events:none';
     document.body.append(statsOverlay);
   }
-  game = new WebGame();
+  game = netEndpoint ? new NetGame() : new WebGame();
   terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
   if(terrain) {
     occluder=new TerrainOcclusion(terrain.occluderHeightAt,{enabled:config?.occlusion ?? true,margin:config?.occlusion_margin ?? 2});

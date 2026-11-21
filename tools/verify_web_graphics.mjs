@@ -737,6 +737,11 @@ export async function verifyGraphics(browser, base, errors, shots) {
       caster.castShadow = receiver.receiveShadow = true;
       receiver.rotation.x = -Math.PI / 2;
       const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const readReceiver = () => {
+        const {x,y} = new THREE.Vector3(18, 0, -3).project(camera);
+        gl.readPixels(Math.floor((x + 1) * gl.drawingBufferWidth / 2), Math.floor((y + 1) * gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        return pixel[0];
+      };
       const sample = extent => {
         const config = graphicsConfig({shadow_extent:extent, sun_direction:[0,1,1], sun_intensity:5}, 'low');
         const scene = new THREE.Scene(), effects = new GameEffects(renderer, scene, null, config);
@@ -744,16 +749,38 @@ export async function verifyGraphics(browser, base, errors, shots) {
         scene.add(caster, receiver);
         effects.update(0, new Map(), camera, false, 0, new THREE.Vector3());
         effects.render(camera);
-        const {x,y} = new THREE.Vector3(18, 0, -3).project(camera);
-        gl.readPixels(Math.floor((x + 1) * gl.drawingBufferWidth / 2), Math.floor((y + 1) * gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        const value = readReceiver();
         effects.sun.shadow.dispose();
-        return pixel[0];
+        return value;
       };
-      try { return {normal:sample(24), wide:sample(64), error:gl.getError()}; }
+      try {
+        const normal=sample(24), wide=sample(64);
+        const scene = new THREE.Scene(), config = graphicsConfig({
+          shadow_extent:64, sun_direction:[0,1,1], sun_intensity:5, bloom_strength:0, hdr_antialias:false,
+        }, 'ultra');
+        const effects = new GameEffects(renderer, scene, null, config), focus = new THREE.Vector3(), objects = new Map();
+        renderer.info.autoReset = false;
+        scene.fog = null; scene.add(caster, receiver);
+        const frame = () => {
+          renderer.info.reset();
+          effects.update(0, objects, camera, false, 0, focus);
+          effects.render(camera);
+          return {value:readReceiver(), calls:renderer.info.render.calls};
+        };
+        frame(); // Allocate the first shadow map.
+        const fresh=frame(), reused=frame();
+        caster.position.x += 3;
+        const moved=frame();
+        effects.sun.shadow.dispose();
+        return {normal, wide, fresh, reused, moved, error:gl.getError()};
+      }
       finally { box.dispose(); floor.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
     });
     assert.ok(shadows.normal > shadows.wide + 30 && shadows.error === 0, JSON.stringify(shadows));
     console.log('PASS sun shadows: wider authored volume captures a caster outside the default volume');
+    assert.ok(shadows.reused.value === shadows.fresh.value && shadows.reused.calls < shadows.fresh.calls &&
+      shadows.moved.value > shadows.fresh.value + 30 && shadows.moved.calls === shadows.fresh.calls, JSON.stringify(shadows));
+    console.log('PASS sun shadow reuse: unchanged pixels, fewer draws, immediate caster movement');
 
     const streamedShadow = await page.evaluate(async () => {
       const THREE = await import('three');

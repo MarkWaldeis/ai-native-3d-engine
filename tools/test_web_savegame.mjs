@@ -26,7 +26,7 @@ function setup(pathname = '/game/') {
     return elements.get(id);
   };
   const context = vm.createContext({
-    window, location: { pathname }, ready: true, console, $, setTimeout: () => 1, clearTimeout() {},
+    window, location: { pathname }, ready: true, netEndpoint: null, console, $, setTimeout: () => 1, clearTimeout() {},
     game: { save_game: () => '{"version":1}' },
     localStorage: { setItem: (k, v) => values.set(k, v), getItem: k => values.get(k) ?? null },
     restart: async save => loaded.push(save), startRunning: () => loaded.push('running'),
@@ -98,4 +98,13 @@ test('pause menu save and load are clickable and missing saves are disabled', as
   await $('load-game').click();
   assert.equal($('save-status').textContent, 'Laden fehlgeschlagen');
   assert.equal($('load-game').disabled, false);
+});
+
+test('authoritative multiplayer rejects local save/load without touching storage or restarting', async () => {
+  const {context,window,values,loaded}=setup();
+  context.netEndpoint='ws://localhost:7790';
+  assert.throws(()=>window.__aiSaveGame(),/Multiplayer/);
+  await assert.rejects(window.__aiLoadGame(),/Multiplayer/);
+  assert.equal(values.size,0);
+  assert.deepEqual(loaded,[]);
 });

@@ -18,5 +18,7 @@ test('delayed authored viewmodel mounting measures in model space, not the anima
   assert.ok(center.distanceTo(late.weapon.position)<1e-7);
   assert.ok(Math.abs(bounds.getSize(new T.Vector3()).z-.4)<1e-7);
   assert.ok(bounds.max.z<-.1,'the receiver stays in front of the overlay camera, not around it');
+  const tip=late.model.localToWorld(late.model.userData.muzzle.clone());
+  assert.ok(tip.distanceTo(late.weapon.localToWorld(new T.Vector3(0,.02,-.2)))<1e-7);
   late.mountModel(model(),true);assert.equal(late.weapon.children.filter(o=>o!==late.muzzleFlash).length,1);
 });
