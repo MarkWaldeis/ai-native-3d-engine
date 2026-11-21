@@ -17,6 +17,7 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("favicon.svg", include_str!("../crates/engine-web/favicon.svg")),
     ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),
     ("surfaces.js", include_str!("../crates/engine-web/player/surfaces.js")),
+    ("atmosphere.js", include_str!("../crates/engine-web/player/atmosphere.js")),
     (
         "nature.js",
         include_str!("../crates/engine-web/player/nature.js"),

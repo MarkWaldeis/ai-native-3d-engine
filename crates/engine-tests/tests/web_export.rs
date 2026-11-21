@@ -91,6 +91,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "sky.js",
         "materials.js",
         "surfaces.js",
+        "atmosphere.js",
         "local-lights.js",
         "style.css",
         "scene.json",
