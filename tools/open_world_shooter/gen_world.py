@@ -231,7 +231,7 @@ def build(scene, rng, density, with_terrain_entity):
         "intro_text": "Landezone Echo. Überquere den Rio Verde, säubere die Außenposten, sichere die Akte in San Aurelio, zerstöre den Funkturm und stürme die Zitadelle.",
         "win_text": "Zitadelle eingenommen – Mission erfüllt!",
         "badge": "Rio Verde", "win_badge": "Sieg",
-        "hud_keys": ["health", "ammo", "ammo_reserve", "kills", "objective"],
+        "hud_keys": ["health", "ammo", "ammo_reserve", "kills", "lives", "objective"],
         "sky_color": "#8cadb8",
     }
     sx, sz = LZ[0] + 12, LZ[1] + 12

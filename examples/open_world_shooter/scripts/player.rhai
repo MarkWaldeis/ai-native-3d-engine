@@ -83,8 +83,18 @@ fn clamp(value, lo, hi) {
     min(hi, max(lo, value))
 }
 
+fn objective(ctx, text) {
+    ctx.set_memo("objective",text);
+    let title=text;
+    if !ctx.state_get("won") {
+        let prefix=if ctx.memo("checkpoint_notice") > 0.0 { "Checkpoint – " } else { "" };
+        title=prefix+"Leben "+ctx.state_get("lives")+"/3 · "+text;
+    }
+    ctx.state_set("objective",title);
+}
+
 fn on_start(ctx) {
-    for pair in [["health",100],["ammo",30],["ammo_reserve",150],["kills",0],
+    for pair in [["health",100],["ammo",30],["ammo_reserve",150],["kills",0],["lives",3],
                  ["_tick",0],["_stage",0],["_tower_hp",300]] {
         ctx.state_set(pair[0],pair[1]);
     }
@@ -104,7 +114,8 @@ fn on_start(ctx) {
         ctx.state_set("_tot_"+g,ctx.find_by_tag("grp_"+g).len);
         ctx.state_set("_dead_"+g,0);
     }
-    ctx.state_set("objective","Erreiche die Brücke über den Rio Verde");
+    ctx.set_memo("checkpoint_notice",0.0);
+    objective(ctx,"Erreiche die Brücke über den Rio Verde");
     ctx.state_set("_wp",ctx.position());
     ctx.set_memo("has_terrain",ctx.find_by_tag("terrain").len > 0);
     let safe=ctx.position();
@@ -112,6 +123,7 @@ fn on_start(ctx) {
     safe[2]=clamp(safe[2],-3260.0,3260.0);
     safe[1]=max(safe[1],terrain_floor(ctx,safe)+0.9);
     ctx.set_memo("last_safe",safe);
+    ctx.set_memo("checkpoint",safe);
 }
 
 fn terrain_floor(ctx,p) {
@@ -141,6 +153,7 @@ fn setting(cfg,key,fallback) {
 
 fn missions(ctx,p) {
     let stage=ctx.state_get("_stage");
+    let previous=stage;
     let name="";
     if stage == 0 { name="bridge-marker"; }
     if stage == 2 { name="intel"; }
@@ -149,36 +162,41 @@ fn missions(ctx,p) {
     let id=ctx.find_by_name(name);
     if id >= 0 { ctx.state_set("_wp",ctx.entity_position(id)); }
     if stage == 0 {
-        ctx.state_set("objective","Erreiche die Brücke über den Rio Verde");
+        objective(ctx,"Erreiche die Brücke über den Rio Verde");
         if id < 0 || near_xz(p,ctx.entity_position(id),40.0) { stage=1; }
     } else if stage == 1 {
         let left=max(0,ctx.state_get("_tot_alpha")-ctx.state_get("_dead_alpha"));
-        ctx.state_set("objective","Säubere Außenposten Alpha ("+left+" übrig)");
+        objective(ctx,"Säubere Außenposten Alpha ("+left+" übrig)");
         for enemy in ctx.find_by_tag("grp_alpha") {
             if ctx.health_of(enemy) > 0.0 { ctx.state_set("_wp",ctx.entity_position(enemy)); break; }
         }
         if left == 0 { stage=2; }
     } else if stage == 2 {
-        ctx.state_set("objective","Sichere die Akte in San Aurelio");
+        objective(ctx,"Sichere die Akte in San Aurelio");
         if id < 0 { stage=3; }
         else if near_xz(p,ctx.entity_position(id),3.0) { ctx.remove(id); stage=3; }
     } else if stage == 3 {
         if id >= 0 { ctx.state_set("_tower_hp",ctx.health_of(id)); }
-        ctx.state_set("objective","Zerstöre den Funkturm ("+max(0,ctx.state_get("_tower_hp"))+" LP)");
+        objective(ctx,"Zerstöre den Funkturm ("+max(0,ctx.state_get("_tower_hp"))+" LP)");
         if id < 0 { stage=4; }
         else if ctx.state_get("_tower_hp") <= 0 {
             fx(ctx,"explosion",ctx.entity_position(id),[0.0,1.0,0.0]);
             ctx.remove(id); stage=4;
         }
     } else if stage == 4 {
-        ctx.state_set("objective","Eliminiere den Kommandanten der Zitadelle");
+        objective(ctx,"Eliminiere den Kommandanten der Zitadelle");
         if id < 0 || ctx.state_get("_commander_dead") { stage=5; }
     }
     if stage == 5 {
         ctx.state_set("won",true);
-        ctx.state_set("objective","Zitadelle eingenommen!");
+        objective(ctx,"Zitadelle eingenommen!");
     }
     ctx.state_set("_stage",stage);
+    if stage != previous {
+        ctx.set_memo("checkpoint",ctx.memo("last_safe"));
+        ctx.set_memo("checkpoint_notice",5.0);
+        objective(ctx,ctx.memo("objective"));
+    }
 }
 
 fn on_tick(ctx,dt) {
@@ -202,9 +220,28 @@ fn on_tick(ctx,dt) {
     }
     let tick=ctx.state_get("_tick")+1;
     ctx.state_set("_tick",tick);
+    ctx.set_memo("checkpoint_notice",max(0.0,ctx.memo("checkpoint_notice")-dt));
     if ctx.hits().len > 0 { ctx.state_set("_hurt",true); }
     if ctx.health() <= 0.0 {
+        let lives=max(0,ctx.state_get("lives")-1);
+        ctx.state_set("lives",lives);
+        if lives > 0 {
+            let checkpoint=ctx.memo("checkpoint");
+            ctx.set_position(checkpoint);
+            ctx.set_velocity([0.0,0.0,0.0]);
+            ctx.set_memo("last_safe",checkpoint);
+            ctx.set_health(100.0);
+            ctx.state_set("ammo",30);
+            ctx.state_set("ammo_reserve",max(150,ctx.state_get("ammo_reserve")));
+            ctx.state_set("_reload",0.0);
+            ctx.state_set("_fire_cd",0.0);
+            ctx.state_set("_hurt",false);
+            ctx.set_memo("checkpoint_notice",5.0);
+            objective(ctx,ctx.memo("objective"));
+            return;
+        }
         ctx.state_set("lost",true);
+        ctx.set_memo("checkpoint_notice",0.0);
         ctx.state_set("objective","Gefallen – Neustart");
         ctx.set_velocity([0.0,ctx.velocity()[1],0.0]);
         return;
