@@ -141,4 +141,5 @@ pub(crate) fn different(a: &NetEntityState, b: &NetEntityState, epsilon: f32) ->
                 .chain(&b.angvel),
         )
         .any(|(a, b)| (a - b).abs() > epsilon || !a.is_finite() || !b.is_finite())
+        || a.ragdoll != b.ragdoll
 }

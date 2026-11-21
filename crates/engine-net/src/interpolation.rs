@@ -75,6 +75,23 @@ impl Interpolator {
                             quaternion(state.rotation_deg),
                         )
                         .euler();
+                        if let Some(rig) = &mut result.ragdoll {
+                            if rig.enabled {
+                                for bone in &mut rig.parts {
+                                    if bone.sleeping {
+                                        continue;
+                                    }
+                                    for axis in 0..3 {
+                                        bone.position[axis] += bone.linvel[axis] * dt;
+                                    }
+                                    bone.rotation_deg = multiply(
+                                        angular_step(bone.angvel, dt),
+                                        quaternion(bone.rotation_deg),
+                                    )
+                                    .euler();
+                                }
+                            }
+                        }
                         result
                     })
                     .collect()
@@ -93,6 +110,22 @@ fn interpolate(a: &NetEntityState, b: &NetEntityState, t: f32) -> NetEntityState
         result.angvel[i] += (b.angvel[i] - a.angvel[i]) * t;
     }
     result.rotation_deg = slerp(quaternion(a.rotation_deg), quaternion(b.rotation_deg), t).euler();
+    if let (Some(left), Some(right)) = (&mut result.ragdoll, &b.ragdoll) {
+        if left.active && right.active && left.parts.len() == right.parts.len() {
+            for (l, r) in left.parts.iter_mut().zip(&right.parts) {
+                if l.name != r.name {
+                    continue;
+                }
+                for axis in 0..3 {
+                    l.position[axis] += (r.position[axis] - l.position[axis]) * t;
+                    l.linvel[axis] += (r.linvel[axis] - l.linvel[axis]) * t;
+                    l.angvel[axis] += (r.angvel[axis] - l.angvel[axis]) * t;
+                }
+                l.rotation_deg =
+                    slerp(quaternion(l.rotation_deg), quaternion(r.rotation_deg), t).euler();
+            }
+        }
+    }
     result
 }
 

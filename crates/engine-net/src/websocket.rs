@@ -245,6 +245,7 @@ fn connection(
     stopped: &AtomicBool,
     allow_origins: &[String],
 ) -> Result<()> {
+    socket.set_nonblocking(false)?;
     socket.set_nodelay(true)?;
     socket.set_read_timeout(Some(Duration::from_secs(2)))?;
     socket.set_write_timeout(Some(Duration::from_secs(2)))?;
