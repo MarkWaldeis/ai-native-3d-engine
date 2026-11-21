@@ -1,14 +1,52 @@
 # AI-native 3D Engine: Roadmap ab M7
 
-Stand: [`8cff236`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/8cff23639981b74dbcafa0dfecbc30fc03e875fa) · [Review](https://app.devin.ai/sessions/2a09d353466842a2b5ab7b6ff04490d2)
+Stand: **21. November 2026**, [`3ae0be5`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/3ae0be59ac8082d8b79bdd9d909af05815d3e658) · CI **7/7 grün**, einschließlich Windows, nativer/WASM-Parität und Pages.
 
-**Empfehlung:** Erst verhindern, dass Agenten unbemerkt Gameplay oder Szenenzustand verlieren. Danach die veröffentlichte Blender-zu-Web-Pipeline reproduzierbar machen und erst dann in zusätzliche Engine-Funktionen investieren.
+## Status: M7–M10 abgeschlossen
 
-## Verifizierter Ausgangspunkt
+| Meilenstein | Gelieferter Stand | Commit |
+|---|---|---|
+| M7 · Verlässliche Änderungen und Blender-Roundtrip | Unveränderliche Skriptbindungen, monotone IDs, Gameplay-Props-Roundtrip, striktes CAS und atomare Batches. | [`abdc608`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/abdc608) |
+| M8 · Sichere Schwarm-Sitzungen | Loopback als Standard, expliziter authentifizierter Remote-Betrieb, Projektpfad-Grenzen sowie Task-Leases mit Übernahme und Fencing. | [`6ca2d2a`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/6ca2d2a) |
+| M9 · Web-Release-Prüfung | Echte exportierte WASM-Player, JS-/Browser-CI, Sieg/Rettung/Neustart und native/WASM-Eingabetraces. | [`3701f39`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/3701f39) |
+| M10 · Workflow-Nachweis | Laternen-Labyrinth aus frischem Projekt: Blender → MCP → Rhai → QA → Web, mit gemessenem Worker-Ausfall, Übernahme und Rollback. | [`47ed41e`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/47ed41e) |
+
+**Einordnung:** Abgeschlossen sind die gelieferten Implementierungen und dokumentierten Workflow-Nachweise, nicht sämtliche langfristigen Qualitätsziele. Physische iPhone-/iPad-Abnahme aus M9 bleibt offen; WebKit-/Simulator-Prüfungen ersetzen sie nicht. M10 nutzte ein einzelnes KI-Modell mit interleavten Rollen und parallelen Skript-Workern, kein unabhängiges Multi-Modell-Team. Messwerte und Reproduktion: [M10-Bericht](M10_REPORT.md). Der integrierte Touch-Verifier berücksichtigt seit [`8b9983b`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/8b9983b) sparse WASM-Snapshots.
+
+### Heutige Ergänzungen
+
+| Bereich | Geliefert | Commit / Dokumentation |
+|---|---|---|
+| Persistenter Schwarmzustand | Atomare Projekt-Checkpoints für Autorenszene, Tasks/Leases, Journale und Locks mit Offline-Ablauf; projektgebundene Blender-Ports und Identitätsprüfung. | [`2fc9501`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/2fc9501), [M10-Nachtrag](M10_REPORT.md) |
+| Large-World-Authoring | Hierarchische Prefabs mit Overrides/Propagation, deterministische Bulk-Platzierung, Blender-Collection-Instanzen, LODs, GLB-Deduplizierung und paginierte Queries samt 44-km²-Messung. | [`82b2d90`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/82b2d90), [Details](LARGE_WORLD_AUTHORING.md) |
+| WebKit-CI und Review-Fixes | Verpflichtende iPhone-/iPad-WebKit-Release-Prüfungen, Coin-Touch-Toleranz/Kamera, robuste erste Aktivierung und Favicon; integriert und nach Rebase verifiziert. | [`e3b23b3`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/e3b23b3) |
+| Charakteranimation | Echter Blender-Rig mit mehreren Actions, deterministische Animator-State-Machine/Rhai-Parameter, MCP-Lint sowie simulationsgetriebene Web-Skinning-Crossfades. | [`8028ee6`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/8028ee6), [Details](CHARACTER_ANIMATION.md) |
+| NPC-Navigation | Konservatives 2.5D-Quad-Navmesh mit Region-Tiles und inkrementellem Bake, deterministisches A*/String-Pulling, Nav-Agent/Rhai, MCP-Lint/QA-Overlay und Laternen-Patrouille mit Paritätstrace. | [`417a43d`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/417a43d), [Details](NAVIGATION.md) |
+
+Der Windows-Flake im Mock-Blender-Socket des Projekt-Recovery-Tests ist mit [`3ae0be5`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/3ae0be5) behoben. Das ist eine Test-Fixture-Korrektur, keine Änderung der Navigations- oder Renderinglogik.
+
+## Vorschlag: nächste Meilensteine M11+
+
+Priorisierungsvorschlag aus den dokumentierten Grenzen, **keine bereits zugesagten oder abgeschlossenen Features**. Renderingqualität bleibt ein eigener Arbeitsstrang.
+
+| Vorschlag | Ausgangsgrenze und nächster Nachweis |
+|---|---|
+| **M11 · Physische Geräte als Release-Gate** | Auf echten iPhones/iPads Safari-Kaltstart, erste Aktivierung, vollständigen Touch-Sieg, Pause und Neustart aller drei Spiele prüfen; Geräte-/OS-Matrix und Artefakte dokumentieren. Ergänzt die bestehende Browser-CI, statt sie zu ersetzen. |
+| **M12 · Präzisere und dynamische Navigation** | Von konservativen Collider-Quads zu dreiecksgenauer Geometrie und direkter Heightfield-Anbindung; Crowd-Avoidance, dynamische Hindernisse und bedarfsgeladenes Tile-Streaming. Enge Durchgänge, Rampen und mehrere Agenten mit festen Budgets und nativer/WASM-Parität nachweisen ([Grenzen](NAVIGATION.md)). |
+| **M13 · Play-State-Recovery** | Neben Autorenszene und Koordination auch laufenden Simulationszustand wiederherstellen; Vertrag für Tick, Skript-/Physikzustand, Animator und Nav-Routen definieren. Prozess-Kill/Resume mit anschließend gleichem Trace prüfen ([M10](M10_REPORT.md)). |
+| **M14 · Verteilte Koordination** | Den heutigen projektlokalen Single-Writer um einen expliziten Mehrserver-Vertrag erweitern: dauerhafte Identitäten, konsistente Leases/Fencing und Konfliktbehandlung bei Partitionen. Zwei Server und einen Verbindungsabbruch testen; kein verteiltes Locking auf Basis bloß kopierter Checkpoints behaupten ([M10](M10_REPORT.md)). |
+| **M15 · Prefab-native Laufzeit und skalierbare Persistenz** | Materialisierte flache Szenen um einen expliziten Runtime-Vertrag für geteilte Templates/Instanz-Overrides ergänzen; Queries indizieren, inkrementelle Checkpoints und sichere Asset-Garbage-Collection planen. Speicher, Tool-Latenz und Wiederanlauf auf dem 44-km²-Benchmark messen ([Large-World-Grenzen](LARGE_WORLD_AUTHORING.md)). |
+| **M16 · Natives Skinning und Animationsausbau** | Native Bind-Pose durch skinned Wiedergabe derselben deterministischen Clip-/Blendzustände ersetzen; anschließend Root Motion, IK/Retargeting und skinned LODs separat bewerten. Posen und Deformation gegen Web vergleichen. Umsetzung mit dem Rendering-Verantwortlichen abstimmen, ohne Material-/Licht-/Post-Qualität hiermit zu vermischen ([Animationsgrenzen](CHARACTER_ANIMATION.md)). |
+
+## Historischer Ausgangspunkt und ursprünglicher Plan
+
+Die folgenden Abschnitte halten den Review-Stand [`8cff236`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/8cff23639981b74dbcafa0dfecbc30fc03e875fa) und die damaligen Abnahmekriterien fest ([Review](https://app.devin.ai/sessions/2a09d353466842a2b5ab7b6ff04490d2)). Sie sind **keine aktuelle Liste offener Implementierungsarbeiten**; heutiger Status und verbleibende Grenzen stehen oben.
+
+### Damals verifizierter Ausgangspunkt
 
 - **Build:** macOS ARM64: Workspace-Build mit Lockfile, 53 Rust- und 4 JS-Tests bestanden. Echter Blender-Bridge-Test mit Blender 4.5.16 LTS; die GPU-Tests wurden ausgeführt. [Linux-/Windows-CI](https://github.com/MarkWaldeis/ai-native-3d-engine/actions/runs/44889733444) und [WASM-Export/Pages](https://github.com/MarkWaldeis/ai-native-3d-engine/actions/runs/44889733453) für denselben Commit grün.
 - **Live:** [Himmelsgarten](https://markwaldeis.github.io/ai-native-3d-engine/sky_garden/) verbindet Sprünge, Kristalle und Portal zu einem klaren Ziel. [Münzenpfad](https://markwaldeis.github.io/ai-native-3d-engine/coin_game/) ist eine verständliche, kurze Sammeldemo, aber die Kugel kann ohne Rücksetzung über den sichtbaren Rand hinausrollen. Beide auf Desktop-Chrome bis zum Sieg gespielt; keine physischen Mobilgeräte geprüft.
-- **Einordnung:** Die drei hohen Befunde wurden im verlinkten Review reproduziert und sind im aktuellen Code weiterhin erkennbar. Der fehlende Origin-Check aus dem Review ist behoben; konfigurierbares Netzwerk-Binding ohne Authentifizierung bleibt offen.
+- **Einordnung damals:** Die drei hohen Befunde wurden im verlinkten Review reproduziert und waren in diesem Ausgangsstand weiterhin erkennbar. Der fehlende Origin-Check war bereits behoben; konfigurierbares Netzwerk-Binding ohne Authentifizierung war noch offen.
 
 ## M7 · P0: Verlässliche Änderungen und Blender-Roundtrip
 

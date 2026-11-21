@@ -78,12 +78,47 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const actual = await page.evaluate(() => {
         advanceFrames(1);
         const canvas = document.getElementById('game');
-        return [canvas.dataset.graphics, canvas.dataset.quality, window.__engineStats.drawCalls, window.gpuTimerRequests];
+        return [canvas.dataset.graphics, canvas.dataset.quality, window.__engineStats.drawCalls, window.gpuTimerRequests, canvas.dataset.depth];
       });
       assert.deepEqual(actual.slice(0, 2), [mode, level]);
       assert.ok(actual[2] > 0, `the exported ${query} player renders a frame`);
       assert.equal(actual[3], 0, 'default player does not request GPU timing');
+      assert.equal(actual[4], 'standard');
     }
+
+    const scaledScene = '**/coin_game/scene.json';
+    const scale = async route => {
+      const response = await route.fetch(), scene = await response.json();
+      const player = scene.entities.find(entity => entity.tags?.includes('player'));
+      player.props ??= {};
+      player.props.ai_graphics = {render_scale:0.75};
+      await route.fulfill({response,json:scene});
+    };
+    const bufferSize = () => page.evaluate(() => {
+      advanceFrames(1);
+      const canvas = document.getElementById('game'), gl = canvas.getContext('webgl2');
+      return [canvas.dataset.graphics, canvas.dataset.quality, canvas.clientWidth, canvas.clientHeight,
+        gl.drawingBufferWidth, gl.drawingBufferHeight, gl.getError()];
+    });
+    await page.route(scaledScene, scale);
+    try {
+      for (const [quality, expected] of [['ultra',['hdr','2',800,550,600,412,0]],
+        ['low',['standard','0',800,550,480,330,0]], ['legacy',['legacy','2',800,550,800,550,0]]]) {
+        await page.goto(`${base}/coin_game/?quality=${quality}`);
+        await ready();
+        assert.deepEqual(await bufferSize(),expected);
+      }
+      await page.goto(`${base}/coin_game/?quality=ultra`);
+      await ready();
+      await page.setViewportSize({width:880,height:600});
+      await page.waitForFunction(() => document.getElementById('game').width === 660, null, { polling: 50 });
+      assert.deepEqual(await bufferSize(),['hdr','2',880,600,660,450,0]);
+    } finally {
+      await page.unroute(scaledScene, scale);
+      await page.setViewportSize({width:800,height:550});
+    }
+    console.log('PASS render scale: fewer pixels in HDR and direct modes without resizing the HUD or changing presets; legacy unchanged');
+
     await page.goto(`${base}/coin_game/?quality=ultra&stats=1&no_timer`);
     await ready();
     const timing = await page.evaluate(() => {
@@ -187,7 +222,133 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.agx.rgb.every((channel, i) => Math.abs(channel - result.directAgx.rgb[i]) <= 2), 'direct and HDR compositing apply AgX once');
     console.log('PASS graphics: exported presets, HDR bloom and wide Ultra halo, edge smoothing, resize and direct-render fallback');
 
-    const contact = await page.evaluate(async () => {
+    const exposure = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {HDRPipeline} = await import('./hdr.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const gl = renderer.getContext();
+      const scene = new THREE.Scene();
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+      camera.position.z = 2;
+      const material = new THREE.MeshBasicMaterial();
+      const geometry = new THREE.PlaneGeometry(2, 2);
+      scene.add(new THREE.Mesh(geometry, material));
+      const config = graphicsConfig({bloom_strength:0, hdr_antialias:false, auto_exposure:true}, 'balanced');
+      const pipeline = new HDRPipeline(renderer, config);
+      const fallback = new HDRPipeline(renderer, {...config, bloomStrength:0.2});
+      const pixels = new Uint8Array(4);
+      const read = () => {
+        gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels[0];
+      };
+      const render = (level, luma, frames = 1) => {
+        pipeline.resize(level, 32, 32, 1);
+        material.color.setRGB(luma, luma, luma);
+        for (let i = 0; i < frames; ++i) pipeline.render(scene, camera, 0.1);
+        return read();
+      };
+      try {
+        const bright = render(1, 1.5);
+        const metered = !!pipeline.exposureMeter && !pipeline.bright && renderer.info.render.calls === 3;
+        const enteringShade = render(1, 0.06);
+        const adaptedShade = render(1, 0.06, 40);
+        const leavingShade = render(1, 1.5);
+        const adaptedBright = render(1, 1.5, 24);
+        const fixedShade = render(0, 0.06);
+        const released = !pipeline.sceneTarget && !pipeline.exposureMeter;
+        const restoredShade = render(1, 0.06);
+        const original = gl.checkFramebufferStatus;
+        let checks = 0;
+        gl.checkFramebufferStatus = function(target) {
+          return ++checks === 2 ? gl.FRAMEBUFFER_UNSUPPORTED : original.call(this, target);
+        };
+        try { fallback.resize(1, 32, 32, 1); }
+        finally { gl.checkFramebufferStatus = original; }
+        return {
+          bright, enteringShade, adaptedShade, leavingShade, adaptedBright, fixedShade, restoredShade, metered,
+          released, bloomFallback:!!fallback.bright && !fallback.exposureMeter, glError:gl.getError(),
+        };
+      } finally {
+        pipeline.release(); fallback.release(); geometry.dispose(); material.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(exposure.metered && exposure.released && exposure.bloomFallback && exposure.glError === 0, JSON.stringify(exposure));
+    assert.ok(exposure.enteringShade + 30 < exposure.adaptedShade && exposure.fixedShade + 35 < exposure.adaptedShade, JSON.stringify(exposure));
+    assert.ok(exposure.leavingShade > exposure.bright + 20, JSON.stringify(exposure));
+    assert.ok(Math.abs(exposure.adaptedBright - exposure.bright) <= 3 && Math.abs(exposure.restoredShade - exposure.adaptedShade) <= 6, JSON.stringify(exposure));
+    console.log('PASS auto exposure: gradual bright/dark adaptation, fixed Low exposure and independent bloom fallback');
+
+    const coinScene = `${base}/coin_game/scene.json`;
+    const authoredExposure = async route => {
+      const response = await route.fetch();
+      const scene = await response.json();
+      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics = {
+        auto_exposure:true, bloom_strength:0, hdr_antialias:false,
+      };
+      await route.fulfill({response, json:scene});
+    };
+    await page.route(coinScene, authoredExposure);
+    try {
+      await page.goto(`${base}/coin_game/?quality=balanced`);
+      await ready();
+      const mode = await page.evaluate(() => {
+        advanceFrames(1);
+        return document.querySelector('#game').dataset.graphics;
+      });
+      assert.equal(mode, 'hdr', 'authored auto exposure enables HDR without bloom or AA');
+    } finally { await page.unroute(coinScene, authoredExposure); }
+
+    const clouds = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {applySky} = await import('./sky.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      const gl = renderer.getContext(), pixels = new Uint8Array(96 * 64 * 4);
+      const camera = new THREE.PerspectiveCamera(65, 1.5, 0.1, 50);
+      const geometry = new THREE.SphereGeometry(0.5, 24, 16);
+      const material = new THREE.MeshStandardMaterial({metalness:1, roughness:0.13, color:0xffffff});
+      const mirror = new THREE.Mesh(geometry, material);
+      const scene = new THREE.Scene();
+      scene.add(mirror);
+      renderer.setSize(96, 64, false);
+      camera.position.set(0, 0, 2);
+      const render = () => {
+        renderer.render(scene, camera);
+        gl.readPixels(0, 0, 96, 64, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return Array.from(pixels);
+      };
+      const capture = sky_clouds => {
+        const config = graphicsConfig({sky_clouds, sun_direction:[1,1,0]}, 'ultra');
+        applySky(renderer, scene, config, new THREE.Vector3(...config.sunDirection));
+        const sky = scene.background;
+        try {
+          mirror.visible = false;
+          camera.lookAt(1, 1, 2);
+          const background = render();
+          scene.background = null;
+          camera.lookAt(0, 0, 0);
+          mirror.visible = true;
+          return {background, reflected:render()};
+        } finally {
+          sky.dispose(); scene.environment.dispose();
+          scene.background = scene.environment = null;
+        }
+      };
+      try {
+        const clear = capture(false), cloudy = capture({coverage:0.7, seed:123});
+        const difference = key => clear[key].reduce((sum, value, i) => sum + Math.abs(value - cloudy[key][i]), 0);
+        return {skyDelta:difference('background'), reflectionDelta:difference('reflected'), error:gl.getError()};
+      } finally {
+        material.dispose(); geometry.dispose(); renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(clouds.skyDelta > 10000 && clouds.reflectionDelta > 2000 && clouds.error === 0, JSON.stringify(clouds));
+    console.log('PASS clouds: generated sky and its reflection change without external assets');
+
+    const renderContact = logarithmicDepthBuffer => page.evaluate(async logarithmicDepthBuffer => {
       const THREE = await import('three');
       const { HDRPipeline } = await import('./hdr.js');
       const scene = new THREE.Scene();
@@ -201,7 +362,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const block = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.2, 1.5), gray);
       block.position.y = 0.6;
       scene.add(floor, block);
-      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas'), logarithmicDepthBuffer});
       const gl = renderer.getContext();
       const config = {bloomStrength: 0, hdrAntialias: false, contactStrength: 1, contactRadius: 1.25};
       const pipeline = new HDRPipeline(renderer, config);
@@ -242,10 +403,66 @@ export async function verifyGraphics(browser, base, errors, shots) {
         block.geometry.dispose(); floor.geometry.dispose(); gray.dispose();
         renderer.dispose(); renderer.forceContextLoss();
       }
+    }, logarithmicDepthBuffer);
+    for (const logarithmic of [false, true]) {
+      const contact = await renderContact(logarithmic);
+      assert.ok(contact.darkened > 50 && contact.flat > 5000 && contact.sky > 500, JSON.stringify({logarithmic, ...contact}));
+      assert.deepEqual([contact.half, contact.draws, contact.released, contact.fallback, contact.glError], [97, 4, true, true, 0]);
+    }
+    console.log('PASS contact occlusion: standard and logarithmic depth, unchanged open surfaces and sky, and GPU/tier fallback');
+
+    const sceneUrl = `${base}/coin_game/scene.json`;
+    const useLogDepth = async route => {
+      const response = await route.fetch();
+      const scene = await response.json();
+      const player = scene.entities.find(entity => entity.tags.includes('player'));
+      player.props ??= {};
+      player.props.ai_graphics = {logarithmic_depth:true};
+      await route.fulfill({response,json:scene});
+    };
+    await page.route(sceneUrl, useLogDepth);
+    try {
+      for (const [preset, mode] of [['ultra', 'logarithmic'], ['legacy', 'standard']]) {
+        await page.goto(`${base}/coin_game/?quality=${preset}`);
+        await ready();
+        assert.equal(await page.locator('#game').getAttribute('data-depth'), mode);
+      }
+    } finally { await page.unroute(sceneUrl, useLogDepth); }
+    const depth = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {HDRPipeline} = await import('./hdr.js');
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(45, 1, 0.05, 6000);
+      const geometry = new THREE.PlaneGeometry(200, 200);
+      const near = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color:0x00ff00}));
+      const far = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({color:0xff0000}));
+      far.renderOrder = 1;
+      scene.add(near, far);
+      const draw = logarithmicDepthBuffer => {
+        const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas'), logarithmicDepthBuffer});
+        const gl = renderer.getContext(), pixel = new Uint8Array(4);
+        const pipeline = new HDRPipeline(renderer, {bloomStrength:0,hdrAntialias:true});
+        try {
+          return [0, 2].map(tier => {
+            pipeline.resize(tier, 64, 64, 1);
+            let correct = 0;
+            for (let i = 0; i < 12; i++) {
+              near.position.z = -2000 - i * 0.37;
+              far.position.z = near.position.z - 0.5;
+              pipeline.render(scene, camera);
+              gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+              correct += Number(pixel[1] > pixel[0]);
+            }
+            return {correct,hdr:!!pipeline.sceneTarget,error:gl.getError()};
+          });
+        } finally { pipeline.release(); renderer.dispose(); renderer.forceContextLoss(); }
+      };
+      try { return {standard:draw(false), logarithmic:draw(true)}; }
+      finally { geometry.dispose(); near.material.dispose(); far.material.dispose(); }
     });
-    assert.ok(contact.darkened > 50 && contact.flat > 5000 && contact.sky > 500, JSON.stringify(contact));
-    assert.deepEqual([contact.half, contact.draws, contact.released, contact.fallback, contact.glError], [97, 4, true, true, 0]);
-    console.log('PASS contact occlusion: local grounding, unchanged open surfaces and sky, and GPU/tier fallback');
+    assert.deepEqual(depth.logarithmic, [{correct:12,hdr:false,error:0},{correct:12,hdr:true,error:0}]);
+    assert.ok(depth.standard.some(sample => sample.correct < 12), JSON.stringify(depth));
+    console.log('PASS logarithmic depth: near surface wins at 2 km in direct and HDR rendering');
 
     const spot = await page.evaluate(async () => {
       const THREE = await import('three');
@@ -365,6 +582,97 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(shadows.normal > shadows.wide + 30 && shadows.error === 0, JSON.stringify(shadows));
     console.log('PASS sun shadows: wider authored volume captures a caster outside the default volume');
 
+    const streamedShadow = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {worldConfig} = await import('./streaming.js');
+      const {StreamingWorld} = await import('./world.js');
+      const scene = new THREE.Scene(), size = 96;
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.setSize(size,size,false);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const world = new StreamingWorld(scene,renderer,worldConfig([
+        {tags:['player'],props:{ai_world:{chunk_size:2,stream_radius:16}}},
+      ]));
+      const camera = new THREE.OrthographicCamera(-1.2,1.2,1.2,-1.2,0.1,20);
+      camera.position.set(0,8,0); camera.up.set(0,0,-1); camera.lookAt(0,0,0); camera.updateMatrixWorld();
+      const sun = new THREE.DirectionalLight(0xffffff,3);
+      sun.position.set(6,6,0); sun.castShadow = true;
+      scene.add(sun,sun.target,new THREE.AmbientLight(0xffffff,0.2));
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(4,4),new THREE.MeshStandardMaterial());
+      ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+      const position = [2.6,2.6,0];
+      world.add({id:1,kind:'box',size:[1,1.3,1],transform:{position,scale:[1,1,1],rotation_deg:[0,0,0]}});
+      const sample = y => {
+        gl.readPixels(size/2,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+        return pixel[0];
+      };
+      try {
+        await Promise.all(world.update(camera)); world.update(camera);
+        const mesh = world.groups.get(world.grid.key(position)).children[0];
+        const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+        renderer.render(scene,camera);
+        const shaded = sample(size/2), clear = sample(4);
+        mesh.castShadow = false; renderer.render(scene,camera);
+        return {shaded, lit:sample(size/2), clear, litClear:sample(4), inView:frustum.intersectsObject(mesh), error:gl.getError()};
+      } finally {
+        sun.shadow.dispose(); ground.geometry.dispose(); ground.material.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(!streamedShadow.inView && streamedShadow.lit > streamedShadow.shaded + 30
+      && streamedShadow.clear === streamedShadow.litClear && streamedShadow.error === 0, JSON.stringify(streamedShadow));
+    console.log('PASS streaming shadows: an offscreen chunk casts onto the visible ground');
+
+    const impostors = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { StreamingWorld } = await import('./world.js');
+      const { worldConfig } = await import('./streaming.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.setSize(96, 96, false);
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const config = worldConfig([{tags:['player'],props:{ai_world:{impostor_views:4,lod_distances:[2,4]}}}]);
+      const scene = new THREE.Scene(), model = new THREE.Group();
+      const color = [0xff0000,0x00ff00,0xffffff,0xffffff,0x0000ff,0xffff00];
+      const source = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2),color.map(value=>new THREE.MeshBasicMaterial({color:value})));
+      source.position.x = 2;
+      model.add(source);
+      const world = new StreamingWorld(scene,renderer,config,{load:async()=>({scene:model})});
+      const camera = new THREE.PerspectiveCamera(30,1,0.1,40);
+      const samples = [];
+      try {
+        for (const [index, batched] of [true,false].entries()) {
+          const transform = {position:[0,0,0],scale:[1.3,1,1],rotation_deg:[0,90,0]};
+          const entity = {id:index+1,kind:'gltf',path:'fixture',transform};
+          const object = batched ? null : new THREE.Group();
+          if (object) { object.rotation.y = Math.PI / 2; object.scale.fromArray(transform.scale); object.add(model.clone()); }
+          world.add(entity,object);
+          const center = new THREE.Vector3(0,0,-2.6);
+          let instance, before;
+          for (const offset of [[1,0,0],[0,0,-1],[-1,0,0],[0,0,1]]) {
+            camera.position.fromArray(offset).multiplyScalar(10).add(center);
+            camera.lookAt(center); camera.updateMatrixWorld();
+            await Promise.all(world.update(camera));
+            await world.entities.get(entity.id).impostorTask;
+            world.update(camera);
+            if (batched && !instance) {
+              instance = scene.getObjectByProperty('isInstancedMesh',true);
+              before = instance.instanceMatrix.version;
+            }
+            renderer.render(scene,camera);
+            gl.readPixels(48,48,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+            samples.push(pixel.slice(0,3).reduce((mask,channel,i)=>mask | (Number(channel>128)<<i),0));
+          }
+          if (batched && before !== instance.instanceMatrix.version) throw new Error('Camera motion updated the instance buffer');
+          world.reset();
+        }
+        return {samples,error:gl.getError()};
+      } finally { renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    assert.deepEqual(impostors,{samples:[4,1,3,2,4,1,3,2],error:0});
+    console.log('PASS impostors: four camera angles use the correct baked faces, centered on the rotated model without instance buffer uploads');
+
     const finishes = await page.evaluate(async () => {
       const THREE = await import('three');
       const { primitiveMaterial } = await import('./materials.js');
@@ -407,6 +715,108 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(finishes.brushed > 80 && finishes.cloth > 80 && finishes.coating > 80 && finishes.glError === 0, JSON.stringify(finishes));
     console.log('PASS PBR finishes: visible brushed anisotropy, fabric sheen, and thin-film iridescence');
 
+    const glass = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {HDRPipeline} = await import('./hdr.js');
+      const {primitiveMaterial} = await import('./materials.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const scene = new THREE.Scene(), gl = renderer.getContext();
+      const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 40);
+      camera.position.z = 3;
+      const panelGeometry = new THREE.PlaneGeometry(2, 4);
+      const panelMaterials = [new THREE.MeshBasicMaterial({color:0xffffff}),
+        new THREE.MeshBasicMaterial({color:0x83f8ff})];
+      for (const [i, material] of panelMaterials.entries()) {
+        const panel = new THREE.Mesh(panelGeometry, material);
+        panel.position.set((i ? 1 : -1) + 0.5, 0, -1);
+        scene.add(panel);
+      }
+      const geometry = new THREE.SphereGeometry(0.85, 40, 24), sphere = new THREE.Mesh(geometry);
+      sphere.material.dispose();
+      scene.add(sphere);
+      const pipeline = new HDRPipeline(renderer, {bloomStrength:0});
+      const sample = (tier, settings) => {
+        sphere.material = primitiveMaterial({color:[1,1,1], props:{ai_material:{
+          roughness:0.03, metalness:0, ...settings,
+        }}});
+        try {
+          pipeline.resize(tier, 96, 96, 1);
+          if (Boolean(pipeline.sceneTarget) !== (tier === 2)) throw new Error('Expected HDR on Ultra and direct rendering on Low');
+          pipeline.render(scene, camera);
+          const pixels = new Uint8Array(96 * 96 * 4);
+          gl.readPixels(0, 0, 96, 96, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          return pixels;
+        } finally { sphere.material.dispose(); }
+      };
+      const left = image => Array.from(image.slice((48 * 96 + 35) * 4, (48 * 96 + 35) * 4 + 3));
+      try {
+        const opaque = left(sample(2, {}));
+        const flat = sample(2, {transmission:1, thickness:0});
+        const thick = {transmission:1, thickness:1};
+        const refracted = sample(2, thick);
+        const absorb = {...thick, attenuation_color:'#80ff80', attenuation_distance:0.3};
+        const tinted = left(sample(2, absorb)), directTint = left(sample(0, absorb));
+        let bent = 0;
+        for (let i = 0; i < flat.length; i += 4) if (Math.abs(flat[i] - refracted[i]) > 20) bent++;
+        return {opaque, clear:left(refracted), tinted, directTint, bent, error:gl.getError()};
+      } finally {
+        pipeline.release(); geometry.dispose(); panelGeometry.dispose();
+        panelMaterials.forEach(material => material.dispose());
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(glass.clear[1] > glass.opaque[1] + 100 && glass.bent > 60, JSON.stringify(glass));
+    assert.ok(glass.tinted[1] > glass.tinted[0] + 30 && glass.directTint[1] > glass.directTint[0] + 30 && glass.error === 0, JSON.stringify(glass));
+    console.log('PASS primitive glass: background refraction and absorption on HDR and direct rendering');
+
+    const terrain = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {terrainDetailTexture} = await import('./terrain.js');
+      const {terrainSurface} = await import('./surfaces.js');
+      const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(-1.6,1.6,1.6,-1.6,0.1,200);
+      camera.up.set(0,0,-1);
+      const sun = new THREE.DirectionalLight(0xffffff,3);
+      sun.position.set(4,1.5,-2);
+      scene.add(sun);
+      const detail = terrainDetailTexture(THREE);
+      const base = new THREE.MeshStandardMaterial({roughness:0.96});
+      const relief = base.clone();
+      terrainSurface(THREE,base);
+      terrainSurface(THREE,relief,0.6,detail,1);
+      const wide = new THREE.PlaneGeometry(4,4).rotateX(-Math.PI/2), half = new THREE.PlaneGeometry(2,4).rotateX(-Math.PI/2);
+      const full = new THREE.Mesh(wide,relief), left = new THREE.Mesh(half,relief), right = new THREE.Mesh(half,relief);
+      left.position.x = -1; right.position.x = 1;
+      scene.add(full,left,right);
+      const size = 128, renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.domElement.dataset.quality = '2';
+      renderer.setSize(size,size,false);
+      const gl = renderer.getContext();
+      const sample = (height, material, tiled = false) => {
+        camera.position.y = height; camera.lookAt(0,0,0);
+        full.material = material; full.visible = !tiled; left.visible = right.visible = tiled;
+        renderer.render(scene,camera);
+        const pixels = new Uint8Array(size*size*4);
+        gl.readPixels(0,0,size,size,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+        return pixels;
+      };
+      const changed = (a,b) => {
+        let count = 0;
+        for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i]-b[i]) > 6) count++;
+        return count;
+      };
+      try {
+        const near = sample(3,relief);
+        return {detail:changed(near,sample(3,base)), seam:changed(near,sample(3,relief,true)),
+          far:changed(sample(120,base),sample(120,relief)), error:gl.getError()};
+      } finally {
+        base.dispose(); relief.dispose(); detail.dispose(); half.dispose(); wide.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(terrain.detail > 300 && terrain.seam < 10 && terrain.far === 0 && terrain.error === 0, JSON.stringify(terrain));
+    console.log('PASS terrain micro-relief: near-field shading, seamless tiles and distance fade');
+
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
     await page.setViewportSize({ width: 1100, height: 750 });
@@ -439,14 +849,21 @@ export async function verifyGraphics(browser, base, errors, shots) {
         };
       });
     };
+    const materialImages = new Map();
+    const collectMaterial = response => {
+      if (response.url().startsWith(`${studio}/assets/material/`)) materialImages.set(response.url(), response.status());
+    };
+    page.on('response', collectMaterial);
     const [loaded, floor, reflected] = await Promise.all([
       page.waitForResponse(map), page.waitForResponse(response => response.url().startsWith(studio) && response.url().endsWith('.glb')), render(),
     ]);
+    page.off('response', collectMaterial);
     await page.screenshot({ path: `${shots}/material-studio-contact.png` });
     assert.equal(loaded.status(), 200, 'the exported panorama is loaded from its bundle');
     assert.equal(floor.status(), 200, 'the textured floor loads from a bundled GLB');
     assert.equal(reflected.title, 'Materiallabor');
     assert.equal(reflected.error, 0);
+    assert.deepEqual([...materialImages.values()], [200, 200, 200], 'studio loads the three bundled wall images');
     if (reflected.maximumAnisotropy > 1) {
       assert.ok(reflected.sampledAnisotropy.includes(Math.min(8, reflected.maximumAnisotropy)), 'the Ultra studio applies anisotropy to its WebGL sampler');
       console.log('PASS GLB textures: bundled textured floor applies the supported Ultra anisotropy');
@@ -469,6 +886,16 @@ export async function verifyGraphics(browser, base, errors, shots) {
       callback(scene);
       await route.fulfill({ response, json: scene });
     };
+    const noMaterialMaps = patchScene(scene => {
+      delete scene.entities.find(entity => entity.name === 'rear-wall').props.ai_material;
+    });
+    await page.route(background, noMaterialMaps);
+    const flatWall = await render();
+    await page.unroute(background, noMaterialMaps);
+    assert.equal(flatWall.error, 0);
+    const materialDelta = reflected.pixels.reduce((sum, value, i) => sum + Math.abs(value - flatWall.pixels[i]), 0);
+    assert.ok(materialDelta > 1000, `bundled primitive maps change the image: ${materialDelta}`);
+    console.log('PASS primitive maps: bundled sRGB, normal and ORM images shade the tiled studio wall');
     const noContact = patchScene(scene => {
       scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.contact_occlusion = 0;
     });
@@ -522,6 +949,15 @@ export async function verifyGraphics(browser, base, errors, shots) {
     await page.route(background, showMap);
     const panorama = await render();
     await page.unroute(background, showMap);
+    const showMapWithClouds = patchScene(scene => {
+      const graphics = scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics;
+      graphics.environment_background = true;
+      graphics.sky_clouds = true;
+    });
+    await page.route(background, showMapWithClouds);
+    const panoramaWithClouds = await render();
+    await page.unroute(background, showMapWithClouds);
+    assert.deepEqual(panoramaWithClouds.pixels, panorama.pixels, 'visible authored HDRI takes precedence over procedural clouds');
     const rotateMap = patchScene(scene => {
       const graphics = scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics;
       graphics.environment_rotation_deg = 90;
@@ -578,6 +1014,48 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
     console.log('PASS HDRI: offline panorama, rotation, reflection-only mode, visible background, movement and missing-map fallback');
     console.log('PASS point lights: exported fixtures light nearby surfaces without altering the sky');
+    const atmosphere = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {applySky} = await import('./sky.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      renderer.setSize(64, 64, false);
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 20);
+      const direction = new THREE.Vector3(1, 0.125, 0.15).normalize();
+      const mirror = new THREE.Mesh(new THREE.PlaneGeometry(3, 3),
+        new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.12, metalness:1}));
+      mirror.position.copy(direction).multiplyScalar(-3);
+      mirror.lookAt(camera.position);
+      const sample = enabled => {
+        const scene = new THREE.Scene();
+        const config = graphicsConfig({
+          sky:'#303030', horizon:'#303030', ground:'#303030', sun_color:'#ffffff',
+          sun_direction:[1, 0.11, 0], environment_intensity:1, sky_atmosphere:enabled,
+        }, 'ultra');
+        applySky(renderer, scene, config, new THREE.Vector3(...config.sunDirection));
+        const read = view => {
+          camera.lookAt(view);
+          renderer.render(scene, camera);
+          gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+          return [...pixel.slice(0, 3)];
+        };
+        try {
+          const sky = read(direction);
+          const opposite = read(mirror.position);
+          scene.add(mirror);
+          return {sky, opposite, reflected:read(mirror.position)};
+        } finally { scene.background.dispose(); scene.environment.dispose(); }
+      };
+      try { return {clear:sample(false), hazy:sample({haze:0.7}), error:gl.getError()}; }
+      finally { mirror.geometry.dispose(); mirror.material.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    const {clear, hazy, error} = atmosphere;
+    assert.ok(error === 0 && hazy.sky[0] > clear.sky[0] + 25
+      && hazy.sky[0] > hazy.sky[2] + 15
+      && hazy.reflected[0] > clear.reflected[0] + 20, JSON.stringify(atmosphere));
+    assert.deepEqual(hazy.opposite, clear.opposite, 'a ray below the horizon keeps its authored color');
+    console.log('PASS atmosphere: warm low-sun haze reaches the procedural sky and its PBR reflections');
   } finally {
     await page.close();
   }

@@ -4,6 +4,13 @@ Exports are self-contained WebGL 2 sites. Existing scenes keep the legacy look.
 Enable the enhanced renderer with an `ai_graphics` object (or JSON string) in
 `props` of the entity tagged `player`. An empty object enables the defaults.
 
+For distant streamed GLBs without an authored low-detail mesh, set
+`"impostor_views": 4` in the player's `ai_world`. The lowest-detail
+billboard uses the nearest of four baked side views, so it no longer
+shows the same face from every angle. It uses a single 128×128 atlas
+(four 64×64 views). The default keeps a single 128×128 view; authored
+`web_lods` meshes still take precedence.
+
 ```json
 {
   "ai_graphics": {
@@ -31,6 +38,25 @@ Set `bloom_scatter` (0–1, default 0) to spread some of the Ultra bloom into
 a softer, wider halo. This uses one extra pass at one-eighth resolution per
 axis; it has no cost when bloom is off or on lower presets.
 
+For scenes with both bright and dark areas, set `"auto_exposure": true` in
+`ai_graphics`. Balanced and Ultra adjust exposure from the rendered HDR image
+before tone mapping, like a camera going indoors. Fixed `exposure` remains an
+artistic multiplier and is the only setting used on Low or without HDR support.
+The first frame meters immediately; transitions then adapt gradually.
+
+An object can override `min_ev` and `max_ev` (defaults −2 and +2 stops, bounded
+to −4–0 and 0–4). `brighten_speed` and `darken_speed` control adaptation
+toward darker and brighter views, respectively (defaults 1.25/s and 3/s,
+bounded to 0.1–8/s). The meter adds two 1×1 targets and no CPU readback.
+
+For outdoor scenes, add `sky_atmosphere: {"strength":0.8,"haze":0.45}` to
+`ai_graphics`. The procedural sky adds blue Rayleigh scattering and a warm
+forward halo around a low sun; more haze strengthens the halo. Both values
+range from 0 to 1. Use `true` for strength 1 and haze 0.35. The sky and its
+prefiltered reflections are baked once at load, with no per-frame pass.
+The authored horizon fog and direct lighting are unchanged. An authored
+HDRI still takes precedence for reflections and, if enabled, the background.
+
 For authored reflections, set `environment_map` in `ai_graphics` to a
 project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
 panorama (64–4096 pixels wide, up to 32 MiB, standard `-Y +X` orientation).
@@ -41,6 +67,14 @@ procedural sky visible while using the HDR map for lighting. Set
 +X toward +Z (rounds to one horizontal HDRI pixel). Rotation affects only the
 authored map, not the sun or fog. If the asset fails to load, the player uses
 the procedural sky.
+
+Set `"sky_clouds": true` for static procedural clouds in the generated sky
+and its reflections. An object can set `coverage` (0–1, default 0.45),
+`scale` (0.25–4, default 1; higher values make smaller clouds), `opacity`
+(0–1, default 0.85), and integer `seed` (0–65535). The sky is generated once
+from the sun direction and color, with no per-frame cloud pass. Clouds don't
+cast shadows on geometry. A visible HDRI still replaces the procedural sky;
+a reflection-only HDRI leaves the clouds visible but uses the HDRI for lighting.
 
 **Try it:** Export the material studio to compare chrome, copper, clearcoat and
 neon under the same studio lighting. Its HDR map can be regenerated with
@@ -54,6 +88,13 @@ python3 -m http.server 8000 --directory target/site
 
 Open `http://localhost:8000/material_studio/?quality=ultra`.
 
+For kilometer-scale scenes with nearly overlapping surfaces, opt into
+`"logarithmic_depth": true` in `ai_graphics`. It improves depth precision
+at long distances without moving the near plane. It works in the direct
+and HDR renderer, including Ultra contact occlusion. It may cost fragment
+performance on some GPUs, so leave it off unless the scene needs it.
+`?quality=legacy` always uses standard depth.
+
 QA captures: [desktop Chromium](web_material_studio_desktop.png),
 [iPhone WebKit profile](web_material_studio_iphone.png),
 [iPad WebKit profile](web_material_studio_ipad.png).
@@ -65,6 +106,11 @@ Without a preset, the enhanced renderer starts at ultra on desktop or balanced
 on touch, then steps down when performance is consistently low.
 Ultra uses a 2048-pixel sun shadow map and half-resolution bloom; balanced uses
 1024 and quarter-resolution bloom. Low uses 512 and renders directly.
+Set `ai_graphics.render_scale` (0.5–1, default 1) to trade image sharpness
+for fewer pixels without reducing shadow quality or changing the HUD.
+For example, 0.75 renders each dimension at 75% of its normal size
+after the quality tier's resolution limits (about 56% of the pixels).
+It applies to both HDR and direct rendering; legacy mode ignores it.
 Ultra also smooths high-contrast edges in the final HDR pass without an
 additional full-resolution target. Set `hdr_antialias: false` in `ai_graphics`
 to disable this filter; it is not used on lower tiers or in direct rendering.
@@ -102,6 +148,7 @@ Optional finishes use Three.js physical shading only when enabled:
 | Brushed metals | `anisotropy` (0–1), `anisotropy_rotation_deg` (UV-space angle) |
 | Cloth highlights | `sheen` (0–1), `sheen_color` (sRGB hex), `sheen_roughness` (0–1) |
 | Thin-film colors | `iridescence` (0–1), `iridescence_ior` (1–2.5), `iridescence_thickness_nm` (100–1200) |
+| Refractive glass | `transmission` (0–1), `ior` (1–2.333), `thickness` (0–50 m), `attenuation_color` (sRGB hex), `attenuation_distance` (0.01–1000 m) |
 
 Set the strength to zero or omit it to keep the corresponding shader work off.
 Authored GLB textures and material parameters are not overridden, and streamed
@@ -110,6 +157,38 @@ For mipmapped GLB textures, balanced and ultra sharpen shallow viewing angles
 with up to 4× and 8× anisotropic filtering respectively, within GPU limits.
 The filtering is fixed at the starting tier so automatic quality changes don't
 re-upload textures. Nearest-filtered, low and legacy assets keep their sampling.
+
+For clear glass, use a white entity color, low roughness and metalness 0.
+Glass defaults to IOR 1.5 and thickness 0.25 m; omit attenuation distance
+for no absorption. Transmission samples the opaque scene, adds an offscreen
+render pass when visible, and cannot refract other glass surfaces.
+Streamed glass primitives use individual draws so entity scaling affects
+optical thickness. To avoid an ordinary opaque shadow, set
+`ai_sun_shadow.cast` to `false` on the glass.
+
+### Textures on primitives
+
+Use local material maps without converting a primitive into a GLB:
+
+```json
+{"ai_material":{"base_color_map":"assets/stone-color.png","normal_map":"assets/stone-normal.png","orm_map":"assets/stone-orm.png","uv_repeat":[4,2]}}
+```
+
+Base color is sRGB and multiplied by the entity's linear `color`. The other
+maps are linear data: `normal_map` uses tangent-space +Y (OpenGL), with optional
+`normal_scale` (0–2, default 1). Pack ambient occlusion, roughness, and metalness
+into the red, green, and blue channels of `orm_map`. An ORM map sets the
+default roughness and metalness multipliers to 1; explicit scalars still apply.
+Maps use the primitive's UVs; `uv_repeat` gives the U/V tile counts (1/16–64,
+default [1,1]). Base color alpha does not enable transparency.
+
+The offline exporter validates and bundles project-relative, static 8-bit
+PNGs (up to 4096×4096 and 16 MiB each). Unique maps can total up to 128 MiB
+and 32 Mi pixels. Instances with different maps or repeats use distinct batches
+but share image pixels. If a bundled image is unavailable at runtime, the
+material uses its remaining maps and scalar values. GLB materials are unchanged.
+The [material studio](web_material_maps.png) uses a tiled slate wall generated
+by its map generator.
 
 To light nearby surfaces (rather than just glow), give an entity a point light
 with `props.ai_light` (object or JSON string) in an enhanced scene:
@@ -182,3 +261,11 @@ world updates, or UI. GPU time is the latest completed timer query, not
 necessarily the same frame as the CPU reading. An unsupported extension,
 invalid GPU timing, or a query that has not yet returned shows a dash.
 The player does not request the timer extension without the overlay.
+
+## Terrain surface detail
+
+Set `props.ai_terrain_detail` to a strength from 0 to 1 on a terrain entity
+(try `0.65`). The default is off. World-space triplanar bump shading adds
+procedural detail to the layered terrain on slopes and flats without tile seams,
+extra geometry, or requests. The detail fades from 25 to 90 m so distant
+terrain keeps its existing shading. Terrain heights and colliders are unchanged.
