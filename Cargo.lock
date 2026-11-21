@@ -30,10 +30,12 @@ dependencies = [
  "engine-core",
  "engine-geo",
  "engine-mcp",
+ "engine-net",
  "engine-render",
  "engine-runtime",
  "engine-terrain",
  "getrandom",
+ "png 0.17.16",
  "serde_json",
  "shared",
  "tiny_http",
@@ -399,6 +401,17 @@ dependencies = [
  "anyhow",
  "engine-core",
  "engine-terrain",
+ "serde_json",
+ "shared",
+]
+
+[[package]]
+name = "engine-net"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "engine-runtime",
+ "serde",
  "serde_json",
  "shared",
 ]

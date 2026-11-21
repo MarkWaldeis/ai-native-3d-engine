@@ -530,6 +530,7 @@ fn full_generated_mission_is_winnable_using_only_player_inputs() {
         ]
         .into_iter()
         .map(|(action, value)| Input {
+            entity: None,
             tick: sim.tick,
             action: action.into(),
             value,

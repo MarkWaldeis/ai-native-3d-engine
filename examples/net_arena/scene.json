@@ -1,0 +1,15 @@
+{
+  "name": "Netz-Arena",
+  "camera": {"position": [0, 12, 16], "target": [0, 0, 1], "fov_deg": 50},
+  "light_dir": [-0.4, 1, 0.5],
+  "ambient": 0.5,
+  "entities": [
+    {"id":1,"name":"Arena","kind":"box","size":[40,1,30],"transform":{"position":[0,-0.5,0]},"color":[0.15,0.2,0.3,1],"collider":{"shape":"box"},"rigidbody":{"type":"static"}},
+    {"id":2,"name":"Blau","kind":"box","size":[1,1,1],"tags":["net_player"],"transform":{"position":[-4,0.6,-1]},"color":[0.1,0.5,1,1],"collider":{"shape":"box"},"rigidbody":{"type":"dynamic","mass":1},"props":{"ai_lock_rotation":true},"script":"examples/net_arena/player.rhai"},
+    {"id":3,"name":"Rot","kind":"box","size":[1,1,1],"tags":["net_player"],"transform":{"position":[4,0.6,-1]},"color":[1,0.2,0.1,1],"collider":{"shape":"box"},"rigidbody":{"type":"dynamic","mass":1},"props":{"ai_lock_rotation":true},"script":"examples/net_arena/player.rhai"},
+    {"id":4,"name":"Gruen","kind":"box","size":[1,1,1],"tags":["net_player"],"transform":{"position":[-4,0.6,3]},"color":[0.2,0.8,0.3,1],"collider":{"shape":"box"},"rigidbody":{"type":"dynamic","mass":1},"props":{"ai_lock_rotation":true},"script":"examples/net_arena/player.rhai"},
+    {"id":5,"name":"Gelb","kind":"box","size":[1,1,1],"tags":["net_player"],"transform":{"position":[4,0.6,3]},"color":[1,0.8,0.1,1],"collider":{"shape":"box"},"rigidbody":{"type":"dynamic","mass":1},"props":{"ai_lock_rotation":true},"script":"examples/net_arena/player.rhai"},
+    {"id":6,"name":"Kiste Nord","kind":"box","size":[0.8,0.8,0.8],"transform":{"position":[0,0.5,-1]},"color":[0.6,0.3,0.1,1],"collider":{"shape":"box"},"rigidbody":{"type":"dynamic","mass":0.3}},
+    {"id":7,"name":"Kiste Sued","kind":"box","size":[0.8,0.8,0.8],"transform":{"position":[0,0.5,3]},"color":[0.6,0.3,0.1,1],"collider":{"shape":"box"},"rigidbody":{"type":"dynamic","mass":0.3}}
+  ]
+}

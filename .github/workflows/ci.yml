@@ -55,6 +55,14 @@ jobs:
           SHOTS_DIR: target/web-release-shots/webkit
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: node tools/verify_web_release.mjs target/m9-site target/web-native.json
+      - name: On-device QA tooling (Chromium and WebKit; no hardware claim)
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
+          SHOTS_DIR: target/web-release-shots/device-qa
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          node tools/device_qa/package.mjs target/m9-site
+          node tools/verify_device_qa.mjs target/m9-site
       - uses: actions/upload-artifact@v4
         if: always()
         with:

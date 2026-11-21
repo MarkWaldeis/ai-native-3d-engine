@@ -61,3 +61,11 @@ test('summary reports terrain counters and leaves absent terrain measurements mi
   assert.match(report,/desktop \| 42\.00 \| 8\.00 \| 123456\.00 \| 2345678\.00 \| 0\.00/);
   assert.match(report,/mobile \| — \| — \| — \| — \| —/);
 });
+
+test('summary includes occlusion counters and missing markers',()=>{
+  const results={browserVersion:'test',config:{},scene:{entities:1,colliders:0},profiles:{desktop:{occlusion:{occludedChunks:12,occludedTerrainTiles:8,occlusionTests:96}},mobile:{}},violations:[]};
+  const report=summary(results);
+  assert.match(report,/Occluded terrain tiles/);
+  assert.match(report,/desktop \| 12\.00 \| 8\.00 \| 96\.00/);
+  assert.match(report,/mobile \| — \| — \| —/);
+});

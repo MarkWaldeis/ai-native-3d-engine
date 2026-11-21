@@ -62,9 +62,11 @@ vec3 layerColor(vec2 uv,vec2 tile) {return texture2D(surfaceAlbedo,layerUv(uv,ti
 vec2 layerNormal(vec2 uv,vec2 tile) {return texture2D(surfaceNormal,layerUv(uv,tile)).rg*2.0-1.0;}
 `;
 
-export function terrainSurface(T, material, water = 0.6) {
+export function terrainSurface(T, material, water = 0.6, reliefMap, strength) {
   const maps=surfaceTextures(T),detail={value:0};
-  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>0?1:0;};
+  const relief = reliefMap && Number.isFinite(strength) ? T.MathUtils.clamp(strength, 0, 1) : 0;
+  material.customProgramCacheKey = () => relief > 0 ? 'terrain-relief' : 'terrain-surface';
+  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>1?1:0;};
   material.onBeforeCompile=shader=>{
     Object.assign(shader.uniforms,{surfaceAlbedo:{value:maps.albedo},surfaceNormal:{value:maps.normal},surfaceDetail:detail,surfaceWater:{value:water}});
     shader.vertexShader='varying vec3 vSurfaceWorld; varying vec3 vSurfaceNormal;\n'+shader.vertexShader;
@@ -91,14 +93,37 @@ export function terrainSurface(T, material, water = 0.6) {
         surfacePerturb=vec3(groundN.x,0,groundN.y)+(vec3(0,nx.y,nx.x)*axes.x+vec3(ny.x,0,ny.y)*axes.y+vec3(nz.x,nz.y,0)*axes.z)*weights.z;
       }
       diffuseColor.rgb=base*mix(0.77,1.2,macro)*(0.93+breakup*0.14);`);
-    shader.fragmentShader=shader.fragmentShader.replace('#include <normal_fragment_maps>','#include <normal_fragment_maps>\nnormal=normalize(normal+mat3(viewMatrix)*surfacePerturb*surfaceFade*0.45);');
+    let surfaceNormal = '#include <normal_fragment_maps>\nnormal=normalize(normal+mat3(viewMatrix)*surfacePerturb*surfaceFade*0.45);';
+    if (relief) {
+      shader.uniforms.terrainDetail = {value: reliefMap};
+      shader.uniforms.terrainRelief = {value: relief};
+      shader.fragmentShader = 'uniform sampler2D terrainDetail; uniform float terrainRelief;\n' + shader.fragmentShader;
+      surfaceNormal += `
+      {
+      vec3 reliefWeights = pow(abs(normalize(vSurfaceNormal)), vec3(4.0));
+      reliefWeights /= dot(reliefWeights, vec3(1.0));
+      vec3 reliefPosition = vSurfaceWorld * 0.34;
+      const mat2 turn = mat2(0.8, -0.6, 0.6, 0.8);
+      float relief = dot(reliefWeights, vec3(
+        texture2D(terrainDetail, turn * reliefPosition.yz).r,
+        texture2D(terrainDetail, turn * reliefPosition.xz).r,
+        texture2D(terrainDetail, turn * reliefPosition.xy).r)) * 0.022;
+      float fade = 1.0 - smoothstep(25.0, 90.0, length(vViewPosition));
+      vec3 dx = dFdx(-vViewPosition), dy = dFdy(-vViewPosition);
+      vec3 r1 = cross(dy, normal), r2 = cross(normal, dx);
+      float det = dot(dx, r1);
+      vec3 gradient = sign(det) * (dFdx(relief) * r1 + dFdy(relief) * r2);
+      if (abs(det) > 1e-9) normal = normalize(abs(det) * normal - terrainRelief * fade * gradient);
+      }`;
+    }
+    shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', surfaceNormal);
   };
 }
 
 export function roadSurface(T, material) {
   const maps=surfaceTextures(T),detail={value:0};
   material.roughness=1;material.metalness=0;
-  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>0?1:0;};
+  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>1?1:0;};
   material.onBeforeCompile=shader=>{
     Object.assign(shader.uniforms,{surfaceAlbedo:{value:maps.albedo},surfaceNormal:{value:maps.normal},surfaceDetail:detail});
     shader.vertexShader='varying vec3 vTrackLocal; varying vec3 vTrackWorld;\n'+shader.vertexShader;

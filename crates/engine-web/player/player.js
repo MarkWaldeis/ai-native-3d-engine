@@ -3,15 +3,19 @@ import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame, bindActivation } from './controls.js';
 import { GameEffects } from './effects.js';
 import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
+import { GpuTimer } from './gpu-timer.js';
 import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
-import { StreamingWorld, WebAssets } from './world.js';
+import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
 import { travelSpeedInput } from './fps_core.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
+import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
+import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
+import { InputSettings } from './input-settings.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -19,6 +23,21 @@ const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
 const travelSpeed = travelSpeedInput(location.search);
+const input = new InputSystem(), inputEdges = new InputEdges();
+let inputSettings, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
+const touchMode = () => document.body.classList.contains('touch-input');
+function showTouch() {
+  document.body.classList.add('touch-input');
+  if (fps) fps.coarse = true;
+  updateHelp();
+}
+function updateHelp() {
+  const help = gamepadActive ? gamepadHelp(input.config, !!fps) : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
+  if (help && $('help').textContent !== help) $('help').textContent = help;
+}
+if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch-input');
+window.addEventListener('touchstart', showTouch, { passive: true });
+window.addEventListener('pointerdown', event => { if (event.pointerType === 'touch') showTouch(); }, { passive: true });
 let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
@@ -29,10 +48,10 @@ window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
-let streaming, statsOverlay, playerId, fps;
-let terrain;
+let streaming, statsOverlay, gpuTimer, playerId, fps;
+let terrain, occluder;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -89,7 +108,7 @@ function fail(error) {
 }
 
 function mesh(geometry, entity) {
-  const result = new THREE.Mesh(geometry, primitiveMaterial(entity));
+  const result = new THREE.Mesh(geometry, primitiveMaterial(entity, assets));
   return Object.assign(result, sunShadowSettings(entity.props?.ai_sun_shadow));
 }
 
@@ -150,19 +169,6 @@ function createObject(entity) {
   }
 }
 
-function disposeObject(object) {
-  object.removeFromParent();
-  object.traverse(child => {
-    if (child.userData.sharedAsset) return;
-    child.geometry?.dispose();
-    for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
-      if (!mat) continue;
-      for (const value of Object.values(mat)) if (value?.isTexture && !value.userData.shared) value.dispose();
-      mat.dispose();
-    }
-  });
-}
-
 function apply(result) {
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
@@ -212,7 +218,7 @@ function apply(result) {
     if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
     $('state').replaceChildren(...fragments);
   }
-  $('logs').textContent = result.logs.slice(-12).join('\n');
+  $('logs').textContent = [...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -229,21 +235,19 @@ function showWin() {
 }
 
 function movement() {
-  let x = joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
-  let z = joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
-  const move = viewMovement(x, z, cameraOffset.toArray());
+  const move = viewMovement(sampledInput.move_x, sampledInput.move_z, cameraOffset.toArray());
   return new THREE.Vector3(move.x, 0, move.z);
 }
 
 function localMovement() {
   return {
-    x: joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')),
-    z: joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')),
+    x: sampledInput.move_x,
+    z: sampledInput.move_z,
   };
 }
 
 function controls() {
-  if (fps) return { ...fps.inputs(localMovement(), actionInput.sample()), travel_speed: travelSpeed };
+  if (fps) return { ...fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions), travel_speed: travelSpeed };
   const move = movement();
   const pressed = actionInput.sample();
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
@@ -261,7 +265,7 @@ function stopPreview() {
 function updateCamera(immediate = false, elapsed = 1 / 60) {
   const player = transforms.get(playerId);
   if (!player) return;
-  if (fps) { fps.updateCamera(player, elapsed, fps.buttons.sprint); return; }
+  if (fps) { fps.updateCamera(player, elapsed, sampledInput.actions.sprint); return; }
   const direction = movement();
   if (direction.length() > 0.15) lookDirection.lerp(direction.normalize(), immediate ? 1 : 1 - Math.exp(-elapsed * 6));
   const target = new THREE.Vector3(...player.transform.position);
@@ -340,6 +344,7 @@ async function restart() {
 }
 
 function startRunning() {
+  if (document.activeElement?.matches('button')) document.activeElement.blur();
   audio.unlock();
   $('restart').hidden = true; $('start').disabled = false;
   resetInput(); modal.hidden = true; mode = 'pause'; running = true; previous = performance.now(); accumulator = 0;
@@ -375,7 +380,7 @@ $('restart').addEventListener('click', async () => {
   finally { $('restart').disabled = false; }
 });
 $('pause').addEventListener('click', () => {
-  if (!ready || mode === 'restart') return;
+  if (!ready || mode === 'restart' || inputSettings?.open) return;
   if (running) {
     pause();
   } else startRunning();
@@ -395,9 +400,16 @@ $('fullscreen').addEventListener('click', async () => {
   } catch { $('mission').textContent = 'Vollbild ist in diesem Browser nicht verfügbar.'; }
 });
 
-const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
-window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { stopPreview(); if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
-window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
+window.addEventListener('keydown', e => {
+  if (running && ['Space', 'Enter'].includes(e.code) && e.target.closest?.('footer button')) e.preventDefault();
+  if (inputSettings?.open || (!running && e.target.closest?.('button, input, dialog'))) return;
+  const actions = Object.keys(input.config.bindings).filter(action => input.config.bindings[action].some(binding => binding.type === 'key' && binding.code === e.code));
+  if (!actions.length) return;
+  e.preventDefault();
+  if (actions.includes('pause') && !e.repeat && ready && mode !== 'restart') { if (running) pause(); else startRunning(); return; }
+  if (running) { stopPreview(); keys.add(e.code); if (actions.includes('action')) actionInput.press(`key:${e.code}`); }
+});
+window.addEventListener('keyup', e => { keys.delete(e.code); actionInput.release(`key:${e.code}`); });
 window.addEventListener('blur', resetInput);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && running) pause();
@@ -439,6 +451,22 @@ function frame(now) {
     const rawElapsed = (now - previous) / 1000;
     const elapsed = Math.min(rawElapsed, 0.1); previous = now;
     if (document.hidden) return;
+    const pads = navigator.getGamepads?.() || [];
+    const gamepad = input.sampleGamepads(pads);
+    const edges = inputEdges.sample(gamepad.actions);
+    if (Object.values(gamepad.actions).some(value => Math.abs(value) > 0.15)) { gamepadActive = true; updateHelp(); }
+    else if (!Array.from(pads).some(pad => pad && pad.connected !== false)) { gamepadActive = false; updateHelp(); }
+    inputSettings?.poll(pads);
+    if (!inputSettings?.open) {
+      if (edges.has('pause') && mode !== 'restart') { if (running) pause(); else if (mode === 'pause') startRunning(); }
+      else if (edges.has('action') && !modal.hidden && !$('start').disabled) $('start').click();
+      sampledInput = input.sample({ keys, pads, touch: joystick });
+      if (running) {
+        if (gamepad.actions.action > 0.5) actionInput.press('gamepad'); else actionInput.release('gamepad');
+        if (Math.hypot(gamepad.move_x, gamepad.move_z) > 0.1) stopPreview();
+        fps?.gamepadLook(sampledInput.look_x, sampledInput.look_y, elapsed);
+      }
+    }
     renderer.info.reset();
     if (running) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
@@ -454,20 +482,35 @@ function frame(now) {
       }
     }
     updateCamera(false, elapsed);
+    occluder?.beginFrame();
     streaming?.update(camera);
     terrain?.update(camera, now);
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
     if (fps) fps.frame(elapsed, fpsMarkers()); else { updateShadows(); updateObjective(); }
-    effects.render(camera); fps?.renderOverlay();
+    if (gpuTimer) {
+      gpuTimer.begin();
+      const renderStart = performance.now();
+      try { effects.render(camera); }
+      finally {
+        stats.renderCpuMs = performance.now() - renderStart;
+        gpuTimer.end();
+      }
+      stats.renderGpuMs = gpuTimer.ms;
+    } else effects.render(camera);
+    fps?.renderOverlay();
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
+    stats.occludedChunks=streaming?.occludedChunks || 0; stats.occlusionTests=occluder?.tests || 0;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
-    if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''}`;
+    if (statsOverlay) {
+      const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+    }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
 }
@@ -499,16 +542,11 @@ async function fetchJson(path) { const response = await fetch(path); if (!respon
 async function boot() {
   mark('bootStart');
   $('game').addEventListener('webglcontextlost', event => {
-    event.preventDefault(); fail(new Error('Die Grafikverbindung wurde unterbrochen. Bitte lade die Seite neu.'));
+    event.preventDefault(); gpuTimer?.dispose();
+    fail(new Error('Die Grafikverbindung wurde unterbrochen. Bitte lade die Seite neu.'));
   });
   const context = $('game').getContext('webgl2', { antialias: true, alpha: false });
   if (!context) throw new Error('WebGL 2 ist nicht verfügbar. Bitte Safari oder Chrome aktualisieren.');
-  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true });
-  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.info.autoReset = false;
-  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
-  world = new THREE.Scene();
   [[source, scripts]] = await Promise.all([
     Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json')]).then(result => { mark('sceneFetched'); return result; }),
     init().then(result => { mark('wasmInitialized'); return result; }),
@@ -517,22 +555,39 @@ async function boot() {
   const props = source.entities.find(e => e.tags?.includes('player'))?.props;
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
+  const title = ui.title || (source.entities.some(e => e.tags?.includes('coin')) ? 'Münzenpfad' : source.name || 'Web-Spiel');
+  inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp);
   const preset = new URLSearchParams(location.search).get('quality');
-  effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
-  await effects.prepareEnvironment();
+  const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
+  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });
+  renderer.domElement.dataset.depth = renderer.capabilities.logarithmicDepthBuffer ? 'logarithmic' : 'standard';
+  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.info.autoReset = false;
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
+  world = new THREE.Scene();
+  effects = new GameEffects(renderer, world, ui.sky_color, graphics);
+  effects.nature?.setExclusions(source.entities);
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
+  await Promise.all([effects.prepareEnvironment(), assets.preloadMaterialMaps(source.entities)]);
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config,assets);
     if (world.fog?.isFog) { world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance; }
   }
   if (new URLSearchParams(location.search).get('stats') === '1') {
+    gpuTimer = new GpuTimer(context);
     statsOverlay = document.createElement('div');
+    statsOverlay.id = 'render-stats';
     statsOverlay.style.cssText = 'position:fixed;left:8px;top:8px;z-index:1000;background:#000b;color:white;padding:6px;font:12px monospace;pointer-events:none';
     document.body.append(statsOverlay);
   }
   game = new WebGame();
   terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
+  if(terrain) {
+    occluder=new TerrainOcclusion(terrain.occluderHeightAt,{enabled:config?.occlusion ?? true,margin:config?.occlusion_margin ?? 2});
+    streaming?.setOcclusion(occluder); terrain.setOcclusion(occluder);
+  }
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
   if (config) camera.far = config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
@@ -559,8 +614,9 @@ async function boot() {
   if (ui.badge) $('modal-badge').textContent = ui.badge;
   if (ui.action_label) $('action').lastChild.textContent = ui.action_label;
   document.title = `${$('title').textContent} · AI Engine`;
-  if (matchMedia('(pointer: coarse)').matches) $('help').textContent = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
-  else if (fps) $('help').textContent = 'Maus: Zielen · Klick: Feuer · R: Nachladen · Shift: Sprint · Esc: Pause';
+  touchHelp = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
+  if (touchMode() && fps) fps.coarse = true;
+  updateHelp();
   if (fps && !ui.action_label) $('action').lastChild.textContent = 'SPRUNG';
   requestAnimationFrame(frame);
 }

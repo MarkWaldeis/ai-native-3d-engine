@@ -7,6 +7,9 @@ Rhai-Parameter, MCP-Lint und sim-getriebene Web-Crossfades):
 44-km²-Web-Baseline (FPS, Speicher, Ladezeiten; Desktop/Mobile):
 [Benchmark-Anleitung und Referenzwerte](docs/BENCHMARK.md).
 
+Multiplayer-Netcode (60-Hz-Server, Prediction/Reconciliation, Interpolation,
+MCP `net_simulate`, reproduzierbare Netz-Arena): [Modell und Checks](docs/NETCODE.md).
+
 ## Mit Claude Code / Devin / Cursor verbinden
 
 ```sh

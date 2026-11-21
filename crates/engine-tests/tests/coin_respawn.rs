@@ -30,7 +30,7 @@ fn leaving_either_platform_axis_respawns_and_clears_velocity() {
             assert!(sim.tick < 300, "respawn must happen after leaving {axis}");
             sim.step(
                 1,
-                &[Input {
+                &[Input { entity: None,
                     tick: sim.tick,
                     action: axis.into(),
                     value: direction,
@@ -51,7 +51,7 @@ fn leaving_either_platform_axis_respawns_and_clears_velocity() {
         let score = sim.state()["state"]["score"].clone();
         sim.step(
             5,
-            &[Input {
+            &[Input { entity: None,
                 tick: sim.tick,
                 action: axis.into(),
                 value: 0.0,
@@ -78,7 +78,7 @@ fn normal_coin_route_still_collects_and_wins() {
     let mut sim = game();
     sim.step(
         180,
-        &[Input {
+        &[Input { entity: None,
             tick: 0,
             action: "move_x".into(),
             value: 1.0,

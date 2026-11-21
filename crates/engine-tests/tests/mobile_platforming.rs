@@ -57,12 +57,12 @@ fn prelanding_tap_is_buffered_and_holding_does_not_autojump() {
     sim.step(
         100,
         &[
-            Input {
+            Input { entity: None,
                 tick,
                 action: "action".into(),
                 value: 1.0,
             },
-            Input {
+            Input { entity: None,
                 tick: tick + 1,
                 action: "action".into(),
                 value: 0.0,
@@ -75,7 +75,7 @@ fn prelanding_tap_is_buffered_and_holding_does_not_autojump() {
     held.step(12, &[]).unwrap();
     held.step(
         130,
-        &[Input {
+        &[Input { entity: None,
             tick: 12,
             action: "action".into(),
             value: 1.0,
@@ -90,7 +90,7 @@ fn edge_grace_and_acceleration_allow_a_late_touch_jump() {
     let mut sim = controller(0.62, 4.0);
     sim.step(
         1,
-        &[Input {
+        &[Input { entity: None,
             tick: 0,
             action: "move_x".into(),
             value: 1.0,
@@ -108,7 +108,7 @@ fn edge_grace_and_acceleration_allow_a_late_touch_jump() {
     assert_eq!(sim.state()["state"]["_coyote"], 2);
     sim.step(
         12,
-        &[Input {
+        &[Input { entity: None,
             tick: sim.tick,
             action: "action".into(),
             value: 1.0,
