@@ -108,3 +108,21 @@ test('authoritative multiplayer rejects local save/load without touching storage
   assert.equal(values.size,0);
   assert.deepEqual(loaded,[]);
 });
+
+test('multiplayer pause menu disables both save controls with a German hint', () => {
+  const { context, window, $ } = setup();
+  for (const hasSave of [false, true]) {
+    context.netEndpoint = null;
+    if (hasSave) window.__aiSaveGame();
+    context.netEndpoint = 'ws://localhost:7790';
+    vm.runInContext('updateSaveMenu()', context);
+    for (const id of ['save-game', 'load-game']) {
+      assert.equal($(id).disabled, true);
+      assert.equal($(id).title, 'Im Multiplayer nicht verfügbar');
+    }
+  }
+  context.netEndpoint = null;
+  vm.runInContext('updateSaveMenu()', context);
+  assert.equal($('save-game').disabled, false);
+  assert.equal($('load-game').disabled, false);
+});

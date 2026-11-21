@@ -425,9 +425,10 @@ function saveNote(text) {
 function updateSaveMenu() {
   let available = false;
   try { available = localStorage.getItem(saveKey) !== null; } catch {}
-  $('load-game').disabled = !available || !ready;
-  $('save-game').disabled = !ready;
-  $('load-game').title = available ? 'Letzten Spielstand laden' : 'Noch kein Spielstand vorhanden';
+  $('load-game').disabled = !!netEndpoint || !available || !ready;
+  $('save-game').disabled = !!netEndpoint || !ready;
+  $('save-game').title = netEndpoint ? 'Im Multiplayer nicht verfügbar' : 'Spielstand speichern';
+  $('load-game').title = netEndpoint ? 'Im Multiplayer nicht verfügbar' : available ? 'Letzten Spielstand laden' : 'Noch kein Spielstand vorhanden';
 }
 function checkpointAutosave(state, initial = false) {
   const request = state._autosave;
