@@ -85,6 +85,37 @@ fn snapshot(states: Vec<NetEntityState>, tick: u64) -> Snapshot {
 }
 
 #[test]
+fn authoritative_ragdoll_swap_at_capacity_deactivates_before_activating() {
+    let make_scene = |first: u64, last: u64| -> Scene {
+        serde_json::from_value(json!({"entities":(1..=129).map(|id| json!({
+            "id":id,"name":format!("rig-{id}"),"kind":"box","size":[1,1,1],
+            "transform":{"position":[id as f32 * 4.0,3,0]},
+            "rigidbody":{"type":"kinematic"},
+            "props":{"ai_physics":{"ragdoll":{"preset":"humanoid","start_active":(first..=last).contains(&id)}}}
+        })).collect::<Vec<_>>()})).unwrap()
+    };
+    let server = Simulation::from_sources(make_scene(1,128), BTreeMap::new()).unwrap();
+    let mut client = Simulation::from_sources(make_scene(2,129), BTreeMap::new()).unwrap();
+    let checkpoint = client.save_state();
+    let mut authoritative = server.net_entity_states();
+    for reverse in [false,true] {
+        client.restore_state(&checkpoint);
+        if reverse { authoritative.reverse(); }
+        client.apply_net_entity_states(&authoritative).unwrap();
+        assert_eq!(client.ragdoll_states().as_array().unwrap().len(),128);
+        for (a,b) in client.net_entity_states().iter().zip(server.net_entity_states()) {
+            assert_eq!(a.ragdoll.as_ref().unwrap().active,b.ragdoll.as_ref().unwrap().active);
+        }
+    }
+    client.restore_state(&checkpoint);
+    let before = client.net_entity_states();
+    let mut excessive = before.clone();
+    excessive[0].ragdoll = server.net_entity_states()[0].ragdoll.clone();
+    assert!(client.apply_net_entity_states(&excessive).is_err());
+    assert_eq!(client.net_entity_states(), before);
+}
+
+#[test]
 fn rollback_across_ragdoll_activation_restores_bodies_joints_and_hitboxes() {
     let mut sim = sim();
     let before = sim.save_state();

@@ -188,8 +188,15 @@ impl Simulation {
         let mut data = self.data.borrow_mut();
         let mut physics = self.physics.borrow_mut();
         for state in states {
+            if data.entity_index(state.id).is_some() {
+                if let Some(ragdoll) = state.ragdoll.as_ref().filter(|rig| !rig.active) {
+                    physics.prepare_net_ragdoll(state.id, ragdoll)?;
+                }
+            }
+        }
+        for state in states {
             if let Some(index) = data.entity_index(state.id) {
-                if let Some(ragdoll) = &state.ragdoll {
+                if let Some(ragdoll) = state.ragdoll.as_ref().filter(|rig| rig.active) {
                     physics.prepare_net_ragdoll(state.id, ragdoll)?;
                 }
                 let transform = &mut data.scene.entities[index].transform;
