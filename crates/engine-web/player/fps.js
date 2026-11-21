@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyLook, combatCues, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
+import { applyLook, combatCues, defeated, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
 import { ShooterFx, flashTexture } from './fx.js';
 import { ShooterHud } from './hud.js';
 
@@ -117,7 +117,7 @@ export class FirstPerson {
     const reload = Number(result.state._reload) || 0;
     if (reload > 0 && this.reloadTotal === 0) this.reloadTotal = reload;
     if (reload <= 0) this.reloadTotal = 0;
-    this.reloadRemaining = reload; this.dead = Number(result.state.health) <= 0;
+    this.reloadRemaining = reload; this.dead = defeated(result.state);
   }
   worldMuzzle() {
     if (!this.model) return null;
