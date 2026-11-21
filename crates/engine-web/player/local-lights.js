@@ -42,8 +42,13 @@ export class LocalLights {
     if (source.direction || source.config.offset.some(Boolean)) {
       const { degToRad } = THREE.MathUtils;
       this.rotation.set(degToRad(rotation_deg[0]), degToRad(rotation_deg[1]), degToRad(rotation_deg[2]));
-      source.position.add(this.offset.fromArray(source.config.offset).multiply(this.scale.fromArray(scale)).applyEuler(this.rotation));
-      source.direction?.fromArray(source.config.axis).applyEuler(this.rotation);
+      this.scale.fromArray(scale);
+      source.position.add(this.offset.fromArray(source.config.offset).multiply(this.scale).applyEuler(this.rotation));
+      if (source.direction) {
+        source.direction.fromArray(source.config.axis).multiply(this.scale);
+        if (source.direction.lengthSq() === 0) source.direction.fromArray(source.config.axis);
+        source.direction.applyEuler(this.rotation).normalize();
+      }
     }
     const key = cellKey(cell(source.position.x), cell(source.position.z));
     if (key === source.key) return;
