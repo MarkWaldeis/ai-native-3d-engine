@@ -53,6 +53,13 @@ test('direction, compass and minimap share the runtime convention (yaw 0 = -Z)',
   assert.equal(minimapPoint([0, 0, 0], 0, [100, 0, 0], 20, 100), null);
 });
 
+test('FPS button actions use a strict >0.5 press threshold for analog bindings', () => {
+  for (const value of [undefined, null, NaN, -1, 0, 0.2, 0.5, 0.51, 1, false, true]) {
+    const result = fpsInputs({ x: 0, z: 0 }, { yaw: 0, pitch: 0 }, { fire: value, reload: value, sprint: value, jump: value });
+    for (const action of ['fire', 'reload', 'sprint', 'jump']) assert.equal(result[action], value > 0.5 ? 1 : 0);
+  }
+});
+
 test('SlotPool recycles the oldest slot instead of allocating', () => {
   const pool = new SlotPool(3);
   assert.deepEqual([pool.take(), pool.take(), pool.take(), pool.take()], [0, 1, 2, 0]);

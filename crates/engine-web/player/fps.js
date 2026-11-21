@@ -102,8 +102,8 @@ export class FirstPerson {
     if (this.active) this.look = applyLook(this.look, x, y, dt);
   }
   inputs(move, jump, actions = {}) {
-    return fpsInputs(move, this.look, { fire: actions.fire || this.buttons.fire || this.firePointers.size > 0,
-      reload: actions.reload || this.buttons.reload, sprint: actions.sprint || this.buttons.sprint, jump });
+    return fpsInputs(move, this.look, { fire: actions.fire > 0.5 || this.buttons.fire || this.firePointers.size > 0,
+      reload: actions.reload > 0.5 || this.buttons.reload, sprint: actions.sprint > 0.5 || this.buttons.sprint, jump });
   }
   apply(result, playerObject) {
     if (playerObject) playerObject.visible = false;
