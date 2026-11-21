@@ -161,3 +161,29 @@ fn damaged_enemy_health_and_local_memos_survive_loading() {
     let mut legacy=save;legacy.as_object_mut().unwrap().remove("combat");
     assert!(Simulation::load_game_from_sources(base,BTreeMap::new(),legacy).is_ok());
 }
+
+#[test]
+fn pending_spawned_script_gets_its_start_exactly_once() {
+    let base: Scene=serde_json::from_value(json!({"entities":[{"id":1,"name":"spawner","kind":"box","size":[1,1,1],"script":{"source":r#"
+        fn on_start(ctx) {ctx.state_set("spawned",false);}
+        fn on_load(ctx) {ctx.flag_set("existing_loaded",true);}
+        fn on_tick(ctx,dt) {
+            if !ctx.state_get("spawned") {
+                ctx.spawn_entity(#{kind:"box",size:[1,1,1],script:#{source:"fn on_start(ctx){ctx.inventory_add(\"token\",1);} fn on_load(ctx){ctx.flag_set(\"child_loaded\",true);}"}});
+                ctx.state_set("spawned",true);
+            }
+        }
+    "#}}]})).unwrap();
+    let mut sim=Simulation::from_sources(base.clone(),BTreeMap::new()).unwrap();
+    sim.step(1,&[]).unwrap();
+    let save=sim.save_game();assert_eq!(save["pending_starts"],json!([2]));
+    let mut loaded=Simulation::load_game_from_sources(base.clone(),BTreeMap::new(),save).unwrap();
+    assert_eq!(loaded.state()["inventory"]["token"],1);
+    assert_eq!(loaded.state()["flags"]["existing_loaded"],true);
+    assert!(loaded.state()["flags"].get("child_loaded").is_none());
+    loaded.step(1,&[]).unwrap();sim.step(1,&[]).unwrap();
+    assert_eq!(loaded.state()["inventory"],sim.state()["inventory"]);
+    let loaded=Simulation::load_game_from_sources(base,BTreeMap::new(),loaded.save_game()).unwrap();
+    assert_eq!(loaded.state()["inventory"]["token"],1);
+    assert_eq!(loaded.state()["flags"]["child_loaded"],true);
+}

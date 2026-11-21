@@ -45,6 +45,8 @@ struct Save {
     inputs: BTreeMap<String, f64>,
     #[serde(default)]
     combat: CombatState,
+    #[serde(default)]
+    pending_starts: BTreeSet<u64>,
 }
 
 fn fingerprint(scene: &Scene) -> String {
@@ -120,10 +122,13 @@ impl Simulation {
             let body = &physics.bodies[*handle];
             (!body.is_fixed()).then(|| Body { id: *id, linvel: (*body.linvel()).into(), angvel: (*body.angvel()).into() })
         }).collect();
+        let pending_starts: BTreeSet<_> = data.scene.entities.iter()
+            .filter(|e| e.script.is_some() && !self.scripts.contains_key(&e.id)).map(|e| e.id).collect();
         json!({"format":"ai-engine-save","version":1,"tick":self.tick,
             "base_fingerprint":fingerprint(&self.base_scene),"state":data.state,"flags":data.flags,
             "inventory":data.inventory,"next_id":data.next_id,"inputs":data.inputs,
             "combat":{"health":data.combat.health,"vars":data.combat.vars,"hits":data.combat.hits},
+            "pending_starts":pending_starts,
             "delta":{"modified":modified,"removed":removed,"spawned":spawned},"bodies":bodies})
     }
 
@@ -154,6 +159,7 @@ impl Simulation {
             bail!("invalid saved combat state");
         }
         if save.delta.modified.len() > MAX_ENTITIES || save.delta.spawned.len() > MAX_ENTITIES || save.delta.removed.len() > MAX_ENTITIES || save.bodies.len() > MAX_ENTITIES { bail!("save entity limit exceeded"); }
+        if save.pending_starts.len() > MAX_ENTITIES { bail!("save pending script limit exceeded"); }
         let mut sim = Self::create_mode(base_scene, root, sources, terrains, true)?;
         sim.base_changed = fingerprint(&sim.base_scene) != save.base_fingerprint;
         let mut entities: BTreeMap<_, _> = sim.base_scene.entities.iter().map(|e| (e.id, e.clone())).collect();
@@ -232,7 +238,11 @@ impl Simulation {
         }
         sim.tick = save.tick;
         sim.loading = false;
-        for id in sim.scripts.keys().copied().collect::<Vec<_>>() { sim.hook(id, "on_load")?; }
+        for id in sim.scripts.keys().copied().collect::<Vec<_>>() {
+            if sim.data.borrow().entity_index(id).is_some() {
+                sim.hook(id, if save.pending_starts.contains(&id) { "on_start" } else { "on_load" })?;
+            }
+        }
         sim.sync_physics()?;
         Ok(sim)
     }
