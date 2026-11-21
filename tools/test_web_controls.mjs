@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ActionLatch, viewMovement, followDistance } from '../crates/engine-web/player/controls.js';
+import { ActionLatch, viewMovement, followDistance, routeFrame } from '../crates/engine-web/player/controls.js';
 
 test('short tap survives release before simulation tick, but only once', () => {
   const action = new ActionLatch();
@@ -30,4 +30,17 @@ test('portrait frames a landing island, closer than original 20m offset; invalid
     assert.ok(2 * distance * Math.tan(55*Math.PI/360) * aspect >= 6.1 - 1e-12);
   }
   assert.throws(() => followDistance(0), RangeError);
+});
+
+test('route preview fits the complete route and model margin in tall projections', () => {
+  const points = [[0,1,0],[3.5,1,0],[7,1,0],[11.5,1.5,0]];
+  for (const aspect of [390/844,820/1180,1.6]) {
+    const frame = routeFrame(points,aspect);
+    const halfFov = Math.min(55*Math.PI/360,Math.atan(Math.tan(55*Math.PI/360)*aspect));
+    for (const point of points) assert.ok(frame.distance*Math.sin(halfFov) >= Math.hypot(...point.map((v,i)=>v-frame.target[i]))+1.8);
+  }
+  assert.equal(routeFrame([],1),null);
+  assert.throws(()=>routeFrame(points,0),RangeError);
+  assert.throws(()=>routeFrame(points,1,180),RangeError);
+  assert.throws(()=>routeFrame([[NaN,0,0]],1),RangeError);
 });

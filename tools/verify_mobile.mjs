@@ -3,6 +3,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const {chromium, devices} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const shots = path.resolve(process.env.SHOTS_DIR || path.join(root,'docs'));
+fs.mkdirSync(shots,{recursive:true});
 const base = process.env.GAME_URL || 'http://127.0.0.1:8769';
 const browser = await chromium.launch({executablePath:process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const errors = [], traces = {};
@@ -47,7 +49,7 @@ try {
    if(mobile) await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[action]});else await page.keyboard.up('Space');
    trace.push({released:await page.evaluate(()=>({tick:snapshot.tick,p:snapshot.transforms.find(e=>e.tags.includes('player')).transform.position,state:snapshot.state}))});
   }
-  async function screenshot(suffix='') {await page.screenshot({path:path.join(root,`docs/mobile_${name}${suffix}.png`)});}
+  async function screenshot(suffix='') {await page.screenshot({path:path.join(shots,`mobile_${name}${suffix}.png`)});}
   try {
    await screenshot();
    if(game === 'sky_garden') {
@@ -75,7 +77,7 @@ try {
   } finally {
    const ticks=await page.evaluate(()=>inputTrace);
    trace.push({actionTicks:ticks.filter(t=>t.input.action>0),last:ticks.at(-1)});
-   fs.writeFileSync(path.join(root,'docs/mobile_input_trace_after.json'),JSON.stringify(traces,null,2)+'\n');
+   fs.writeFileSync(path.join(shots,'mobile_input_trace_after.json'),JSON.stringify(traces,null,2)+'\n');
    await page.close();
   }
  }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import init, { WebGame } from './pkg/engine_web.js';
-import { ActionLatch, viewMovement, followDistance } from './controls.js';
+import { ActionLatch, viewMovement, followDistance, routeFrame } from './controls.js';
 import { GameEffects } from './effects.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing } from './presentation.js';
 
@@ -25,6 +25,8 @@ const lookDirection = new THREE.Vector3();
 const shadows = new Map();
 const shadowRay = new THREE.Raycaster();
 let spawnHeight = 0;
+let previewRemaining = 0;
+let previewMission = null;
 const shadowCanvas = document.createElement('canvas');
 shadowCanvas.width = shadowCanvas.height = 64;
 const shadowContext = shadowCanvas.getContext('2d');
@@ -188,6 +190,15 @@ function controls() {
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
 }
 
+function previewingRoute() {
+  return previewRemaining > 0 && camera.aspect < 0.85 && latest.transforms.some(entity => entity.tags.some(tag => ['portal','goal'].includes(tag)));
+}
+
+function stopPreview() {
+  previewRemaining = 0;
+  if (previewMission !== null) { $('mission').textContent = previewMission; previewMission = null; }
+}
+
 function updateCamera(immediate = false, elapsed = 1 / 60) {
   const player = latest?.transforms.find(e => e.tags.includes('player'));
   if (!player) return;
@@ -200,6 +211,16 @@ function updateCamera(immediate = false, elapsed = 1 / 60) {
   const y = THREE.MathUtils.lerp(followTarget.y, target.y, immediate ? 1 : 1 - Math.exp(-elapsed * 3));
   followTarget.lerp(target, blend); followTarget.y = y;
   camera.fov = 55; camera.updateProjectionMatrix();
+  const preview = previewingRoute();
+  $('game').dataset.cameraMode = preview ? 'route' : 'follow';
+  world.fog.near = preview ? 30 : 12; world.fog.far = preview ? 120 : 55;
+  if (preview) {
+    const points = latest.transforms.filter(entity => entity.tags.some(tag => ['player','portal','goal','coin','crystal'].includes(tag))).map(entity => entity.transform.position);
+    const framing = routeFrame(points, camera.aspect, camera.fov);
+    const center = new THREE.Vector3(...framing.target);
+    camera.position.copy(center).add(cameraOffset.clone().normalize().multiplyScalar(framing.distance));
+    camera.lookAt(center); return;
+  }
   const distance = followDistance(camera.aspect, camera.fov);
   const offset = new THREE.Vector3(cameraOffset.x, 0, cameraOffset.z).normalize().multiplyScalar(distance * 0.74);
   offset.y = distance * 0.67;
@@ -233,6 +254,8 @@ function resize() {
 
 async function restart() {
   running = false; ready = false; resetInput();
+  stopPreview();
+  previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
@@ -253,6 +276,7 @@ function startRunning() {
   audio.unlock();
   $('restart').hidden = true; $('start').disabled = false;
   resetInput(); modal.hidden = true; mode = 'pause'; running = true; previous = performance.now(); accumulator = 0;
+  if (previewingRoute() && previewMission === null) { previewMission = $('mission').textContent; $('mission').textContent = 'Zielvorschau · Bewegen überspringt'; }
   $('pause').textContent = 'Ⅱ'; $('pause').setAttribute('aria-label', 'Spiel pausieren');
 }
 
@@ -303,7 +327,7 @@ $('fullscreen').addEventListener('click', async () => {
 });
 
 const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
-window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
+window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { stopPreview(); if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
 window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
 window.addEventListener('blur', resetInput);
 document.addEventListener('visibilitychange', () => {
@@ -324,6 +348,7 @@ function moveJoystick(e) {
 }
 pad.addEventListener('pointerdown', e => {
   if (!running || joystick.pointer !== null) return;
+  stopPreview();
   joystick.pointer = e.pointerId; pad.setPointerCapture(e.pointerId);
   const rect = pad.getBoundingClientRect(); joystickCenter = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }; moveJoystick(e);
 });
@@ -331,7 +356,7 @@ pad.addEventListener('pointermove', moveJoystick);
 for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) pad.addEventListener(event, e => {
   if (e.pointerId === joystick.pointer) { joystick.pointer = null; joystick.x = joystick.z = 0; $('stick').style.transform = ''; }
 });
-$('action').addEventListener('pointerdown', e => { if (running) { e.preventDefault(); $('action').setPointerCapture(e.pointerId); actionInput.press(e.pointerId); $('action').classList.add('pressed'); } });
+$('action').addEventListener('pointerdown', e => { if (running) { stopPreview(); e.preventDefault(); $('action').setPointerCapture(e.pointerId); actionInput.press(e.pointerId); $('action').classList.add('pressed'); } });
 for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) $('action').addEventListener(event, e => {
   actionInput.release(e.pointerId, event === 'pointercancel');
   $('action').classList.toggle('pressed', actionInput.held.size > 0);
@@ -346,6 +371,8 @@ function frame(now) {
     const elapsed = Math.min(rawElapsed, 0.1); previous = now;
     if (document.hidden) return;
     if (running) {
+      previewRemaining = Math.max(0, previewRemaining - elapsed);
+      if (previewRemaining === 0) stopPreview();
       accumulator += elapsed;
       while (accumulator >= 1 / 60 && running) { apply(JSON.parse(game.tick(JSON.stringify(controls())))); accumulator -= 1 / 60; }
     }

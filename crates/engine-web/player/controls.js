@@ -29,3 +29,15 @@ export function followDistance(aspect, fov = 55) {
   if (!Number.isFinite(aspect) || aspect <= 0) throw new RangeError('aspect must be positive');
   return Math.max(8.5, 6.1 / (2 * Math.tan(fov * Math.PI / 360) * aspect));
 }
+
+export function routeFrame(points, aspect, fov = 55) {
+  if (!Number.isFinite(aspect) || aspect <= 0 || !Number.isFinite(fov) || fov <= 0 || fov >= 180) throw new RangeError('invalid camera projection');
+  if (!points.length) return null;
+  if (points.some(point => point.length !== 3 || point.some(value => !Number.isFinite(value)))) throw new RangeError('invalid route position');
+  const low = [0,1,2].map(axis => Math.min(...points.map(point => point[axis])));
+  const high = [0,1,2].map(axis => Math.max(...points.map(point => point[axis])));
+  const target = low.map((value,axis) => (value + high[axis]) / 2);
+  const radius = Math.hypot(...high.map((value,axis) => (value-low[axis])/2)) + 1.8;
+  const halfFov = Math.min(fov*Math.PI/360, Math.atan(Math.tan(fov*Math.PI/360)*aspect));
+  return {target, distance:radius/Math.sin(halfFov)*1.1};
+}
