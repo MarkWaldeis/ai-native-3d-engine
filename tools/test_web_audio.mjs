@@ -218,6 +218,22 @@ test('restart clears transient load failures so a source can play again', () => 
   assert.equal(audio.voices.get(1).media.playing, true); audio.clear();
 }));
 
+test('blocked and late-starting streamed music seeks to the shared timeline on unlock', () => mock(async () => {
+  const audio = new SpatialAudio(); audio.configure(scene([], { music: { layers: [{ id: 'media', src: 'music', stream: true }] } }));
+  audio.unlock(); audio.update(listen()); await settle();
+  audio.context.currentTime = 3.5; audio.update(listen()); await settle();
+  const voice = audio.voices.get('music:0');
+  assert.ok(Math.abs(voice.media.currentTime - (3.5 - audio.musicStart) % voice.media.duration) < 1e-9);
+  voice.media.currentTime = 0.1; voice.blocked = true; audio.context.currentTime = 7.7;
+  audio.unlock(); await settle();
+  assert.ok(Math.abs(voice.media.currentTime - (7.7 - audio.musicStart) % voice.media.duration) < 1e-9);
+  assert.equal(voice.blocked, false);
+  voice.media.paused = true; voice.media.currentTime = 0; audio.context.currentTime = 9;
+  audio.unlock(); await settle();
+  assert.ok(Math.abs(voice.media.currentTime - (9 - audio.musicStart) % voice.media.duration) < 1e-9);
+  audio.clear();
+}));
+
 test('stream voices reuse gesture-primed elements and their single media source', () => mock(async () => {
   let gesture = true, sources = 0;
   globalThis.Audio = class extends Media {

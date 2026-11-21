@@ -82,6 +82,7 @@ export class SpatialAudio {
   playMedia(voice) {
     const rejected = error => { if (!voice.cancelled) voice.blocked = error.name === 'NotAllowedError'; };
     try {
+      if (voice.music && (voice.blocked || voice.media.paused)) voice.seek?.();
       const playing = voice.media.play();
       playing?.then(() => { if (!voice.cancelled) voice.blocked = false; }, rejected);
     } catch (error) { rejected(error); }
@@ -153,7 +154,7 @@ export class SpatialAudio {
     this.evict();
   }
   async start(entity, sound, music) {
-    const v = { cancelled: false }; this.voices.set(entity.id, v);
+    const v = { cancelled: false, music }; this.voices.set(entity.id, v);
     try {
       const resource = sound.synth ? {} : music && entity.resource ? entity.resource : await this.resource(sound);
       if (v.cancelled || !resource) { if (!v.cancelled) this.stop(entity.id); return; }
@@ -183,6 +184,7 @@ export class SpatialAudio {
       const elapsed = Math.max(0, c.currentTime - (music ? this.musicStart : entity.since));
       if (v.media) {
         const seek = () => { const offset = Math.max(0, c.currentTime - (music ? this.musicStart : entity.since)); if (!v.cancelled && Number.isFinite(v.media.duration)) v.media.currentTime = v.media.loop ? offset % v.media.duration : Math.min(offset, v.media.duration); };
+        v.seek = seek;
         v.media.onloadedmetadata = seek;
         v.media.onerror = () => { if (!v.cancelled) { this.warn(sound.src, new Error('stream load failed')); this.stop(entity.id); } };
         v.media.src = sound.src;
