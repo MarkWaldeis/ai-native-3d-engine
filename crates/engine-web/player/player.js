@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import init, { WebGame } from './pkg/engine_web.js';
-import { ActionLatch, viewMovement, followDistance, routeFrame } from './controls.js';
+import { ActionLatch, viewMovement, followDistance, routeFrame, bindActivation } from './controls.js';
 import { GameEffects } from './effects.js';
 import { graphicsConfig } from './graphics-settings.js';
 import { primitiveMaterial } from './materials.js';
@@ -333,7 +333,7 @@ function startRunning() {
   fps?.start();
 }
 
-$('start').addEventListener('click', async () => {
+bindActivation($('start'), async () => {
   try {
     audio.unlock();
     if (mode === 'error') { location.reload(); return; }
@@ -341,7 +341,7 @@ $('start').addEventListener('click', async () => {
     if (mode === 'restart') { $('start').disabled = true; await restart(); }
     startRunning();
   } catch (error) { fail(error); }
-});
+},()=>!modal.hidden);
 function pause() {
   fps?.stop();
   running = false; resetInput(); accumulator = 0; audio.suspend(); mode = 'pause'; modal.hidden = false;

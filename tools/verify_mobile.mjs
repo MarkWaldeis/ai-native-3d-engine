@@ -21,10 +21,20 @@ try {
   await page.goto(`${base}/${game}/`); await page.getByRole('button',{name:'Spielen',exact:true}).waitFor();
   const trace = traces[name] = [];
   await page.evaluate(async () => {
-   const {WebGame} = await import('./pkg/engine_web.js'); const tick = WebGame.prototype.tick;
+   const {WebGame} = await import('./pkg/engine_web.js'); const tick = WebGame.prototype.tick,load=WebGame.prototype.load;
+   const source=await fetch('./scene.json').then(r=>r.json());
+   const transforms=new Map(source.entities.map(e=>[e.id,{...e,tags:e.tags||[]}]));
+   function capture(value,reset=false){
+    if(reset)transforms.clear();
+    const update=JSON.parse(value);
+    for(const entity of update.transforms)transforms.set(entity.id,entity);
+    for(const id of update.removed)transforms.delete(id);
+    window.snapshot={...update,transforms:[...transforms.values()]};
+   }
+   WebGame.prototype.load=function(...args){const value=load.apply(this,args);capture(value,true);return value;};
    window.inputTrace = [];
    WebGame.prototype.tick = function(inputs) {
-    const value = tick.call(this, inputs); window.snapshot = JSON.parse(value);
+    const value = tick.call(this, inputs); capture(value);
     inputTrace.push({tick:snapshot.tick, input:JSON.parse(inputs), p:snapshot.transforms.find(e=>e.tags.includes('player')).transform.position, state:snapshot.state});
     if (inputTrace.length > 1000) inputTrace.shift();
     return value;
@@ -61,16 +71,18 @@ try {
      await jump();if(i===0)await screenshot('_jump');
     }
    } else {
-    const length=Math.hypot(7,9);await move(9/length,7/length);
+    await move(1,0);
    }
    await page.waitForFunction(()=>snapshot.state.won===true,null,{timeout:20000});await stop();
    const state=await page.evaluate(()=>snapshot.state);
    if(state.score!==3 || (game==='sky_garden' && state['Sprünge']!==3))throw new Error(JSON.stringify(state));
+   if(game==='coin_game'&&state._respawns!==0)throw new Error(`straight-right Coin touch route respawned ${state._respawns} times`);
    if(await page.locator('#modal-title').innerText()!=='Gewonnen!')throw new Error('win overlay missing');
    await screenshot('_win');
    if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw new Error('page overflow');
    await page.getByRole('button',{name:'Nochmal spielen'}).click();await page.waitForFunction(()=>snapshot.state.score===0&&!snapshot.state.won);
    console.log(`PASS ${name}: ${mobile?'real touch joystick + action':'keyboard'}, ${game==='sky_garden'?'3 jumps, fall/respawn, ':''}score=3, Gewonnen!, restart, no overflow`);
+   if(game==='coin_game')console.log('PASS Coin touch UX: straight-right joystick only, score=3, respawns=0, win + restart');
   } catch(error) {
    console.error(name,JSON.stringify(await page.evaluate(()=>snapshot)));
    await screenshot('_failure');throw error;
