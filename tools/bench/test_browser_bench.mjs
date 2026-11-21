@@ -62,6 +62,14 @@ test('summary reports terrain counters and leaves absent terrain measurements mi
   assert.match(report,/mobile \| — \| — \| — \| — \| —/);
 });
 
+test('summary reports HLOD counters and missing-profile markers',()=>{
+  const results={browserVersion:'test',config:{},scene:{entities:10,colliders:0},profiles:{desktop:{hlod:{hlodClusters:4,hlodDrawCalls:5,hlodTriangles:120}},mobile:{}},violations:[]};
+  const report=summary(results);
+  assert.match(report,/HLOD draw calls/);
+  assert.match(report,/desktop \| 4\.00 \| 5\.00 \| 120\.00/);
+  assert.match(report,/mobile \| — \| — \| —/);
+});
+
 test('summary includes occlusion counters and missing markers',()=>{
   const results={browserVersion:'test',config:{},scene:{entities:1,colliders:0},profiles:{desktop:{occlusion:{occludedChunks:12,occludedTerrainTiles:8,occlusionTests:96}},mobile:{}},violations:[]};
   const report=summary(results);
