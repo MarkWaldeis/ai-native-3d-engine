@@ -34,4 +34,5 @@ anyhow = "1"
 tiny_http = "0.12"
 getrandom = "0.2"
 engine-runtime = { path = "crates/engine-runtime" }
+engine-net = { path = "crates/engine-net" }
 engine-terrain = { path = "crates/engine-terrain" }

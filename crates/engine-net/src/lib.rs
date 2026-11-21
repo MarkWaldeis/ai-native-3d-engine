@@ -3,6 +3,7 @@ mod client;
 pub mod interpolation;
 pub mod protocol;
 mod server;
+pub mod simulate;
 pub mod transport;
 
 pub use client::{ClientConfig, NetClient};

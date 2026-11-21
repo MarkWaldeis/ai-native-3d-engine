@@ -30,6 +30,7 @@ dependencies = [
  "engine-core",
  "engine-geo",
  "engine-mcp",
+ "engine-net",
  "engine-render",
  "engine-runtime",
  "engine-terrain",
