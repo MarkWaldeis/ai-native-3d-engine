@@ -31,6 +31,26 @@ test('authored GLB LOD paths use the existing distance levels and keep distinct 
   await assert.rejects(world.template({...base,props:{web_lods:{1:'data:model/gltf-binary;base64,YmFk'}}},1));
 });
 
+test('animated GLBs switch authored LOD meshes at both distances and restore the base mesh', async () => {
+  const {world} = fixture();
+  const object = new THREE.Group(), high = new THREE.Group(); object.add(high);
+  const entity = {id:4,kind:'gltf',path:glb(3),props:{web_lods:{1:glb(2),2:glb(1)}},script:'animated.rhai',transform:{position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
+  world.add(entity,object);
+  const camera = new THREE.PerspectiveCamera();
+  for (const [distance,level] of [[150,1],[300,2]]) {
+    camera.position.set(distance,10,0); camera.lookAt(0,0,0); camera.updateMatrixWorld();
+    await Promise.all(world.update(camera)); world.update(camera);
+    assert.equal(high.visible,false);
+    const item = world.entities.get(4);
+    assert.equal(item.lods.get(entity.props.web_lods[level]).visible,true);
+    assert.equal([...item.lods.values()].filter(lod=>lod.visible).length,1);
+    assert.equal(item.impostor,undefined);
+  }
+  camera.position.set(0,10,0); camera.updateMatrixWorld(); world.update(camera);
+  assert.equal(high.visible,true);
+  assert.ok([...world.entities.get(4).lods.values()].every(lod=>!lod.visible));
+});
+
 function fixture(addProp = false) {
   const scene = new THREE.Scene(), world = new StreamingWorld(scene,{},worldConfig([{tags:['player'],props:{ai_world:{}}}]));
   const ground = {id:1,kind:'box',size:[256,0.4,256],collider:{shape:'box'},transform:{position:[-128,-0.2,-128],scale:[1,1,1],rotation_deg:[0,0,0]}};

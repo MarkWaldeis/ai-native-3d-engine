@@ -1,0 +1,17 @@
+{
+  "ticks": 240,
+  "asserts": [
+    {
+      "state": "_hurt",
+      "equals": true
+    },
+    {
+      "state": "kills",
+      "equals": 0
+    },
+    {
+      "state": "lost",
+      "equals": false
+    }
+  ]
+}

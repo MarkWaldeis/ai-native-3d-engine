@@ -1,0 +1,43 @@
+{
+  "ticks": 300,
+  "inputs": [
+    {
+      "tick": 0,
+      "action": "look_pitch",
+      "value": -0.035
+    },
+    {
+      "tick": 0,
+      "action": "fire",
+      "value": 1
+    },
+    {"tick":35,"action":"look_yaw","value":-0.05},
+    {"tick":110,"action":"look_yaw","value":0}
+  ],
+  "asserts": [
+    {
+      "state": "won",
+      "equals": true
+    },
+    {
+      "state": "_stage",
+      "equals": 5
+    },
+    {
+      "state": "kills",
+      "equals": 2
+    },
+    {
+      "state": "_commander_dead",
+      "equals": true
+    },
+    {
+      "entities_with_tag": "intel",
+      "count": 0
+    },
+    {
+      "entities_with_tag": "objective_target",
+      "count": 0
+    }
+  ]
+}
