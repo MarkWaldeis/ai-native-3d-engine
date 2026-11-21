@@ -20,6 +20,7 @@ pub struct NetGame {
     closed: bool,
     background: bool,
     resync_pending: bool,
+    input_ticks: u64,
 }
 
 #[wasm_bindgen]
@@ -38,6 +39,10 @@ impl NetGame {
     }
     pub fn tick(&mut self, inputs_json: &str, now_ms: f64) -> Result<String, JsValue> {
         self.tick_inner(inputs_json, now_ms)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+    pub fn tick_with_impulses(&mut self, inputs_json: &str, first_inputs_json: &str, now_ms: f64) -> Result<String, JsValue> {
+        self.tick_with_impulses_inner(inputs_json, first_inputs_json, now_ms)
             .map_err(|e| JsValue::from_str(&e))
     }
     pub fn disconnect(&mut self) {
@@ -110,11 +115,16 @@ impl NetGame {
         Ok(())
     }
     fn tick_inner(&mut self, inputs_json: &str, now: f64) -> Result<String, String> {
+        self.tick_with_impulses_inner(inputs_json, inputs_json, now)
+    }
+    fn tick_with_impulses_inner(&mut self, inputs_json: &str, first_inputs_json: &str, now: f64) -> Result<String, String> {
+        self.input_ticks = 0;
         if !now.is_finite() {
             return Err("network time must be finite".into());
         }
         let now = self.last_now.map_or(now, |previous| now.max(previous));
         let actions: Actions = serde_json::from_str(inputs_json).map_err(|e| e.to_string())?;
+        let first_actions: Actions = serde_json::from_str(first_inputs_json).map_err(|e| e.to_string())?;
         if self
             .last_now
             .is_some_and(|previous| now - previous > 1000.0)
@@ -154,11 +164,12 @@ impl NetGame {
                 }
                 let estimated =
                     self.clock_tick + self.clock_ms.map_or(0.0, |at| (now - at) / TICK_MS);
-                Some(
-                    client
-                        .advance_to(estimated.floor() as u64, actions, now)
-                        .map_err(|e| e.to_string())?,
-                )
+                let before = client.simulation().tick;
+                let message = client
+                    .advance_to_with_first_actions(estimated.floor() as u64, actions, first_actions, now)
+                    .map_err(|e| e.to_string())?;
+                self.input_ticks = client.simulation().tick - before;
+                Some(message)
             } else if self.last_hello.is_none_or(|at| now - at >= 250.0) {
                 self.last_hello = Some(now);
                 Some(ClientMessage::Hello {
@@ -230,7 +241,7 @@ impl NetGame {
                     .map(|rig| json!({"id":entity.id,"enabled":rig.enabled,"parts":rig.parts}))
             })
             .collect();
-        Ok(json!({"tick":client.simulation().tick,"outgoing":outgoing,"transforms":transforms,"state":state,
+        Ok(json!({"tick":client.simulation().tick,"input_ticks":self.input_ticks,"outgoing":outgoing,"transforms":transforms,"state":state,
             "logs":[],"spawned":spawned,"removed":removed,"fx":[],"events":[],"animators":[],"nav_agents":[],"ragdolls":ragdolls,
             "my_entity":client.entity_id(),"player_number":client.client_id(),"connected":!self.closed && client.entity_id().is_some(),
             "players":players,"stats":client.stats()}).to_string())
@@ -247,6 +258,44 @@ mod tests {
         {"id":1,"name":"player","kind":"box","size":[1,1,1],"tags":["net_player"],
         "script":{"source":"fn on_tick(ctx,dt) { let p=ctx.position();ctx.set_position([p[0]+ctx.input(\"move_x\")*dt,p[1],p[2]]); }"}}
     ]})).unwrap()
+    }
+
+    #[test]
+    fn impulses_wait_for_a_prediction_tick_and_run_once_during_catchup() {
+        let scene: Scene = serde_json::from_value(json!({"entities":[
+            {"id":1,"name":"player","kind":"box","size":[1,1,1],"tags":["net_player"],
+             "script":{"source":"fn on_tick(ctx,dt) { if ctx.input(\"fire\") > 0.5 { let n=ctx.state_get(\"pulses\"); if n==() {n=0;} ctx.state_set(\"pulses\",n+1); } }"}}
+        ]})).unwrap();
+        let mut game = NetGame::new();
+        game.load_inner(&serde_json::to_string(&scene).unwrap(), "{}").unwrap();
+        let mut server = NetServer::new(scene, BTreeMap::new(), ServerConfig::default()).unwrap();
+        let welcome = server.receive(1, ClientMessage::Hello { name: "impulses".into() }).unwrap().unwrap();
+        game.receive_inner(&serde_json::to_string(&welcome).unwrap()).unwrap();
+        game.tick_inner("{}", 0.0).unwrap();
+        for now in [1.0, 2.0] {
+            let result: Value = serde_json::from_str(&game.tick_with_impulses_inner("{}", "{\"fire\":1}", now).unwrap()).unwrap();
+            assert_eq!(result["input_ticks"], 0);
+            assert!(game.client.as_ref().unwrap().simulation().net_script_state().get("pulses").is_none());
+        }
+        let result: Value = serde_json::from_str(&game.tick_with_impulses_inner("{}", "{\"fire\":1}", 100.0).unwrap()).unwrap();
+        assert!(result["input_ticks"].as_u64().unwrap() > 1);
+        assert_eq!(game.client.as_ref().unwrap().simulation().net_script_state()["pulses"], 1);
+        game.tick_with_impulses_inner("{}", "{}", 200.0).unwrap();
+        assert_eq!(game.client.as_ref().unwrap().simulation().net_script_state()["pulses"], 1);
+        let first_tick = game.client.as_ref().unwrap().simulation().tick;
+        let result: Value = serde_json::from_str(&game.tick_with_impulses_inner("{}", "{\"fire\":1}", 900.0).unwrap()).unwrap();
+        assert!(result["input_ticks"].as_u64().unwrap() > ClientConfig::default().redundant_frames as u64);
+        let message = decode(result["outgoing"][0].as_str().unwrap().as_bytes()).unwrap();
+        if let ClientMessage::Input { frames, .. } = message {
+            assert_eq!(frames.iter().find(|f| f.tick == first_tick).unwrap().actions["fire"], 1.0);
+            assert_eq!(frames.iter().find(|f| f.tick == first_tick + 1).unwrap().actions.get("fire").copied().unwrap_or(0.0), 0.0);
+            assert_eq!(frames.iter().filter(|f| f.actions.get("fire").copied().unwrap_or(0.0) > 0.5).count(), 1);
+        } else { panic!("expected client input frames"); }
+        assert_eq!(game.client.as_ref().unwrap().simulation().net_script_state()["pulses"], 2);
+        assert!(game.tick_with_impulses_inner("{}", "[]", 901.0).is_err());
+        game.disconnect();
+        let result: Value = serde_json::from_str(&game.tick_with_impulses_inner("{}", "{\"fire\":1}", 902.0).unwrap()).unwrap();
+        assert_eq!(result["input_ticks"], 0);
     }
 
     #[test]

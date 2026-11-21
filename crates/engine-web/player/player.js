@@ -21,6 +21,8 @@ import { InputSettings } from './input-settings.js';
 import { parseTextConfig } from './sdf-font.js';
 import { SdfAtlas, SdfLabel } from './sdf-text.js';
 import { hudTemplate } from './hud-layout.js';
+import { TouchControls } from './touch-controls.js';
+import { hapticCue, pulseHaptics } from './touch.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -29,16 +31,17 @@ const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
 const travelSpeed = travelSpeedInput(location.search);
 const input = new InputSystem(), inputEdges = new InputEdges();
-let inputSettings, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
+let inputSettings, touchControls, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
 const touchMode = () => document.body.classList.contains('touch-input');
 function showTouch() {
   document.body.classList.add('touch-input');
   if (fps) fps.coarse = true;
+  touchControls?.layout();
   updateHelp();
 }
 function updateHelp() {
   const help = gamepadActive ? gamepadHelp(input.config, !!fps) : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
-  if (help && $('help').textContent !== help) $('help').textContent = help;
+  for (const id of ['help', 'input-help']) if (help && $(id).textContent !== help) $(id).textContent = help;
 }
 if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch-input');
 window.addEventListener('touchstart', showTouch, { passive: true });
@@ -103,6 +106,7 @@ function resetInput() {
   keys.clear(); joystick.x = 0; joystick.z = 0; joystick.pointer = null;
   actionInput.reset(); $('stick').style.transform = ''; $('action').classList.remove('pressed');
   fps?.resetInput();
+  touchControls?.reset();
 }
 
 function fail(error) {
@@ -282,6 +286,7 @@ function apply(result) {
   }
   if (feedback.jump) audio.play('jump');
   if (feedback.win) audio.play('win');
+  pulseHaptics(hapticCue(feedback, result.events || []), { settings: input.config.haptics, pads: navigator.getGamepads?.() || [], gamepadActive, touch: touchMode() });
   lastFeedback = { ...result.state };
   const hud = JSON.stringify(Object.entries(result.state).filter(([key]) => key !== 'won' && key !== 'gewonnen' && !key.startsWith('_') && (!ui.hud_keys || ui.hud_keys.includes(key))));
   if (hud !== lastHUD) {
@@ -305,7 +310,7 @@ function apply(result) {
   if (netEndpoint) {
     $('state').textContent = `${result.connected ? `Spieler ${result.player_number}` : 'Verbinde …'} · ${Math.round(result.stats?.rtt_ms || 0)} ms · ${result.players || 0} Spieler verbunden`;
   }
-  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...textWarnings, ...(textAtlas?.warnings || []), ...result.logs.slice(-12)].join('\n');
+  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...(touchControls?.warnings || []), ...textWarnings, ...(textAtlas?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -333,11 +338,13 @@ function localMovement() {
   };
 }
 
-function controls() {
-  if (fps) return { ...fps.inputs(localMovement(), actionInput.sample(), sampledInput.actions), travel_speed: travelSpeed };
+function controls(consume = true, queued = true) {
+  sampledInput = input.sample({ keys, pads: navigator.getGamepads?.() || [], touch: { ...joystick, actions: touchControls?.sample(queued) } });
+  const pressed = Math.max(actionInput.sample(consume, queued), sampledInput.actions.action);
+  const result = fps ? { ...fps.inputs(localMovement(), pressed, sampledInput.actions), travel_speed: travelSpeed } : null;
   const move = movement();
-  const pressed = actionInput.sample();
-  return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
+  if (consume) touchControls?.consume();
+  return result || { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
 }
 
 function previewingRoute() {
@@ -474,6 +481,7 @@ function startRunning() {
   if (previewingRoute() && previewMission === null) { previewMission = $('mission').textContent; $('mission').textContent = 'Zielvorschau · Bewegen überspringt'; }
   $('pause').textContent = 'Ⅱ'; $('pause').setAttribute('aria-label', 'Spiel pausieren');
   fps?.start();
+  touchControls?.layout();
 }
 
 bindActivation($('start'), async () => {
@@ -590,14 +598,14 @@ function frame(now) {
     if (document.hidden) return;
     const pads = navigator.getGamepads?.() || [];
     const gamepad = input.sampleGamepads(pads);
-    const edges = inputEdges.sample(gamepad.actions);
+    sampledInput = input.sample({ keys, pads, touch: { ...joystick, actions: touchControls?.sample() } });
+    const edges = inputEdges.sample(sampledInput.actions);
     if (Object.values(gamepad.actions).some(value => Math.abs(value) > 0.15)) { gamepadActive = true; updateHelp(); }
     else if (!Array.from(pads).some(pad => pad && pad.connected !== false)) { gamepadActive = false; updateHelp(); }
     inputSettings?.poll(pads);
     if (!inputSettings?.open) {
       if (edges.has('pause') && mode !== 'restart') { if (running) pause(); else if (mode === 'pause') startRunning(); }
       else if (edges.has('action') && !modal.hidden && !$('start').disabled) $('start').click();
-      sampledInput = input.sample({ keys, pads, touch: joystick });
       if (running) {
         if (gamepad.actions.action > 0.5) actionInput.press('gamepad'); else actionInput.release('gamepad');
         if (Math.hypot(gamepad.move_x, gamepad.move_z) > 0.1) stopPreview();
@@ -606,7 +614,7 @@ function frame(now) {
     }
     renderer.info.reset();
     if (net) {
-      const result = net.tick(running ? controls() : {});
+      const result = running ? net.tick(controls(false, false), controls(false), () => { actionInput.sample(); touchControls?.consume(); }) : net.tick({});
       if (result) apply(result);
       if (!net.status.connected && net.socket.readyState >= 2) showNetworkDisconnect();
     } else if (running) {
@@ -766,6 +774,7 @@ async function boot() {
   if (ui.action_label) $('action').lastChild.textContent = ui.action_label;
   document.title = `${$('title').textContent} · AI Engine`;
   touchHelp = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
+  touchControls = new TouchControls(props?.ai_touch, { fps: !!fps, enabled: () => running, onInteract: stopPreview, onLayout: () => hudLayout?.layout() });
   if (touchMode() && fps) fps.coarse = true;
   updateHelp();
   if (fps && !ui.action_label) $('action').lastChild.textContent = 'SPRUNG';

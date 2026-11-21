@@ -22,9 +22,9 @@ export class ActionLatch {
     this.held.delete(id);
     if (cancelled && !this.held.size) this.queued = false;
   }
-  sample() {
-    const value = Number(this.queued || this.held.size > 0);
-    this.queued = false;
+  sample(consume = true, queued = true) {
+    const value = Number((queued && this.queued) || this.held.size > 0);
+    if (consume) this.queued = false;
     return value;
   }
   reset() { this.held.clear(); this.queued = false; }

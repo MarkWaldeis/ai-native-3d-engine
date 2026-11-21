@@ -207,6 +207,10 @@ Tests: `tools/test_web_sdf.mjs`, `tools/verify_web_sdf.mjs`; Bilder:
 
 ## Eingabe / Gamepad
 
+`ai_touch` ergänzt logische Touch-Tasten/Joystick-Layout; `ai_input.haptics`
+steuert optionale Gamepad-/Touch-Vibration, gespeichert über „Steuerung“.
+Schema: `docs/INPUT.md`; Tests: `test_web_touch.mjs`, `verify_web_touch.mjs`.
+
 Web-Player: WASD/Pfeile, Leertaste sowie Standard-Gamepads (linker Stick/D-Pad:
 Bewegen, rechter Stick: Zielen, A: Aktion, RT: Feuer, X: Nachladen, L3: Sprint,
 Start: Pause). A startet auch das sichtbare Start-/Neustart-Modal.

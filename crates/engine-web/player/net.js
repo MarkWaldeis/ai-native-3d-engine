@@ -39,12 +39,16 @@ export class BrowserNet {
     this.socket.onclose = () => { this.close(); onDisconnect(); };
     this.socket.onerror = () => { this.status.connected = false; };
   }
-  tick(inputs) {
+  tick(inputs, firstInputs, onConsumed = () => {}) {
     if (this.socket.readyState !== 1) return null;
     if (this.socket.bufferedAmount > 4 * 1024 * 1024) {
       this.close(); throw new Error('Multiplayer-Verbindung zu langsam. Bitte neu verbinden.');
     }
-    const result = JSON.parse(this.game.tick(JSON.stringify(inputs), this.clock()));
+    const now = this.clock();
+    const withImpulses = firstInputs !== null && typeof firstInputs === 'object';
+    const result = JSON.parse(withImpulses ? this.game.tick_with_impulses(JSON.stringify(inputs), JSON.stringify(firstInputs), now)
+      : this.game.tick(JSON.stringify(inputs), now));
+    if (result.input_ticks > 0) onConsumed();
     for (const message of result.outgoing) this.socket.send(message);
     Object.assign(this.status, {
       connected:result.connected,my_entity:result.my_entity,rtt:result.stats.rtt_ms,

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {netURL, BrowserNet} from '../crates/engine-web/player/net.js';
+import {TouchState} from '../crates/engine-web/player/touch.js';
+import {ActionLatch} from '../crates/engine-web/player/controls.js';
 
 test('single-player is unchanged unless net query or scene opts in', () => {
   assert.equal(netURL('http://localhost:8000/arena/'), null);
@@ -102,6 +104,24 @@ test('malformed frames and slow consumers close rather than dropping protocol da
   const slow=fixture();slow.net.socket.readyState=1;slow.net.socket.bufferedAmount=5*1024*1024;
   assert.throws(()=>slow.net.tick({}),/langsam/);
   assert.equal(slow.game.closed,true);assert.deepEqual(slow.net.socket.sent,[]);
+});
+
+test('touch and action impulses wait across zero-tick render frames and clear only after Rust consumes a tick', () => {
+  const {net, game, result} = fixture(), state = new TouchState([{ action: 'fire', hold: false }, { action: 'sprint', hold: true }]), latch = new ActionLatch();
+  state.press(0, 1); state.release(1); state.press(1, 2); latch.press('tap'); latch.release('tap');
+  const calls = [];
+  game.tick_with_impulses = (held, first, now) => { calls.push([JSON.parse(held), JSON.parse(first), now]); return JSON.stringify(result); };
+  let consumed = 0;
+  const tick = () => net.tick({ ...state.sample(false), jump: latch.sample(false, false) }, { ...state.sample(), jump: latch.sample(false) }, () => { consumed++; state.consume(); latch.sample(); });
+  assert.equal(tick(), null); assert.equal(consumed, 0);
+  net.socket.readyState = 1; result.input_ticks = 0;
+  tick(); tick(); assert.equal(consumed, 0); assert.equal(state.sample().fire, 1); assert.equal(latch.sample(false), 1);
+  assert.deepEqual(calls[0], [{ sprint: 1, jump: 0 }, { fire: 1, sprint: 1, jump: 1 }, 0]);
+  result.input_ticks = 3; tick(); assert.equal(consumed, 1);
+  assert.deepEqual(state.sample(), { sprint: 1 }); assert.equal(latch.sample(false), 0);
+  tick(); assert.deepEqual(calls.at(-1)[1], { sprint: 1, jump: 0 });
+  game.tick_with_impulses = () => { throw Error('failed tick'); };
+  state.press(0, 3); assert.throws(tick, /failed tick/); assert.equal(state.sample().fire, 1);
 });
 
 test('local close detaches old callbacks before a shared NetGame can be reloaded', () => {
