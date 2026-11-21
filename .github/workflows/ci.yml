@@ -6,6 +6,51 @@ on:
   pull_request:
 
 jobs:
+  javascript:
+    name: Web player JavaScript tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test tools/test_web_*.mjs
+  web-release:
+    name: Exported WASM players and native parity
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install wasm-bindgen-cli --version 0.2.100 --locked
+      - name: Install pinned browser automation
+        run: |
+          npm install --prefix target/web-ci --no-save --package-lock=false playwright@1.65.1
+          target/web-ci/node_modules/.bin/playwright install --with-deps --only-shell chromium
+      - name: Fresh exports (same entry point as Pages)
+        run: |
+          rm -rf target/m9-site target/web-release-shots
+          cargo run -- --export-web examples/coin_game/scene.json target/m9-site/coin_game
+          cargo run -- --export-web examples/sky_garden/scene.json target/m9-site/sky_garden
+      - name: Native simulate reference for recorded traces
+        run: cargo run --example web_parity > target/web-native.json
+      - name: Keyboard release checks and native-WASM parity
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
+        run: node tools/verify_web_release.mjs target/m9-site target/web-native.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: web-release-evidence
+          path: |
+            target/web-release-shots
+            target/web-native.json
   test:
     name: cargo test (${{ matrix.os }})
     strategy:

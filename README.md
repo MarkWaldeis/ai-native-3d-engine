@@ -66,6 +66,43 @@ npx --yes @modelcontextprotocol/inspector --cli --config /absolut/mein-spiel/.mc
 # http://127.0.0.1:7777/mcp --transport http ersetzen.
 ```
 
+## Web release checks (M9)
+
+CI runs `node --test tools/test_web_*.mjs`, plus a Linux Chromium release job on
+fresh exports of **both** demos. Reproduce from the repository root (Rust WASM
+target and wasm-bindgen-cli 0.2.100 installed, as in Pages):
+
+```sh
+npm install --prefix target/web-ci --no-save --package-lock=false playwright@1.65.1
+target/web-ci/node_modules/.bin/playwright install --with-deps --only-shell chromium
+rm -rf target/m9-site
+cargo run -- --export-web examples/coin_game/scene.json target/m9-site/coin_game
+cargo run -- --export-web examples/sky_garden/scene.json target/m9-site/sky_garden
+cargo run --example web_parity > target/web-native.json
+PLAYWRIGHT_MODULE="$PWD/target/web-ci/node_modules/playwright/index.mjs" \
+  node tools/verify_web_release.mjs target/m9-site target/web-native.json
+```
+
+`tools/web_traces.json` contains fixed input traces for win and rescue in each
+demo, including Sky Garden rescue **after** advancing a checkpoint and Coin Game
+rescue preserving a collected score. The native helper uses the MCP `simulate`
+implementation, validates expected outcomes, and records first win tick plus
+score/checkpoint/rescue samples every 30 ticks and at the end. The browser feeds
+the identical events to the actual exported WASM runtime and compares exactly.
+Missing artifacts, parity differences, browser errors and asset HTTP errors fail
+the job; there are no renderer skips or automatic success-on-retry paths.
+
+Player checks deliver keyboard events through the real UI controls, prove an
+off-platform rescue, frozen ticks while paused, pause-menu **Neustart**, victory
+and **Nochmal spielen**. A virtual animation-frame clock removes wall-time/FPS
+races without replacing gameplay, physics, input mapping or rendering. Screenshots
+and the native reference are uploaded as `web-release-evidence`; local screenshots
+default to `target/web-release-shots` (`SHOTS_DIR` overrides it).
+
+This Chromium check does **not** certify Mobile Safari or physical iOS devices.
+Those still require a separate full touch victory; opening the page or seeing the
+start screen is not an acceptance pass.
+
 ## M6 · Himmelsgarten: Blender-first HTTP swarm
 
 `examples/sky_garden/` is a floating-island platformer: steer Milo with the touch
