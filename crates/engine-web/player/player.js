@@ -7,6 +7,7 @@ import { primitiveMaterial } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { StreamingWorld, loadAsset } from './world.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
+import { createTerrain } from './terrain.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -22,6 +23,7 @@ let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, playerId;
+let terrain;
 const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
 const loading = new Set();
 const benchMarks = {};
@@ -84,6 +86,7 @@ function mesh(geometry, entity) {
 }
 
 function createObject(entity) {
+  if (entity.props?.ai_terrain) return;
   if (streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
@@ -289,6 +292,7 @@ async function restart() {
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
   const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
+  await terrain?.preload();
   mark('webGameLoaded');
   apply(JSON.parse(initial));
   await Promise.all([...loading]);
@@ -418,6 +422,7 @@ function frame(now) {
     }
     updateCamera(false, elapsed);
     streaming?.update(camera);
+    terrain?.update(camera, now);
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streaming && objects.get(playerId)?.position);
     updateShadows(); updateObjective(); effects.render(camera);
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
@@ -482,6 +487,7 @@ async function boot() {
     document.body.append(statsOverlay);
   }
   game = new WebGame();
+  terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
   if (config) camera.far = config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));

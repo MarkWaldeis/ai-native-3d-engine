@@ -38,6 +38,29 @@ fn root() -> PathBuf {
 }
 
 #[test]
+fn web_export_bundles_compact_terrain_once_and_rewrites_paths() {
+    let fixture=Fixture::new();
+    let terrain=engine_terrain::Terrain::generate(engine_terrain::TerrainConfig {size_m:[512.0;2],samples:33,..Default::default()}).unwrap();
+    terrain.save(&fixture.0.join("map")).unwrap();
+    let scene:Scene=serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"ground","kind":"box","size":[1,1,1],"props":{"ai_terrain":"map/terrain.json","ai_terrain_radius":64}},
+        {"id":2,"name":"ground2","kind":"box","size":[1,1,1],"props":{"ai_terrain":"map/terrain.json"}}
+    ]})).unwrap();
+    let out=fixture.0.join("site");
+    let report=export_bundle(&scene,&fixture.0,&out,&fixture.0.join("pkg")).unwrap();
+    assert_eq!(report["terrain"],1);
+    assert!(out.join("terrain/0/terrain.json").is_file());
+    assert!(out.join("terrain/0/coarse.bin").is_file());
+    for z in 0..2 {for x in 0..2 {assert_eq!(std::fs::metadata(out.join(format!("terrain/0/tiles/{x}_{z}.bin"))).unwrap().len(),(35*35*2+12) as u64);}}
+    let exported:Scene=serde_json::from_slice(&std::fs::read(out.join("scene.json")).unwrap()).unwrap();
+    for e in &exported.entities {assert_eq!(e.props["ai_terrain"],"terrain/0/terrain.json");}
+    assert_eq!(exported.entities[0].props["ai_terrain_radius"],64);
+    let manifest:engine_terrain::web::WebManifest=serde_json::from_slice(&std::fs::read(out.join("terrain/0/terrain.json")).unwrap()).unwrap();
+    let streamed=engine_terrain::web::StreamedTerrain::from_manifest(&manifest,&std::fs::read(out.join("terrain/0/coarse.bin")).unwrap()).unwrap();
+    assert!((streamed.sample(128.0,128.0)-terrain.sample(128.0,128.0).unwrap()).abs()<0.01);
+}
+
+#[test]
 fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
     let fixture = Fixture::new();
     let root = root();
