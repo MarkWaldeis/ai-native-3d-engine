@@ -29,12 +29,12 @@ fn delta_roundtrip_and_hooks() {
     let base = scene();
     let mut sim = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap();
     sim.step(5, &[]).unwrap();
-    let save = sim.save_game();
+    let save = sim.save_game().unwrap();
     println!("SAVE_EXAMPLE={save}");
     assert_eq!(save["delta"]["removed"], json!([2]));
     assert_eq!(save["delta"]["modified"].as_array().unwrap().len(),1);
     assert_eq!(save["delta"]["spawned"].as_array().unwrap().len(),1);
-    assert_eq!(save,sim.save_game());
+    assert_eq!(save,sim.save_game().unwrap());
     let mut loaded = Simulation::load_game_from_sources(base, BTreeMap::new(), save.clone()).unwrap();
     assert!(!loaded.base_changed);
     assert_eq!(loaded.state()["state"]["loaded"],true);
@@ -54,7 +54,7 @@ fn empty_large_static_world_and_invalid_saves() {
     let mut base=Scene::default();
     for id in 1..=2000 { let mut e=entity.clone(); e.id=id; base.entities.push(e); }
     let sim=Simulation::from_sources(base.clone(),BTreeMap::new()).unwrap();
-    let save=sim.save_game();
+    let save=sim.save_game().unwrap();
     assert_eq!(save["delta"],json!({"modified":[],"removed":[],"spawned":[]}));
     assert!(save.to_string().len()*100 < serde_json::to_string(&base).unwrap().len());
     assert!(Simulation::load_game_from_sources(base.clone(),BTreeMap::new(),save.clone()).is_ok());
@@ -96,7 +96,7 @@ fn dynamic_velocities_resume() {
     let base: Scene=serde_json::from_value(json!({"entities":[{"id":1,"name":"falling","kind":"box","size":[1,1,1],"transform":{"position":[0,50,0]},"rigidbody":{"type":"dynamic"},"collider":{"shape":"box","half_extents":[0.5,0.5,0.5]},"script":{"source":"fn on_start(ctx){ctx.set_velocity([2.0,3.0,0.0]);}"}}]})).unwrap();
     let mut sim=Simulation::from_sources(base.clone(),BTreeMap::new()).unwrap();
     sim.step(10,&[]).unwrap();
-    let save=sim.save_game();
+    let save=sim.save_game().unwrap();
     assert_eq!(save["bodies"].as_array().unwrap().len(),1);
     let mut loaded=Simulation::load_game_from_sources(base,BTreeMap::new(),save).unwrap();
     sim.step(10,&[]).unwrap(); loaded.step(10,&[]).unwrap();
@@ -125,7 +125,7 @@ fn inventory_and_flag_empty_and_error_cases() {
 #[test]
 fn restored_asset_and_script_paths_are_confined() {
     let base = Scene::default();
-    let save = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap().save_game();
+    let save = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap().save_game().unwrap();
     for path in ["../outside.glb", "/outside.glb", "C:\\outside.glb"] {
         for field in ["asset", "script"] {
             let mut bad = save.clone();
@@ -138,7 +138,7 @@ fn restored_asset_and_script_paths_are_confined() {
         }
     }
     let mut base = scene(); base.entities.truncate(1); base.entities[0].script = None;
-    let mut save = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap().save_game();
+    let mut save = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap().save_game().unwrap();
     save["delta"]["modified"] = json!([{"id":1,"kind":"gltf","path":"../outside.glb"}]);
     assert!(Simulation::load_game_from_sources(base, BTreeMap::new(), save).is_err());
 }
@@ -153,11 +153,11 @@ fn damaged_enemy_health_and_local_memos_survive_loading() {
         {"id":2,"name":"attacker","kind":"box","size":[1,1,1],"script":{"source":"fn on_start(ctx){ctx.damage(1,25.0);}"}}
     ]})).unwrap();
     let sim = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap();
-    let save = sim.save_game();
+    let save = sim.save_game().unwrap();
     let loaded = Simulation::load_game_from_sources(base.clone(), BTreeMap::new(), save.clone()).unwrap();
     assert_eq!(loaded.state()["state"]["health"],75.0);
     assert_eq!(loaded.state()["state"]["memo"],json!({"point":3}));
-    assert_eq!(loaded.save_game()["combat"],save["combat"]);
+    assert_eq!(loaded.save_game().unwrap()["combat"],save["combat"]);
     let mut legacy=save;legacy.as_object_mut().unwrap().remove("combat");
     assert!(Simulation::load_game_from_sources(base,BTreeMap::new(),legacy).is_ok());
 }
@@ -176,14 +176,25 @@ fn pending_spawned_script_gets_its_start_exactly_once() {
     "#}}]})).unwrap();
     let mut sim=Simulation::from_sources(base.clone(),BTreeMap::new()).unwrap();
     sim.step(1,&[]).unwrap();
-    let save=sim.save_game();assert_eq!(save["pending_starts"],json!([2]));
+    let save=sim.save_game().unwrap();assert_eq!(save["pending_starts"],json!([2]));
     let mut loaded=Simulation::load_game_from_sources(base.clone(),BTreeMap::new(),save).unwrap();
     assert_eq!(loaded.state()["inventory"]["token"],1);
     assert_eq!(loaded.state()["flags"]["existing_loaded"],true);
     assert!(loaded.state()["flags"].get("child_loaded").is_none());
     loaded.step(1,&[]).unwrap();sim.step(1,&[]).unwrap();
     assert_eq!(loaded.state()["inventory"],sim.state()["inventory"]);
-    let loaded=Simulation::load_game_from_sources(base,BTreeMap::new(),loaded.save_game()).unwrap();
+    let loaded=Simulation::load_game_from_sources(base,BTreeMap::new(),loaded.save_game().unwrap()).unwrap();
     assert_eq!(loaded.state()["inventory"]["token"],1);
     assert_eq!(loaded.state()["flags"]["child_loaded"],true);
+}
+
+#[test]
+fn oversized_runtime_and_mcp_saves_return_errors() {
+    let source = format!("fn on_start(ctx) {{let chunk=\"{}\";for n in 0..256 {{ctx.state_set(\"large_\"+n,chunk);}}}}", "x".repeat(16384));
+    let base: Scene=serde_json::from_value(json!({"entities":[{"id":1,"name":"large-state","kind":"box","size":[1,1,1],"script":{"source":source}}]})).unwrap();
+    let sim=Simulation::from_sources(base.clone(),BTreeMap::new()).unwrap();
+    assert!(sim.save_game().unwrap_err().to_string().contains("4 MB"));
+    let mut engine=ai_engine::Engine::new();engine.world.scene=base;
+    engine.handle("play",&json!({})).unwrap();
+    assert!(engine.handle("save_game",&json!({})).unwrap_err().contains("4 MB"));
 }

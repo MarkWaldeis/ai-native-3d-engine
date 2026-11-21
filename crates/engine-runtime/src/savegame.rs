@@ -93,7 +93,7 @@ fn validate_restored_paths(entity: &shared::scene::Entity, root: Option<&Path>) 
 }
 
 impl Simulation {
-    pub fn save_game(&self) -> Value {
+    pub fn save_game(&self) -> Result<Value> {
         let data = self.data.borrow();
         let base: BTreeMap<_, _> = self.base_scene.entities.iter().map(|e| (e.id, e)).collect();
         let live: BTreeMap<_, _> = data.scene.entities.iter().map(|e| (e.id, e)).collect();
@@ -124,12 +124,14 @@ impl Simulation {
         }).collect();
         let pending_starts: BTreeSet<_> = data.scene.entities.iter()
             .filter(|e| e.script.is_some() && !self.scripts.contains_key(&e.id)).map(|e| e.id).collect();
-        json!({"format":"ai-engine-save","version":1,"tick":self.tick,
+        let save = json!({"format":"ai-engine-save","version":1,"tick":self.tick,
             "base_fingerprint":fingerprint(&self.base_scene),"state":data.state,"flags":data.flags,
             "inventory":data.inventory,"next_id":data.next_id,"inputs":data.inputs,
             "combat":{"health":data.combat.health,"vars":data.combat.vars,"hits":data.combat.hits},
             "pending_starts":pending_starts,
-            "delta":{"modified":modified,"removed":removed,"spawned":spawned},"bodies":bodies})
+            "delta":{"modified":modified,"removed":removed,"spawned":spawned},"bodies":bodies});
+        if serde_json::to_vec(&save)?.len() > MAX_SAVE_BYTES { bail!("save exceeds 4 MB limit"); }
+        Ok(save)
     }
 
     pub fn load_game(base_scene: Scene, root: &Path, save: Value) -> Result<Self> {

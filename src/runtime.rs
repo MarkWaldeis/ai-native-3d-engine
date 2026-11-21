@@ -39,10 +39,10 @@ impl Engine {
             .unwrap_or_else(|| std::path::Path::new("."));
         let value = match name {
             "save_game" => {
-                let save = self.simulation.as_ref().ok_or_else(|| anyhow::anyhow!("no simulation; call play before save_game"))?.save_game();
+                let save = self.simulation.as_ref().ok_or_else(|| anyhow::anyhow!("no simulation; call play before save_game"))?.save_game()?;
                 if let Some(path) = args.get("path") {
                     let path = save_path(project, path)?;
-                    let bytes = serde_json::to_vec_pretty(&save)?;
+                    let bytes = serde_json::to_vec(&save)?;
                     if bytes.len() > engine_runtime::savegame::MAX_SAVE_BYTES { anyhow::bail!("save exceeds 4 MB limit"); }
                     std::fs::write(path, bytes)?;
                 }

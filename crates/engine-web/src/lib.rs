@@ -58,8 +58,7 @@ impl WebGame {
     }
 
     pub fn save_game(&self) -> Result<String, JsValue> {
-        self.simulation.as_ref().map(|s| s.save_game().to_string())
-            .ok_or_else(|| JsValue::from_str("load a scene before saving"))
+        self.save_game_inner().map_err(|e| JsValue::from_str(&e))
     }
 
     pub fn load_game(&mut self, scene_json: &str, scripts_json: &str, save_json: &str) -> Result<String, JsValue> {
@@ -77,6 +76,10 @@ impl WebGame {
 }
 
 impl WebGame {
+    fn save_game_inner(&self) -> Result<String, String> {
+        self.simulation.as_ref().ok_or("load a scene before saving")?
+            .save_game().map(|save| save.to_string()).map_err(|e| e.to_string())
+    }
     fn load_game_inner(&mut self, scene_json: &str, scripts_json: &str, save_json: &str) -> Result<String, String> {
         if save_json.len() > engine_runtime::savegame::MAX_SAVE_BYTES { return Err("save exceeds 4 MB limit".into()); }
         let scene = serde_json::from_str(scene_json).map_err(|e| e.to_string())?;
@@ -162,6 +165,15 @@ mod tests {
         empty.load_inner("{}","{}").unwrap();
         let save=empty.save_game().unwrap();
         assert!(empty.load_game_inner("{}","{}",&save).is_ok());
+    }
+    #[test]
+    fn oversized_and_missing_savegames_return_errors() {
+        let mut game=WebGame::new();
+        assert!(game.save_game_inner().is_err());
+        let source=format!("fn on_start(ctx) {{let chunk=\"{}\";for n in 0..256 {{ctx.state_set(\"large_\"+n,chunk);}}}}", "x".repeat(16384));
+        let scene=json!({"entities":[{"id":1,"name":"large-state","kind":"box","size":[1,1,1],"script":{"source":source}}]}).to_string();
+        game.load_inner(&scene,"{}").unwrap();
+        assert!(game.save_game_inner().unwrap_err().contains("4 MB"));
     }
     #[test]
     fn terrain_bridge_loads_streams_and_preserves_tiles_on_reload() {
