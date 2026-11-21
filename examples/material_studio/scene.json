@@ -23,7 +23,7 @@
           "sky": "#18263c", "horizon": "#536986", "ground": "#242c38",
           "sun_color": "#ffd7a6", "sun_direction": [-2, 3, 1], "sun_intensity": 1.15,
           "environment_map": "examples/material_studio/studio.hdr", "environment_background": false,
-          "environment_intensity": 1, "exposure": 0.93, "bloom_strength": 0.28,
+          "environment_intensity": 1, "exposure": 0.93, "bloom_strength": 0.28, "bloom_scatter": 0.55,
           "contact_occlusion": 0.65, "contact_radius": 1.2
         },
         "ai_material": {"metalness": 0.45, "roughness": 0.32, "clearcoat": 0.8}
