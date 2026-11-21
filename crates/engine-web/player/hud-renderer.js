@@ -39,10 +39,10 @@ export class HudLayout {
     for (const record of this.nodes.values()) { record.initialized = false; record.until = 0; if (record.widget.type === 'toast') record.node.hidden = true; }
   }
   update(snapshot, now = performance.now()) {
-    if (!this.config.widgets.length) return;
     for (const id of snapshot.removed || []) this.entities.delete(id);
     for (const entity of snapshot.spawned || []) this.entities.set(entity.id, entity);
     this.left = countHudTags(this.entities.values()); this.state = snapshot.state;
+    if (!this.config.widgets.length) return;
     this.updateWidgets(now); this.layout();
   }
   updateWidgets(now = performance.now()) {

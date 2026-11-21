@@ -1,6 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { edt, glyphSdf, ShelfPacker, layoutText, parseTextConfig } from '../crates/engine-web/player/sdf-font.js';
+import { hudTemplate, parseHudConfig } from '../crates/engine-web/player/hud-layout.js';
+import { HudLayout } from '../crates/engine-web/player/hud-renderer.js';
+
+test('SDF templates share authoritative HUD counts without ai_hud, including initial authored entities and save restore', () => {
+  const coins = [1, 2, 3].map(id => ({ id, tags: ['coin'] }));
+  const hud = Object.create(HudLayout.prototype);
+  hud.config = parseHudConfig(undefined).config; hud.nodes = new Map();
+  hud.updateWidgets = hud.layout = () => assert.fail('no HUD widgets should be rendered');
+  const text = () => hudTemplate('{left:coin}/{total:coin}', hud.state, hud.totals, hud.left);
+  hud.reset(coins);
+  hud.update({ state: {}, spawned: coins, removed: [] });
+  assert.equal(text(), '3/3');
+  hud.update({ state: {}, spawned: [], removed: [1] });
+  assert.equal(text(), '2/3');
+  hud.reset(coins);
+  hud.update({ state: {}, spawned: coins.slice(1), removed: [] });
+  assert.equal(text(), '2/3', 'restored initial snapshot contains only surviving entities');
+  assert.equal(hud.entities.has(1), false, 'authored removed coin must not be resurrected');
+  hud.update({ state: {}, spawned: [{ id: 4, tags: ['coin'] }], removed: [999] });
+  assert.equal(text(), '3/3');
+  hud.update({ state: {} }); assert.equal(text(), '3/3');
+  hud.reset([]); hud.update({ state: {}, spawned: [], removed: [] });
+  assert.equal(text(), '0/0');
+});
 
 test('EDT returns squared Euclidean distances without changing input, including rectangular/empty grids', () => {
   const grid = [Infinity, Infinity, Infinity, Infinity, 0, Infinity, Infinity, Infinity, Infinity];

@@ -19,7 +19,7 @@ import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
 import { InputSettings } from './input-settings.js';
 import { parseTextConfig } from './sdf-font.js';
 import { SdfAtlas, SdfLabel } from './sdf-text.js';
-import { hudTemplate, countHudTags } from './hud-layout.js';
+import { hudTemplate } from './hud-layout.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -52,8 +52,8 @@ window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const ragdolls = new Map();
-const textLabels = new Map(), textEntities = new Map();
-let textAtlas, textTotals = {}, textWarnings = [];
+const textLabels = new Map();
+let textAtlas, textWarnings = [];
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain, occluder, hudLayout;
@@ -243,11 +243,10 @@ function apply(result) {
     if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
-  for (const id of result.removed) { textLabels.get(id)?.dispose(); textLabels.delete(id); textEntities.delete(id); }
+  for (const id of result.removed) { textLabels.get(id)?.dispose(); textLabels.delete(id); }
   for(const id of result.removed){animations.remove(id);animations.states.delete(id);}
   for (const id of result.removed) { enemies.delete(id); effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) {
-    textEntities.set(entity.id, entity);
     effects.localLights?.register(entity);
     createObject(entity);
   }
@@ -261,10 +260,7 @@ function apply(result) {
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
   applyRagdolls(result.ragdolls);
-  if (textLabels.size) {
-    const left = countHudTags(textEntities.values());
-    for (const label of textLabels.values()) label.setText(hudTemplate(label.config.text, result.state, textTotals, left));
-  }
+  for (const label of textLabels.values()) label.setText(hudTemplate(label.config.text, result.state, hudLayout.totals, hudLayout.left));
   stats.sdfLabels = textLabels.size; stats.sdfGlyphs = textAtlas?.glyphs.size || 0;
   fps?.apply(result, objects.get(playerId));
   if (feedback.collect) {
@@ -399,8 +395,7 @@ async function restart(save = null) {
   animations.clear();
   hudLayout?.reset(source.entities);
   for (const label of textLabels.values()) label.dispose();
-  textLabels.clear(); textEntities.clear(); textAtlas?.dispose(); textAtlas = null;
-  textTotals = countHudTags(source.entities); textWarnings = [];
+  textLabels.clear(); textAtlas?.dispose(); textAtlas = null; textWarnings = [];
   applyRagdolls();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();

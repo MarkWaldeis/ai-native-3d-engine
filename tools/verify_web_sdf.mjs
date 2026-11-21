@@ -26,7 +26,7 @@ const server = http.createServer(async (req, res) => {
       const scene = JSON.parse(await fs.readFile(file, 'utf8'));
       for (const entity of scene.entities) {
         const tags = entity.tags || [];
-        const text = tags.includes('player') ? '{score} / {total:coin}' : tags.includes('coin') ? 'Münze' : tags.includes('goal') ? 'Ziel\nÄ Ö Ü ß' : null;
+        const text = tags.includes('player') ? '{score} / {total:coin} ({left:coin})' : tags.includes('coin') ? 'Münze' : tags.includes('goal') ? 'Ziel\nÄ Ö Ü ß' : null;
         if (text) entity.props = { ...entity.props, ai_text: { text, size: 0.5, color: '#fff', outline_width: 0.15, outline_color: '#102030', ...(tags.includes('goal') ? { offset: [0, 2.5, 0] } : {}) } };
       }
       res.end(JSON.stringify(scene));
@@ -57,7 +57,8 @@ try {
     });
     if (phone) await page.locator('#start').tap(); else await page.locator('#start').click();
     await page.evaluate(() => { advanceFrames(3); window.playerLabel = [...sdfLabels].find(l => l.config.text.includes('{score}')); window.originalGeometry = playerLabel.mesh.geometry; });
-    assert.deepEqual(await page.evaluate(() => ({ count: __engineStats.sdfLabels, text: playerLabel.text })), { count: 5, text: '0 / 3' });
+    assert.equal(await page.locator('#hud-layout > *').count(), 0, 'SDF counts work without ai_hud');
+    assert.deepEqual(await page.evaluate(() => ({ count: __engineStats.sdfLabels, text: playerLabel.text })), { count: 5, text: '0 / 3 (3)' });
     assert.ok(await page.evaluate(() => __engineStats.sdfGlyphs >= 15));
     await page.evaluate(() => advanceFrames(3));
     assert.ok(await page.evaluate(() => originalGeometry === playerLabel.mesh.geometry), 'unchanged text preserves geometry');
@@ -73,7 +74,7 @@ try {
     }
     await page.keyboard.up('KeyD'); await page.keyboard.up('KeyS');
     assert.equal(score, 1, 'real WASM coin pickup');
-    assert.deepEqual(await page.evaluate(() => ({ count: __engineStats.sdfLabels, text: playerLabel.text, live: sdfLabels.size })), { count: 4, text: '1 / 3', live: 4 });
+    assert.deepEqual(await page.evaluate(() => ({ count: __engineStats.sdfLabels, text: playerLabel.text, live: sdfLabels.size })), { count: 4, text: '1 / 3 (2)', live: 4 });
     assert.ok(await page.evaluate(() => originalGeometry !== playerLabel.mesh.geometry), 'template changes rebuild geometry');
     await page.locator('#pause').click(); await page.evaluate(() => advanceFrames(2));
     const pixels = await page.evaluate(() => {
@@ -107,10 +108,15 @@ try {
       await page.screenshot({ path: path.join(shots, 'sdf-closeup.png') });
       await page.evaluate(() => { window.sdfCloseup = null; document.getElementById('modal').hidden = false; });
     }
+    await page.evaluate(() => window.__aiSaveGame());
     await page.getByRole('button', { name: 'Neustart', exact: true }).click(); await page.evaluate(() => advanceFrames(2));
     assert.equal(await page.evaluate(() => __engineStats.sdfLabels), 5);
-    assert.equal(await page.evaluate(() => [...sdfLabels].find(l => l.config.text.includes('{score}')).text), '0 / 3');
-    console.log(`PASS SDF ${name}: real WASM labels, ${pixels} visible projected text pixels, template pickup, entity removal, stable geometry and restart`);
+    assert.equal(await page.evaluate(() => [...sdfLabels].find(l => l.config.text.includes('{score}')).text), '0 / 3 (3)');
+    assert.equal(await page.evaluate(() => window.__aiLoadGame()), true);
+    await page.evaluate(() => advanceFrames(2));
+    assert.equal(await page.evaluate(() => __engineStats.sdfLabels), 4);
+    assert.equal(await page.evaluate(() => [...sdfLabels].find(l => l.config.text.includes('{score}')).text), '1 / 3 (2)', 'restored save excludes collected coins without ai_hud');
+    console.log(`PASS SDF ${name}: real WASM labels, ${pixels} visible projected text pixels, shared left counts without ai_hud, pickup, removal, stable geometry, restart and save restore`);
     await page.close();
   }
   assert.deepEqual(errors, []); console.log('PASS SDF browser: no console/page errors or failed assets; local assets only');
