@@ -119,10 +119,10 @@ function createObject(entity) {
     case 'gltf': {
       object = new THREE.Group();
       const task = assets.load(entity.path).then(gltf => {
-        const model = cloneSkinned(gltf.scene), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
+        const model = cloneSkinned(gltf.scene,gltf.animations), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
         model.traverse(child => { if (child.isMesh) Object.assign(child, flags); });
         object.add(model);
-        animations.add(entity,model,gltf.animations);
+        animations.add(entity,model,model.animations);
       });
       loading.add(task); task.finally(() => loading.delete(task)).catch(fail);
       break;

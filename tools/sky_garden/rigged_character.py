@@ -38,6 +38,8 @@ def build(clear=True):
     for name, color in {"coat": (.11, .48, .42, 1), "skin": (.92, .66, .4, 1), "boots": (.12, .16, .22, 1), "eyes": (.025, .035, .04, 1)}.items():
         material = bpy.data.materials.new(name)
         material.diffuse_color = color
+        material.use_nodes = True
+        material.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = color
         palette[name] = material
     pieces = []
     for name, center, size, bone, material in [
@@ -110,8 +112,8 @@ def build(clear=True):
                     rig.pose.bones[bone].rotation_euler.x = sign * .55 * math.sin(phase * math.tau)
             else:
                 lift = math.sin(phase * math.pi)
-                rig.pose.bones["arm_l"].rotation_euler.y = -.9 * lift
-                rig.pose.bones["arm_r"].rotation_euler.y = .9 * lift
+                rig.pose.bones["arm_l"].rotation_euler.z = 1.3 * lift
+                rig.pose.bones["arm_r"].rotation_euler.z = -1.3 * lift
                 rig.pose.bones["leg_l"].rotation_euler.x = .35 * lift
                 rig.pose.bones["leg_r"].rotation_euler.x = .35 * lift
             for bone in rig.pose.bones:

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-export function cloneSkinned(source) {
+export function cloneSkinned(source,clips=source.animations) {
   const clone = source.clone(true), copies = new Map();
   function pair(a,b) { copies.set(a,b); a.children.forEach((child,i)=>pair(child,b.children[i])); }
   pair(source,clone);
@@ -14,6 +14,15 @@ export function cloneSkinned(source) {
     });
     copy.bind(skeleton,mesh.bindMatrix);
   });
+  const uuids=new Map([...copies].map(([source,copy])=>[source.uuid,copy.uuid]));
+  clone.animations=clips.map(clip=>{
+    const copy=clip.clone();
+    for(const track of copy.tracks){
+      const dot=track.name.indexOf('.'),target=uuids.get(track.name.slice(0,dot));
+      if(target)track.name=target+track.name.slice(dot);
+    }
+    return copy;
+  });
   return clone;
 }
 
@@ -26,7 +35,7 @@ export class Animations {
     for(const [name,state] of Object.entries(entity.animator.machine.states)) {
       const clip=clips.find(clip=>clip.name===state.clip);
       if(!clip)throw Error(`Missing animation clip ${state.clip}`);
-      const action=mixer.clipAction(clip.clone());
+      const action=mixer.clipAction(new THREE.AnimationClip(name,clip.duration,clip.tracks,clip.blendMode));
       action.setLoop(THREE.LoopOnce,1);action.clampWhenFinished=true;
       action.play();action.setEffectiveWeight(0);action.setEffectiveTimeScale(0);
       actions.set(name,action);

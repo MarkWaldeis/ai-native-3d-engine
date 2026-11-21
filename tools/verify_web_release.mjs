@@ -154,8 +154,12 @@ try {
           return page.evaluate(n=>{
             advanceFrames(n);
             const system=window.__engineAnimations,id=[...system.objects.keys()][0],item=system.objects.get(id);
-            const bones=[];item.root.traverse(o=>{if(o.isBone)bones.push(o.matrixWorld.elements.slice());});
-            return {...system.inspect(id),bones,skinned:(()=>{let n=0;item.root.traverse(o=>{if(o.isSkinnedMesh)n++;});return n;})()};
+            const bones=[],vertices=[];
+            item.root.traverse(o=>{
+              if(o.isBone)bones.push([...o.position.toArray(),...o.quaternion.toArray(),...o.scale.toArray()]);
+              if(o.isSkinnedMesh){const vertex=o.position.clone();for(let i=0;i<o.geometry.attributes.position.count;i++){o.getVertexPosition(i,vertex);vertices.push(vertex.toArray());}}
+            });
+            return {...system.inspect(id),bones,vertices,skinned:(()=>{let n=0;item.root.traverse(o=>{if(o.isSkinnedMesh)n++;});return n;})()};
           },frames);
         }
         const idle=await character(24);assert.equal(idle.state.current_state,'idle');assert.ok(idle.skinned>0);
@@ -163,10 +167,12 @@ try {
         await page.keyboard.down('KeyD');const walk=await character(5);
         assert.equal(walk.state.current_state,'walk');
         assert.ok(walk.actions.some(a=>a.name==='walk'&&a.weight>0&&a.weight<1),'walk must crossfade, not snap');
-        assert.notDeepEqual(walk.bones,idle.bones,'actual rendered bone transforms must change');
+        assert.notDeepEqual(walk.bones,idle.bones,'bone-local transforms must change independently of actor movement');
+        assert.notDeepEqual(walk.vertices,idle.vertices,'weighted skin vertices must deform');
         await page.screenshot({path:path.join(pageShots,'sky-animation-walk.png')});
-        await page.keyboard.down('Space');const jump=await character(6);await page.keyboard.up('Space');await page.keyboard.up('KeyD');
+        await page.keyboard.down('Space');const jump=await character(14);await page.keyboard.up('Space');await page.keyboard.up('KeyD');
         assert.equal(jump.state.current_state,'jump');assert.notDeepEqual(jump.bones,walk.bones);
+        assert.notDeepEqual(jump.vertices,walk.vertices);
         await page.screenshot({path:path.join(pageShots,'sky-animation-jump.png')});
         await page.getByRole('button',{name:'Spiel pausieren',exact:true}).click();
         const paused=await character(30);assert.deepEqual(paused,jump,'pause freezes both animation state and rendered bones');

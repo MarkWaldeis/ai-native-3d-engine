@@ -307,6 +307,19 @@ fn real_blender_skin_and_multiple_actions_survive_sync() {
     let length = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
     let glb: Value = serde_json::from_slice(&bytes[20..20 + length]).unwrap();
     assert_eq!(glb["skins"].as_array().unwrap().len(), 1);
+    let id = engine.world.scene.entities[0].id;
+    let mut machine = engine.world.scene.entities[0]
+        .animator
+        .as_ref()
+        .unwrap()
+        .machine
+        .clone();
+    machine.states.get_mut("walk").unwrap().speed = 2.0;
+    call(
+        &mut engine,
+        "animator_set",
+        json!({"id":id,"machine":machine}),
+    );
     call(
         &mut engine,
         "blender_exec",
@@ -317,7 +330,51 @@ fn real_blender_skin_and_multiple_actions_survive_sync() {
         engine.world.scene.entities[0].transform.position,
         [3., 5., -4.]
     );
+    assert_eq!(
+        engine.world.scene.entities[0]
+            .animator
+            .as_ref()
+            .unwrap()
+            .machine,
+        machine,
+        "unchanged Blender property must not overwrite an MCP machine edit"
+    );
+    call(&mut engine, "blender_push_props", json!({"ids":[id]}));
+    call(&mut engine, "blender_sync", json!({}));
+    assert_eq!(
+        engine.world.scene.entities[0]
+            .animator
+            .as_ref()
+            .unwrap()
+            .machine,
+        machine
+    );
+    machine.states.get_mut("walk").unwrap().speed = 3.0;
+    call(
+        &mut engine,
+        "animator_set",
+        json!({"id":id,"machine":machine}),
+    );
+    call(
+        &mut engine,
+        "blender_exec",
+        json!({"code":"import json\no=bpy.data.objects['Milo']\nv=json.loads(o['ai_animator'])\nv['parameters']['speed']=0.5\no['ai_animator']=json.dumps(v)"}),
+    );
+    let revision = engine.world.revision;
+    assert!(engine
+        .handle("blender_sync", &json!({}))
+        .unwrap_err()
+        .contains("Blender animator conflict"));
+    assert_eq!(engine.world.revision, revision);
+    assert_eq!(
+        engine.world.scene.entities[0]
+            .animator
+            .as_ref()
+            .unwrap()
+            .machine,
+        machine
+    );
     drop(engine);
     std::fs::remove_dir_all(&project).unwrap();
-    println!("PASS real Blender animation: built armature/weighted mesh, three actions exported in GLB and animator populated by blender_sync");
+    println!("PASS real Blender animation: armature/skin, three GLB actions, root transforms, animator metadata, MCP round-trip, push and concurrent-edit conflict rejection");
 }

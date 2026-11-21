@@ -92,8 +92,16 @@ impl Engine {
                         entity.animator = Some(serde_json::from_value(json!({"clips":clips,"machine":{"initial":"default","states":{"default":{"clip":first}}}}))?);
                     }
                     if let Some(value) = item["props"].get("ai_animator") {
-                        let machine = if let Some(text) = value.as_str() { serde_json::from_str(text)? } else { value.clone() };
-                        entity.animator.as_mut().unwrap().machine = serde_json::from_value(machine)?;
+                        let incoming: shared::animation::AnimationMachine = serde_json::from_value(decode_prop(value))?;
+                        let previous: Option<shared::animation::AnimationMachine> = existing.first()
+                            .and_then(|e|raw_baseline(e).get("ai_animator").cloned())
+                            .map(|v|serde_json::from_value(decode_prop(&v))).transpose()?;
+                        let current = existing.first().and_then(|e|e.animator.as_ref()).map(|a|&a.machine);
+                        if current.is_none() || previous.as_ref() != Some(&incoming) {
+                            anyhow::ensure!(current.is_none() || current == previous.as_ref() || current == Some(&incoming),
+                                "Blender animator conflict on {}; resolve ai_animator in Blender explicitly", entity.name);
+                            entity.animator.as_mut().unwrap().machine = incoming;
+                        }
                     }
                     engine_runtime::animation::validate(entity.animator.as_ref().unwrap())?;
                     engine_runtime::animation::reset(entity.animator.as_mut().unwrap());
@@ -151,6 +159,7 @@ impl Engine {
             if !seen.insert(uid.clone()) { return Err(format!("duplicate ai_uid {uid}")); }
             let mut props = entity.props.as_object().ok_or("entity props must be an object")?.iter().filter(|(k,_)|k.starts_with("ai_") && k.as_str() != "ai_uid" && k.as_str() != "ai_deleted_props").map(|(k,v)|(k.clone(),v.clone())).collect::<serde_json::Map<_,_>>();
             for (key,value) in gameplay(entity).as_object().unwrap() { props.insert(key.clone(),value.clone()); }
+            if let Some(animator) = &entity.animator { props.insert("ai_animator".into(),json!(animator.machine)); }
             objects.push(json!({"ai_uid":uid,"props":props,"expected":raw_baseline(entity)}));
         }
         let result = self.blender.request(json!({"command":"push_props","objects":objects})).map_err(|e|e.to_string())?;

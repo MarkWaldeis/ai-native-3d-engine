@@ -28,7 +28,11 @@ Bei einem neuen animierten Import liest die Engine Clipnamen und Laufzeiten
 direkt aus dem GLB. Sie erzeugt zunächst einen `default`-State für den ersten
 Clip. Optional enthält die Mesh-Custom-Property `ai_animator` die State-Machine
 als JSON. Ein vorhandener Animator bleibt bei erneutem Sync erhalten; die
-Clip-Liste wird aktualisiert. Verlorene/referenzierte Clips führen zu einem
+Clip-Liste wird aktualisiert. Unveränderte Blender-Properties überschreiben
+keine MCP-Machine-Edits. `blender_push_props` überträgt die aktuelle Machine
+zurück nach Blender; gleichzeitige unterschiedliche Edits auf beiden Seiten
+werden als Konflikt abgelehnt und müssen explizit aufgelöst werden.
+Verlorene/referenzierte Clips führen zu einem
 Fehler statt einem halben Szenenimport.
 
 ## MCP und Datenvertrag
