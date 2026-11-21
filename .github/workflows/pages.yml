@@ -24,7 +24,7 @@ jobs:
       - name: Install matching WASM bindings generator
         run: cargo install wasm-bindgen-cli --version 0.2.100 --locked
       - name: Export coin collector
-        run: cargo run -- --export-web examples/coin_game/scene.json target/site/coin_game
+        run: rm -rf target/site && cargo run -- --export-web examples/coin_game/scene.json target/site/coin_game
       - name: Export Sky Garden
         run: cargo run -- --export-web examples/sky_garden/scene.json target/site/sky_garden
       - name: Add German landing page
