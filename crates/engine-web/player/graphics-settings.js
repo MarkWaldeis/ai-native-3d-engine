@@ -42,6 +42,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     environmentIntensity: bounded(config.environment_intensity, 0.66, 0, 3),
     environmentMap: config.environment_map === 'assets/environment.hdr' ? config.environment_map : null,
     environmentBackground: config.environment_background !== false,
+    environmentRotation: Number.isFinite(config.environment_rotation_deg) ? config.environment_rotation_deg % 360 : 0,
     exposure: bounded(config.exposure, 1, 0.1, 4),
     toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
     hdrAntialias: config.hdr_antialias !== false,

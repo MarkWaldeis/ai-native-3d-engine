@@ -320,6 +320,18 @@ export async function verifyGraphics(browser, base, errors, shots) {
     await page.route(background, showMap);
     const panorama = await render();
     await page.unroute(background, showMap);
+    const rotateMap = visible => patchScene(scene => {
+      const graphics = scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics;
+      graphics.environment_rotation_deg = 90;
+      graphics.environment_background = visible;
+    });
+    const rotated = [];
+    for (const visible of [false, true]) {
+      const applyRotation = rotateMap(visible);
+      await page.route(background, applyRotation);
+      try { rotated.push(await render()); }
+      finally { await page.unroute(background, applyRotation); }
+    }
     await page.route(map, route => route.abort());
     const fallback = await render();
     assert.equal(panorama.error, 0);
@@ -340,9 +352,13 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(streamedUnlit.error, 0);
     assert.ok(delta(streamedLit.pixels.slice(top), streamedUnlit.pixels.slice(top)) > 100, 'short-range lights illuminate the streamed play area');
     assert.ok(delta(sky(panorama), sky(reflected)) > 300, 'the panorama can be visible behind the scene');
+    assert.deepEqual(rotated.map(image => image.error), [0, 0]);
+    assert.deepEqual(sky(rotated[0]), sky(reflected), 'rotation leaves the procedural sky alone');
+    assert.ok(delta(rotated[0].pixels.slice(top), reflected.pixels.slice(top)) > 300, 'rotation changes the reflected studio lighting');
+    assert.ok(delta(sky(rotated[1]), sky(panorama)) > 300, 'rotation also turns the visible HDR panorama');
     assert.deepEqual(sky(reflected), sky(fallback), 'reflection-only HDRI preserves the procedural background');
     assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
-    console.log('PASS HDRI: offline panorama, reflection-only mode, visible background, movement and missing-map fallback');
+    console.log('PASS HDRI: offline panorama, rotation, reflection-only mode, visible background, movement and missing-map fallback');
     console.log('PASS point lights: exported fixtures light nearby surfaces without altering the sky');
   } finally {
     await page.close();

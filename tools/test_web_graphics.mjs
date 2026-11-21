@@ -11,7 +11,7 @@ const { graphicsConfig, hdrSettings, localLightSettings } = await import('../cra
 const { ShadowGrid } = await import('../crates/engine-web/player/effects.js');
 const { LocalLights } = await import('../crates/engine-web/player/local-lights.js');
 const { primitiveMaterial, textureAnisotropy, tuneAssetTextures } = await import('../crates/engine-web/player/materials.js');
-const { environmentLighting, skyTexture } = await import('../crates/engine-web/player/sky.js');
+const { environmentLighting, rotatePanorama, skyTexture } = await import('../crates/engine-web/player/sky.js');
 const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
 const { batchKey } = await import('../crates/engine-web/player/streaming.js');
 
@@ -85,6 +85,20 @@ test('studio HDRI decodes HDR colors and lighting intensity does not alter the b
   assert.ok(Math.abs(fromHalfFloat(dimmed.image.data[peak]) - bright / 2) < 0.01);
   assert.equal(fromHalfFloat(texture.image.data[peak]), bright);
   assert.equal(environmentLighting(texture, 1), texture);
+});
+
+test('HDRI yaw rotates each scanline without crossing latitude or clipping the linear samples', () => {
+  assert.equal(graphicsConfig({environment_rotation_deg: -450}, 'ultra').environmentRotation, -90);
+  assert.equal(graphicsConfig({environment_rotation_deg: '90'}, 'ultra').environmentRotation, 0);
+  const row = (...red) => red.flatMap(r => [r, r + 1, r + 2, 15360]);
+  const unrotated = new Uint16Array([...row(1, 2, 3, 31743), ...row(15, 16, 17, 18)]);
+  const rotated = unrotated.slice();
+  rotatePanorama(rotated, 4, 450);
+  assert.deepEqual([...rotated], [...row(31743, 1, 2, 3), ...row(18, 15, 16, 17)]);
+  rotatePanorama(rotated, 4, -90);
+  assert.deepEqual(rotated, unrotated);
+  rotatePanorama(rotated, 4, 360);
+  assert.deepEqual(rotated, unrotated);
 });
 
 test('point lights resolve flexible props and remain bounded as emitters move or disappear', () => {

@@ -33,9 +33,11 @@ project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
 panorama (64–4096 pixels wide, up to 32 MiB, standard `-Y +X` orientation).
 Export validates and bundles it locally. It becomes both the background and
 the source of reflected light; set `environment_background: false` to keep the
-procedural sky visible while using the HDR map for lighting. The map doesn't
-change the authored sun or fog; align the sun direction with the image when
-needed. If the asset fails to load, the player uses the procedural sky.
+procedural sky visible while using the HDR map for lighting. Set
+`environment_rotation_deg: 90` to turn the panorama and its reflections from
++X toward +Z (rounds to one horizontal HDRI pixel). Rotation affects only the
+authored map, not the sun or fog. If the asset fails to load, the player uses
+the procedural sky.
 
 **Try it:** Export the material studio to compare chrome, copper, clearcoat and
 neon under the same studio lighting. Its HDR map can be regenerated with
