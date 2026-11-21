@@ -68,6 +68,7 @@ export class ShooterHud {
     for (const entry of [...this.entries]) { entry.age += dt; if (entry.age > 6) { entry.row.remove(); this.entries.splice(this.entries.indexOf(entry), 1); } else entry.row.style.opacity = entry.age > 5 ? String(6 - entry.age) : '1'; }
   }
   drawMinimap(player, yaw, markers) {
+    this.lastMarkers = markers;
     const ctx = this.minimap.getContext('2d'), size = this.minimap.width;
     ctx.clearRect(0, 0, size, size);
     ctx.fillStyle = 'rgba(10,20,16,0.55)'; ctx.beginPath(); ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2); ctx.fill();

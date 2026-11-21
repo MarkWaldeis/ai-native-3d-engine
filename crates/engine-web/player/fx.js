@@ -6,7 +6,7 @@ const PRESETS = {
   muzzle: { count: 6, layer: 'spark', color: [1, 0.85, 0.45], speed: 4, spread: 0.5, life: 0.07, gravity: 0, light: [1, 0.75, 0.35, 6, 0.06] },
   impact: { count: 10, layer: 'spark', color: [1, 0.78, 0.4], speed: 5, spread: 0.9, life: 0.35, gravity: 9, puffs: 2, puffColor: [0.42, 0.38, 0.33] },
   blood: { count: 14, layer: 'spark', color: [0.62, 0.02, 0.02], speed: 3.2, spread: 0.8, life: 0.5, gravity: 9, puffs: 2, puffColor: [0.45, 0.02, 0.02] },
-  explosion: { count: 48, layer: 'spark', color: [1, 0.55, 0.12], speed: 11, spread: 1, life: 0.8, gravity: 6, puffs: 14, puffColor: [0.3, 0.28, 0.26], light: [1, 0.55, 0.2, 40, 0.25] },
+  explosion: { count: 48, layer: 'spark', color: [1, 0.55, 0.12], speed: 11, spread: 1, life: 0.8, gravity: 6, puffs: 10, puffColor: [0.55, 0.52, 0.48], light: [1, 0.55, 0.2, 40, 0.25] },
 };
 
 function texture() {
@@ -59,8 +59,8 @@ export class ShooterFx {
   constructor(scene, coarse = false) {
     const map = texture();
     this.sparks = new ParticleLayer(scene, 0.14, coarse ? 768 : 2048, map, THREE.AdditiveBlending);
-    this.puffs = new ParticleLayer(scene, 1.1, coarse ? 96 : 256, map, THREE.NormalBlending);
-    this.puffs.points.material.opacity = 0.55;
+    this.puffs = new ParticleLayer(scene, 0.9, coarse ? 96 : 256, map, THREE.NormalBlending);
+    this.puffs.points.material.opacity = 0.3;
     this.tracerCount = 64; this.tracerPool = new SlotPool(this.tracerCount);
     this.tracerPositions = new Float32Array(this.tracerCount * 6); this.tracerColors = new Float32Array(this.tracerCount * 6);
     this.tracerAge = new Float32Array(this.tracerCount).fill(1);

@@ -6,6 +6,8 @@ import { loadAsset } from './world.js';
 
 export { fpsConfig } from './fps_core.js';
 
+function capture(element, pointerId) { try { element.setPointerCapture(pointerId); } catch { /* synthetic or ended pointer */ } }
+
 // First-person presentation layer: pointer lock/touch look, camera, viewmodel, FX and HUD.
 // Movement, weapons, damage and AI stay in Rust/Rhai; this module only sends the contract inputs.
 export class FirstPerson {
@@ -26,7 +28,7 @@ export class FirstPerson {
     this.vmScene.add(new THREE.HemisphereLight(0xe8f4ff, 0x3a3428, 2.2));
     const key = new THREE.DirectionalLight(0xfff0d8, 2.4); key.position.set(1, 2, 1); this.vmScene.add(key);
     this.weapon = new THREE.Group(); this.vmScene.add(this.weapon);
-    this.rest = new THREE.Vector3(0.2, -0.2, -0.45);
+    this.rest = new THREE.Vector3(0.16, -0.15, -0.32);
     const flashMaterial = new THREE.SpriteMaterial({ color: 0xffd08a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
     this.muzzleFlash = new THREE.Sprite(flashMaterial); this.muzzleFlash.scale.setScalar(0.16); this.muzzleFlash.visible = false;
     this.muzzleLight = new THREE.PointLight(0xffb060, 0, 2); this.vmScene.add(this.muzzleLight);
@@ -35,13 +37,13 @@ export class FirstPerson {
     } else this.mountModel(this.fallbackRifle());
   }
   fallbackRifle() {
-    const group = new THREE.Group(), dark = new THREE.MeshStandardMaterial({ color: 0x23272b, roughness: 0.45, metalness: 0.7 });
-    const wood = new THREE.MeshStandardMaterial({ color: 0x4a3626, roughness: 0.8 });
+    const group = new THREE.Group(), dark = new THREE.MeshStandardMaterial({ color: 0x4a5258, roughness: 0.5, metalness: 0.25 });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x7a5a3e, roughness: 0.75 });
     const part = (w, h, d, x, y, z, m = dark) => { const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m); mesh.position.set(x, y, z); group.add(mesh); return mesh; };
     part(0.07, 0.09, 0.42, 0, 0, 0); part(0.03, 0.03, 0.34, 0, 0.02, -0.36); part(0.05, 0.16, 0.06, 0, -0.1, -0.06).rotation.x = 0.25;
     part(0.06, 0.12, 0.2, 0, -0.03, 0.26, wood); part(0.045, 0.11, 0.05, 0, -0.1, 0.08, wood).rotation.x = -0.3;
     part(0.03, 0.04, 0.1, 0, 0.07, -0.02); part(0.06, 0.05, 0.18, 0, -0.005, -0.2, wood);
-    group.userData.muzzle = new THREE.Vector3(0, 0.02, -0.54);
+    group.scale.setScalar(0.55); group.userData.muzzle = new THREE.Vector3(0, 0.02, -0.54);
     return group;
   }
   mountModel(model, authored = false) {
@@ -49,9 +51,9 @@ export class FirstPerson {
     this.model = model; this.weapon.add(model);
     if (authored) {
       const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
-      const scale = 0.6 / Math.max(size.x, size.y, size.z, 1e-3); model.scale.multiplyScalar(scale);
+      const scale = 0.4 / Math.max(size.x, size.y, size.z, 1e-3); model.scale.multiplyScalar(scale);
       const center = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3()); model.position.sub(center);
-      model.userData.muzzle = new THREE.Vector3(0, 0.02, -0.32);
+      model.userData.muzzle = new THREE.Vector3(0, 0.02, -0.2 / model.scale.x);
     }
     model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
     this.muzzleFlash.position.copy(model.userData.muzzle); this.weapon.add(this.muzzleFlash);
@@ -76,7 +78,7 @@ export class FirstPerson {
       if (e.code === 'KeyR') this.buttons.reload = false;
     });
     this.touchLook = document.createElement('div'); this.touchLook.className = 'fps-look-zone'; this.canvas.after(this.touchLook);
-    listen(this.touchLook, 'pointerdown', e => { if (!this.active) return; e.preventDefault(); this.lookPointer = e.pointerId; this.lastLook = [e.clientX, e.clientY]; this.touchLook.setPointerCapture(e.pointerId); });
+    listen(this.touchLook, 'pointerdown', e => { if (!this.active) return; e.preventDefault(); this.lookPointer = e.pointerId; this.lastLook = [e.clientX, e.clientY]; capture(this.touchLook, e.pointerId); });
     listen(this.touchLook, 'pointermove', e => {
       if (e.pointerId !== this.lookPointer || !this.lastLook) return;
       this.look = applyLook(this.look, e.clientX - this.lastLook[0], e.clientY - this.lastLook[1], this.config.mouse_sens * 2.2); this.lastLook = [e.clientX, e.clientY];
@@ -86,7 +88,7 @@ export class FirstPerson {
     this.reloadButton = document.createElement('button'); this.reloadButton.className = 'fps-reload-button'; this.reloadButton.textContent = 'R'; this.reloadButton.setAttribute('aria-label', 'Nachladen');
     (document.getElementById('controls') || document.body).append(this.fireButton, this.reloadButton);
     listen(this.fireButton, 'pointerdown', e => {
-      if (!this.active) return; e.preventDefault(); this.fireButton.setPointerCapture(e.pointerId); this.firePointers.add(e.pointerId);
+      if (!this.active) return; e.preventDefault(); capture(this.fireButton, e.pointerId); this.firePointers.add(e.pointerId);
       this.lookPointer ??= e.pointerId; this.lastLook = this.lookPointer === e.pointerId ? [e.clientX, e.clientY] : this.lastLook;
     });
     listen(this.fireButton, 'pointermove', e => {
@@ -150,8 +152,8 @@ export class FirstPerson {
     this.hud.drawMinimap(this.lastEye?.toArray(), this.look.yaw, markers);
     this.recoil = Math.max(0, this.recoil - elapsed * 6); this.flash = Math.max(0, this.flash - elapsed);
     const bob = weaponBob(this.phase, this.speed), dip = reloadDip(this.reloadRemaining, this.reloadTotal);
-    this.weapon.position.set(this.rest.x + bob.x, this.rest.y + bob.y - dip * 0.18 - (this.dead ? 0.5 : 0), this.rest.z + this.recoil * 0.05);
-    this.weapon.rotation.set(this.recoil * 0.12 - dip * 0.7, bob.x * 2, dip * 0.5);
+    this.weapon.position.set(this.rest.x + bob.x, this.rest.y + bob.y - dip * 0.07 - (this.dead ? 0.5 : 0), this.rest.z + this.recoil * 0.05);
+    this.weapon.rotation.set(this.recoil * 0.12 - dip * 0.35, bob.x * 2, dip * 0.45);
     this.muzzleFlash.visible = this.flash > 0; this.muzzleFlash.material.rotation = Math.random() * Math.PI;
     this.muzzleLight.intensity = this.flash > 0 ? 3 : 0;
     if (this.model) { const tip = this.model.userData.muzzle.clone(); this.model.localToWorld(tip); this.muzzleLight.position.copy(tip); }

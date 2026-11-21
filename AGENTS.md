@@ -119,6 +119,15 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 - `python3 tools/gen_large_world.py target/large_world.json` erzeugt die große
   Demo (nicht einchecken); danach regulär mit `--export-web` exportieren.
 
+## Shooter / First Person
+
+Player-Prop `ai_fps` schaltet den Web-Player auf Ego-Perspektive (Pointer Lock,
+Touch-Look rechts, FEUER-Taste); Inputs `move_x/z`, `look_yaw/pitch` (absolut, rad),
+`fire/reload/sprint/jump`. Rhai `raycast/damage/player_pos/emit_fx` plus KI-Helfer;
+WASM-Tick liefert zusätzlich `fx`/`events`. JS rendert nur (fps.js, fx.js, hud.js).
+Doku: `docs/SHOOTER.md`; Beispiel `examples/fps_arena`; Tests
+`cargo test -p engine-tests --test shooter`, `node --test tools/test_web_fps.mjs`.
+
 ## Swarm-Server
 
 `ai-engine --serve 127.0.0.1:7777`: JSON-RPC per `POST /mcp`, eine gemeinsame

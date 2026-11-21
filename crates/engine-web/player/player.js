@@ -511,7 +511,7 @@ async function boot() {
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
   const firstPerson = fpsConfig(source.entities);
   if (firstPerson) {
-    fps = new FirstPerson({ renderer, world, camera, config: firstPerson, ui, canvas: $('game'), onUnlock: () => { if (running) pause(); } });
+    fps = window.__aiEngineFps = new FirstPerson({ renderer, world, camera, config: firstPerson, ui, canvas: $('game'), onUnlock: () => { if (running) pause(); } });
     if (!config && world.fog) { world.fog.near = Number(ui.fog_near) || 45; world.fog.far = Number(ui.fog_far) || 180; }
     if (!config) camera.far = Math.max(camera.far, 600);
   }

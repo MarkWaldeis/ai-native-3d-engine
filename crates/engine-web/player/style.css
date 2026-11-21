@@ -92,11 +92,12 @@ body.fps-active #game{cursor:crosshair}
 @media(pointer:coarse){
   body.fps-active .fps-look-zone{display:block;position:absolute;top:0;right:0;bottom:0;width:58%;touch-action:none}
   body.fps-active .fps-fire,body.fps-active .fps-reload-button{display:flex;position:absolute;align-items:center;justify-content:center;pointer-events:auto;touch-action:none;color:#fff;font-weight:800;border-radius:50%;background:#7a1d1888;border:2px solid #ff8a7aaa}
-  .fps-fire{right:max(30px,calc(env(safe-area-inset-right) + 14px));bottom:max(170px,calc(env(safe-area-inset-bottom) + 140px));width:96px;height:96px;font-size:12px;letter-spacing:1px}
-  .fps-reload-button{right:max(140px,calc(env(safe-area-inset-right) + 124px));bottom:max(110px,calc(env(safe-area-inset-bottom) + 80px));width:56px;height:56px;font-size:18px;background:#0b1b2b88!important;border-color:#fff6!important}
+  .fps-fire{right:max(140px,calc(env(safe-area-inset-right) + 124px));bottom:max(110px,calc(env(safe-area-inset-bottom) + 80px));width:96px;height:96px;font-size:12px;letter-spacing:1px}
+  .fps-reload-button{right:max(254px,calc(env(safe-area-inset-right) + 238px));bottom:max(112px,calc(env(safe-area-inset-bottom) + 82px));width:56px;height:56px;font-size:18px;background:#0b1b2b88!important;border-color:#fff6!important}
   body.fps .fps-ammo{bottom:auto;top:max(96px,calc(env(safe-area-inset-top) + 82px));right:max(24px,env(safe-area-inset-right))}
   body.fps .fps-killfeed{top:max(150px,calc(env(safe-area-inset-top) + 136px))}
   body.fps .fps-minimap{width:110px;height:110px}
   body.fps .fps-health{width:150px}
+  body.fps .fps-vitals{left:50%;transform:translateX(-50%);bottom:max(46px,calc(env(safe-area-inset-bottom) + 34px))}
 }
 @media(max-width:600px){.fps-top{top:max(150px,calc(env(safe-area-inset-top) + 135px))}.fps-objective{font-size:11px}}

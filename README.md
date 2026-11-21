@@ -653,6 +653,11 @@ Blender: `ai_tags` accepts a string array/JSON array or comma-separated string;
 Use JSON strings for nested properties in Blender. Sync maps these into typed
 components while retaining the original `ai_*` properties.
 
+### Shooter runtime
+
+First-person mode (`ai_fps`), raycast/damage/FX Rhai APIs, viewmodel and HUD:
+see [docs/SHOOTER.md](docs/SHOOTER.md) and `examples/fps_arena/`.
+
 ### Coin collector example
 
 Load `examples/coin_game/scene.json`, then call `simulate` with the arguments in
