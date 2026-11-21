@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
-import { ChunkGrid, batchKey, entityRadius, isStatic, selectLOD } from './streaming.js';
+import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
 
 const assets = new Map();
 export function loadAsset(path) {
@@ -63,7 +63,7 @@ export class StreamingWorld {
     const key = this.grid.register(e.id,t.position,radius);
     this.entities.set(e.id,{e,object,key,level:undefined}); this.dirty.add(key);
   }
-  batched(e) { return this.config.instancing && isStatic(e) && ['box','plane','sphere','cylinder','gltf'].includes(e.kind); }
+  batched(e) { return this.config.instancing && canInstance(e); }
   remove(id) {
     const item = this.entities.get(id); if (!item) return;
     this.dirty.add(item.key); item.object?.removeFromParent(); this.entities.delete(id); this.grid.remove(id);

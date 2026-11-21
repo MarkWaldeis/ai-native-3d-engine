@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {ChunkGrid,selectLOD,batchKey,entityRadius,isStatic,worldConfig} from '../crates/engine-web/player/streaming.js';
+import {ChunkGrid,selectLOD,batchKey,canInstance,entityRadius,isStatic,worldConfig} from '../crates/engine-web/player/streaming.js';
 const config = {chunk_size:128,stream_radius:128,draw_distance:480,lod_distances:[100,260],hysteresis:16};
 test('chunk load/unload hysteresis, movement, removal and empty grid', () => {
   assert.equal(new ChunkGrid().config.chunk_size,128);
@@ -44,6 +44,17 @@ test('batch keys include asset or primitive dimensions/material/segments', () =>
   for (const patch of [{radius:2},{segments:8},{color:[0,1,0]}]) assert.notEqual(batchKey(a),batchKey({...a,...patch}));
   assert.notEqual(batchKey({kind:'gltf',path:'a'}),batchKey({kind:'gltf',path:'b'}));
   assert.ok(isStatic(a)); assert.ok(!isStatic({...a,script:'x'})); assert.ok(!isStatic({...a,tags:['coin']}));
+});
+test('mirrored instances use individual objects while even reflections can batch', () => {
+  for (const kind of ['box','plane','sphere','cylinder','gltf']) {
+    const entity = {kind};
+    assert.ok(canInstance(entity));
+    for (const scale of [[-1,1,1],[1,-1,1],[1,1,-1],[-1,-1,-1]]) assert.equal(canInstance({...entity,transform:{scale}}),false);
+    for (const scale of [[2,3,4],[-2,-3,4],[-2,3,-4],[2,-3,-4]]) assert.ok(canInstance({...entity,transform:{scale}}));
+    assert.equal(canInstance({...entity,script:'script.rhai'}),false);
+  }
+  assert.equal(canInstance({kind:'wall_with_door'}),false);
+  assert.equal(canInstance({kind:'box',transform:{scale:[0,1,1]}}),false);
 });
 test('config opt-in, auto enable, invalid config and small scenes', () => {
   assert.equal(worldConfig([]),null);

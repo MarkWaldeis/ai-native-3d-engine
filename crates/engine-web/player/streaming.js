@@ -26,6 +26,11 @@ export function isStatic(e) {
   return !e.script && !['dynamic','kinematic'].includes(e.rigidbody?.type) && !(e.tags || []).some(t => ['player','trigger','coin','crystal','portal'].includes(t));
 }
 
+export function canInstance(e) {
+  const scale = e.transform?.scale || [1,1,1];
+  return isStatic(e) && scale[0]*scale[1]*scale[2] > 0 && ['box','plane','sphere','cylinder','gltf'].includes(e.kind);
+}
+
 export function selectLOD(distance, previous, config) {
   const limits = [...config.lod_distances,config.draw_distance];
   let level = limits.findIndex(limit => distance < limit);
