@@ -76,10 +76,10 @@ pub fn builtin_tools() -> Vec<ToolDef> {
     // Optional optimistic-concurrency token accepted by every mutating tool:
     // the call is rejected when the world has moved past this revision.
     let expected_rev = || {
-        json!({"type": "integer", "description": "optimistic concurrency: apply only if world.revision still equals this value"})
+        json!({"type": "integer", "minimum":0, "description": "nonnegative revision for optimistic concurrency: apply only if world.revision still equals this value"})
     };
     vec![
-        ToolDef {name:"write_script",description:"Compile and write a .rhai file inside the project and attach it to existing entity ids. Parent folder must exist. Requires entity locks/CAS compatibility, disabled during play. Atomic scene update; journal attributes all ids to the writer.",input_schema:schema(json!({"path":{"type":"string"},"source":{"type":"string"},"ids":{"type":"array","minItems":1,"items":{"type":"integer"}},"expected_revision":expected_rev()}),&["path","source","ids"])},
+        ToolDef {name:"write_script",description:"Compile a project-relative .rhai file and bind immutable source versions to explicit ids only. Snapshots/rollback retain executable source. Editing a shared path requires claims on every referencing entity and journals all references; pass all ids for a common update. Parent folder must exist; disabled during play.",input_schema:schema(json!({"path":{"type":"string"},"source":{"type":"string"},"ids":{"type":"array","minItems":1,"items":{"type":"integer"}},"expected_revision":expected_rev()}),&["path","source","ids"])},
         ToolDef { name:"export_web", description:"Export authoring scene (or scene JSON/path) to a self-contained WebGL2/WASM static folder. out_dir must be empty/new. Builds engine-web with installed wasm32 target and wasm-bindgen-cli 0.2.100. Includes referenced Rhai files and embedded GLBs; no GPU needed.", input_schema:schema(json!({"out_dir":{"type":"string","minLength":1},"scene":{"oneOf":[{"type":"string"},{"type":"object"}]}}),&["out_dir"]) },
         ToolDef { name: "validate_scene", description: "Read-only AI-QA findings: severity, entity ID, code, message, suggested_fix tool call or null. World-AABB floating/overlap heuristics; floating/trigger tags, ai_floating/ai_trigger:true, or scripted non-collider entities suppress physical warnings. Frustum assumes 16:9. Reads active simulation if playing.", input_schema: schema(json!({}), &[]) },
         ToolDef { name: "play", description: "Start a separate simulation from an authoring snapshot. Hooks on_start run at tick 0; authoring edits are disabled until stop. One shared play session per Engine.", input_schema: schema(json!({}), &[]) },
@@ -114,9 +114,10 @@ pub fn builtin_tools() -> Vec<ToolDef> {
             input_schema: schema(json!({}), &[]),
         },
         ToolDef {
-            name: "blender_sync", description: "Export Blender meshes to assets/blender and atomically upsert by source_uid, preserving entity ids. Converts Blender Z-up to engine Y-up. Optional objects filters by name or ai_uid. prune removes only previously synced objects absent from Blender, even when filtered. Respects entity locks and expected_revision; journals one scene mutation.",
+            name: "blender_sync", description: "Export Blender-owned geometry/transform and upsert by source_uid. Missing gameplay props preserve engine values; changed props use three-way conflict checks. JSON null (or ai_deleted_props JSON array) explicitly deletes gameplay props. Optional objects filters names/UIDs; prune removes vanished objects. Respects locks/CAS and journals one mutation.",
             input_schema: schema(json!({"objects":{"type":"array", "items":{"type":"string"}}, "prune":{"type":"boolean", "default":false}, "expected_revision":expected_rev()}), &[]),
         },
+        ToolDef {name:"blender_push_props",description:"Push engine gameplay props (tags, collider, rigidbody, immutable script and custom ai_* props) to Blender by stable ai_uid, never geometry/transform. Requires linked ids, respects locks/CAS, rejects concurrent Blender property changes before writing any object. Sync afterwards to acknowledge the new baseline.",input_schema:schema(json!({"ids":{"type":"array","minItems":1,"items":{"type":"integer"}},"expected_revision":expected_rev()}),&["ids"])},
         ToolDef {
             name: "claim_entities",
             description: "Lock existing entity ids for this agent; fails atomically if any belongs to another agent. Renew by claiming again. TTL defaults to 60 seconds.",
@@ -224,13 +225,15 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         ToolDef {
             name: "rollback",
             description: "Restore the scene to an earlier revision (per-revision snapshot ring, last 64 mutations). The restore bumps the revision again.",
-            input_schema: schema(json!({"revision": {"type": "integer"}}), &["revision"]),
+            input_schema: schema(json!({"revision": {"type": "integer"},"expected_revision":expected_rev()}), &["revision"]),
         },
         ToolDef {
             name: "apply_batch",
-            description: "Apply several mutating commands atomically in one call — the engine's 'tick'. Commands execute in array order; on error the batch stops (earlier commands stay applied). Each entry: {\"tool\": \"<name>\", \"arguments\": {...}}.",
+            description: "Ordered batch. Default mode partial stops on error and keeps earlier commands/revisions/journal entries. mode atomic permits only spawn_primitive/set_transform/set_color/remove_entity/set_camera: validates batch CAS, commits one revision/journal entry, and restores everything on rejection. No I/O, scripts, Blender, save/export, nested batches or subcommand CAS in atomic mode.",
             input_schema: schema(
                 json!({
+                    "mode":{"type":"string","enum":["partial","atomic"],"default":"partial"},
+                    "expected_revision":expected_rev(),
                     "commands": {
                         "type": "array",
                         "items": {"type": "object", "properties": {

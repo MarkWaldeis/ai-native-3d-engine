@@ -63,6 +63,16 @@ impl Default for RigidBody {
 #[serde(untagged)]
 pub enum Script {
     Path(String),
+    Versioned { path: String, source: String },
     Inline { source: String },
     File { path: String },
+}
+
+impl Script {
+    pub fn path(&self) -> Option<&str> {
+        match self {
+            Self::Path(path) | Self::File { path } | Self::Versioned { path, .. } => Some(path),
+            Self::Inline { .. } => None,
+        }
+    }
 }

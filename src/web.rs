@@ -137,7 +137,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
             engine_runtime::Simulation::check_script(script, &entity.name, &root)?;
             let original = match script {
                 Script::Path(path) | Script::File { path } => Some(path.clone()),
-                Script::Inline { .. } => None,
+                Script::Inline { .. } | Script::Versioned { .. } => None,
             };
             if let Some(original) = original {
                 if !script_paths.contains_key(&original) {

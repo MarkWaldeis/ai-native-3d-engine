@@ -4,10 +4,10 @@ use shared::mcp_protocol::text_result;
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct Swarm {
     locks: BTreeMap<u64, (String, Instant)>,
-    journal: VecDeque<Value>,
+    pub(crate) journal: VecDeque<Value>,
     tasks: Vec<Value>,
 }
 
@@ -42,6 +42,10 @@ impl Engine {
     pub(crate) fn handle_agent(&mut self, name: &str, args: &Value) -> Result<Value, String> {
         if !args.is_object() {
             return Err("tool arguments must be a JSON object".into());
+        }
+        if let Some(value) = args.get("expected_revision") {
+            let revision = value.as_u64().ok_or("expected_revision must be a nonnegative integer")?;
+            if revision != self.world.revision { return Err(format!("revision conflict: expected {revision}, world is at {}", self.world.revision)); }
         }
         let agent = match args.get("agent") {
             None => "anonymous",
@@ -134,7 +138,7 @@ impl Engine {
         args: &Value,
         agent: &str,
     ) -> Result<Value, String> {
-        if self.simulation.is_some() && matches!(name, "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera" | "load_scene" | "rollback" | "blender_sync" | "write_script") {
+        if self.simulation.is_some() && matches!(name, "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera" | "load_scene" | "rollback" | "blender_sync" | "blender_push_props" | "write_script") {
             return Err("authoring edits are disabled during play; call stop before editing the scene".into());
         }
         let global = matches!(name, "load_scene" | "rollback");
@@ -145,7 +149,17 @@ impl Engine {
             }
         }
         let before = self.world.revision;
-        if name=="write_script" { self.check_entity_locks(&ids(args,"ids")?,agent)?; }
+        if name=="write_script" {
+            let affected = self.script_affected_ids(args)?;
+            self.check_entity_locks(&affected,agent)?;
+            let references = self.script_reference_ids(args)?;
+            let selected = ids(args,"ids")?;
+            if references.len() > 1 || references.iter().any(|id|!selected.contains(id)) {
+                for id in &references {
+                    if !self.swarm.locks.get(id).is_some_and(|(owner,expiry)|owner == agent && *expiry > Instant::now()) { return Err(format!("shared script requires a claim on entity {id} by {agent}")); }
+                }
+            }
+        }
         let mut affected: Vec<u64> = if global {
             self.world.scene.entities.iter().map(|e| e.id).collect()
         } else if targeted {
@@ -153,8 +167,8 @@ impl Engine {
         } else {
             vec![]
         };
-        if name=="write_script" { affected=ids(args,"ids")?; }
-        let result = if name == "blender_sync" { self.sync_blender(args, agent)? } else { self.handle_tool(name, args)? };
+        if name=="write_script" { affected=self.script_affected_ids(args)?; }
+        let result = if name == "blender_sync" { self.sync_blender(args, agent)? } else if name == "blender_push_props" { self.push_blender_props(args,agent)? } else { self.handle_tool(name, args)? };
         if self.world.revision > before && name != "apply_batch" {
             if name == "blender_sync" {
                 let summary: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).map_err(|e| e.to_string())?;

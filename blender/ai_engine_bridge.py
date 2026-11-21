@@ -61,6 +61,15 @@ def _props(obj):
     return {key: _json_value(obj[key]) for key in obj.keys() if key.startswith("ai_")}
 
 
+def _decoded_prop(value):
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            pass
+    return value
+
+
 def _transform(matrix):
     loc, rot, scale = matrix.decompose()
     return {"position": list(loc), "rotation_deg": [math.degrees(v) for v in rot.to_euler("XYZ")], "scale": list(scale)}
@@ -162,8 +171,44 @@ def _dispatch(request):
         with contextlib.redirect_stdout(output):
             exec(compile(code, "<ai-engine-bridge>", "exec"), namespace)
         return {"stdout": output.getvalue(), "result": _json_value(namespace.get("result"))}
-    _ensure_uids()
+    if command != "push_props":
+        _ensure_uids()
     bpy.context.view_layer.update()
+    if command == "push_props":
+        staged = []
+        markers = []
+        seen = set()
+        for item in request["objects"]:
+            uid = item["ai_uid"]
+            matches = [obj for obj in bpy.context.scene.objects if obj.get("ai_uid") == uid]
+            if len(matches) != 1 or uid in seen:
+                raise ValueError(f"unknown or duplicate ai_uid {uid}")
+            seen.add(uid)
+            obj = matches[0]
+            current = _props(obj)
+            deleted = current.get("ai_deleted_props", [])
+            deleted = json.loads(deleted) if isinstance(deleted, str) else deleted
+            if not isinstance(deleted, list) or not all(isinstance(key, str) for key in deleted):
+                raise ValueError("ai_deleted_props must be a JSON array of property names")
+            for key, value in item["props"].items():
+                if not key.startswith("ai_") or key in ("ai_uid", "ai_deleted_props"):
+                    raise ValueError(f"invalid gameplay property {key}")
+                encoded = json.dumps(value) if isinstance(value, (dict, list)) or value is None else value
+                actual = None if key in deleted else current.get(key)
+                if ((key in current or key in deleted)
+                        and _decoded_prop(actual) != _decoded_prop(item["expected"].get(key))
+                        and _decoded_prop(actual) != _decoded_prop(value)):
+                    raise ValueError(f"Blender gameplay conflict on {uid} {key}")
+                staged.append((obj, key, encoded))
+            markers.append((obj, [key for key in deleted if key not in item["props"]]))
+        for obj, key, value in staged:
+            obj[key] = value
+        for obj, deleted in markers:
+            if deleted:
+                obj["ai_deleted_props"] = json.dumps(deleted)
+            elif "ai_deleted_props" in obj:
+                del obj["ai_deleted_props"]
+        return {"ok": True, "uids": sorted(seen)}
     if command == "scene_info":
         return {"objects": [_object_info(obj) for obj in bpy.context.scene.objects]}
     if command == "export":

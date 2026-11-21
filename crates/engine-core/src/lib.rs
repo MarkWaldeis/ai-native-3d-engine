@@ -62,6 +62,7 @@ impl CommandQueue {
     }
 }
 
+#[derive(Clone)]
 pub struct World {
     pub scene: Scene,
     next_id: EntityId,
@@ -163,7 +164,10 @@ impl World {
                     None => format!("revision {revision} not in snapshot window (empty)"),
                 }
             })?;
-        self.scene = self.snapshots[pos].1.clone();
+        let scene = self.snapshots[pos].1.clone();
+        let next = scene.entities.iter().map(|e| e.id).max().unwrap_or(0).checked_add(1).context("entity ID space exhausted")?;
+        self.scene = scene;
+        self.next_id = self.next_id.max(next);
         self.bump();
         Ok(())
     }
@@ -197,7 +201,7 @@ impl World {
                         *existing = entity;
                     } else {
                         entity.id = next_id;
-                        next_id += 1;
+                        next_id = next_id.checked_add(1).context("entity ID space exhausted")?;
                         ids.push(entity.id);
                         scene.entities.push(entity);
                     }
@@ -217,6 +221,7 @@ impl World {
                 transform,
                 color,
             } => {
+                anyhow::ensure!(self.next_id < EntityId::MAX, "entity ID space exhausted");
                 let id = self.spawn(name, kind, transform, color);
                 Ok(json!({"id": id, "revision": self.revision}))
             }
@@ -277,11 +282,28 @@ impl World {
     }
 
     pub fn load(&mut self, path: &Path) -> Result<()> {
+        self.load_with_root(path, path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new(".")))
+    }
+
+    pub fn load_with_root(&mut self, path: &Path, script_root: &Path) -> Result<()> {
         let s = std::fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
-        self.scene = serde_json::from_str(&s).with_context(|| "parse scene json")?;
-        self.next_id = self.scene.entities.iter().map(|e| e.id).max().unwrap_or(0) + 1;
+        let mut scene: Scene = serde_json::from_str(&s).with_context(|| "parse scene json")?;
+        let mut seen = std::collections::HashSet::new();
+        for entity in &mut scene.entities {
+            anyhow::ensure!(seen.insert(entity.id), "duplicate entity id {}", entity.id);
+            if let Some(script) = &entity.script { entity.script = Some(freeze_script(script, script_root)?); }
+        }
+        let next = scene.entities.iter().map(|e| e.id).max().unwrap_or(0).checked_add(1).context("entity ID space exhausted")?;
+        self.next_id = self.next_id.max(next);
+        self.scene = scene;
         self.bump();
         Ok(())
+    }
+
+    pub fn commit_atomic(&mut self, candidate: Self) {
+        self.scene = candidate.scene;
+        self.next_id = self.next_id.max(candidate.next_id);
+        self.bump();
     }
 
     fn bump(&mut self) {
@@ -289,6 +311,22 @@ impl World {
         // Every mutation records the resulting scene keyed by its new
         // revision — the snapshot ring is a complete, deterministic history.
         self.push_snapshot();
+    }
+}
+
+pub fn freeze_script(script: &shared::components::Script, root: &Path) -> Result<shared::components::Script> {
+    use shared::components::Script;
+    match script {
+        Script::Path(path) | Script::File { path } => {
+            let requested = Path::new(path);
+            anyhow::ensure!(!requested.is_absolute() && !requested.components().any(|c| matches!(c, std::path::Component::ParentDir)), "script path escapes project");
+            let file = [root.join(path), root.join("assets").join(path)].into_iter().find(|p| p.is_file()).with_context(|| format!("script file not found: {path}"))?;
+            let file = file.canonicalize()?;
+            let root = root.canonicalize()?;
+            anyhow::ensure!(file.starts_with(&root), "script path escapes project");
+            Ok(Script::Versioned { path: file.strip_prefix(root)?.to_string_lossy().replace('\\', "/"), source: std::fs::read_to_string(file)? })
+        }
+        _ => Ok(script.clone()),
     }
 }
 

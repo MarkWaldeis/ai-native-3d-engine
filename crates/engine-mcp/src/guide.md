@@ -31,8 +31,23 @@ replace identities. `task_create` with `depends_on`, `task_claim`, then `claim_e
 before editing existing IDs. Renew expiring claims; `release_entities` when finished.
 Use `get_revision` + `expected_revision` for CAS; after conflicts refresh scene and
 `get_changes_since`. Journal retention is 1024 scene mutations; snapshots retain 64.
-`task_complete` only after verification. `apply_batch` is ordered, NOT rollback-atomic:
-earlier successful commands remain if a later one fails.
+`task_complete` only after verification. `apply_batch` defaults to `mode:"partial"`:
+earlier successful commands remain if a later one fails. Use `mode:"atomic"` plus
+batch `expected_revision` for one scene revision/journal commit, or no changes on
+rejection. Atomic commands are only `spawn_primitive`, `set_transform`, `set_color`,
+`remove_entity`, `set_camera`; no child CAS, nested batches, scripts, Blender,
+save/export or other side effects. Empty atomic batches do not create revisions.
+Every supplied revision must be a nonnegative integer (not null/string/float).
+
+Skripte / scripts: `write_script` binds immutable `{path,source}` versions only to
+explicit IDs. Rollback restores executable behavior even if files later change.
+Claim every entity referencing a shared path before editing; all are journaled.
+Blender owns geometry/transform, not unconditional gameplay replacement. Missing
+`ai_*` fields mean preserve; JSON `"null"` or `ai_deleted_props` (JSON string array
+of property names) explicitly removes a field. Three-way conflicts reject sync.
+Use `blender_push_props {ids,expected_revision?}` to publish engine gameplay fields
+by `ai_uid`; concurrent Blender property changes reject the push. Sync afterwards
+to acknowledge the baseline. Push never edits geometry/transform.
 
 ## Components / Komponenten und Blender-Props
 

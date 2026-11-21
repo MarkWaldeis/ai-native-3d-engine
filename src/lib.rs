@@ -17,6 +17,7 @@ mod blender;
 mod runtime;
 mod qa;
 mod authoring;
+mod batch;
 pub mod web;
 pub mod project;
 
@@ -287,11 +288,16 @@ impl Engine {
                 }
                 "load_scene" => {
                     let p = args.get("path").and_then(|p| p.as_str()).unwrap_or("scene.json");
-                    Ok(text_result(
-                        self.apply_cmd(Command::LoadScene { path: p.into() }, expected)?.to_string(),
-                    ))
+                    self.world.load_with_root(Path::new(p), self.assets_dir.parent().unwrap_or(Path::new(".")))?;
+                    Ok(text_result(json!({"ok":true,"path":p,"revision":self.world.revision}).to_string()))
                 }
                 "apply_batch" => {
+                    match args.get("mode").and_then(Value::as_str).unwrap_or("partial") {
+                        "atomic" => return self.atomic_batch(args).map_err(anyhow::Error::msg),
+                        "partial" => {},
+                        _ => anyhow::bail!("batch mode must be partial or atomic"),
+                    }
+                    if args.get("mode").is_some_and(|v| !v.is_string()) { anyhow::bail!("batch mode must be partial or atomic"); }
                     let cmds = args
                         .get("commands")
                         .and_then(|c| c.as_array())
@@ -311,12 +317,12 @@ impl Engine {
                                 return Ok(json!({
                                     "content": [{"type": "text", "text": format!("batch stopped at command {} ({tool}): {e}", results.len())}],
                                     "isError": true,
-                                    "applied": results.len(),
+                                    "applied": results.len(), "mode":"partial",
                                 }));
                             }
                         }
                     }
-                    Ok(json!({"content": [{"type": "text", "text": serde_json::to_string(&results)?}]}))
+                    Ok(json!({"mode":"partial","content": [{"type": "text", "text": serde_json::to_string(&results)?}]}))
                 }
                 "get_revision" => Ok(text_result(self.world.revision.to_string())),
                 "rollback" => {

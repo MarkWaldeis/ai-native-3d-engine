@@ -87,8 +87,11 @@ Recipes: `tools/sky_garden/`; execution: `docs/swarm_journal.json`;
 German friction notes: [SWARM_FINDINGS.md](docs/SWARM_FINDINGS.md).
 
 - `write_script {ids,path,source,expected_revision?}` compiles before writing a
-  project-relative `.rhai` file and attaching it to existing entities. Existing
-  parent required; entity locks, CAS, play-mode restrictions and journal apply.
+  project-relative `.rhai` file and binding immutable `{path,source}` versions to
+  explicitly selected entities. Snapshots retain executable source, not mutable
+  file references. Shared paths require claims on every referencing entity;
+  all references appear in the journal, but only selected IDs are rebound.
+  Pass all IDs for a common update. Existing parent required; CAS and play-mode restrictions apply.
 - `save_scene {path,bundle_assets:true}` copies GLBs alongside the scene into
   `assets/`, using project-relative references without changing the authoring world.
 - Rhai `ctx.velocity()` / `ctx.grounded()` read the previous physics step
@@ -160,12 +163,13 @@ crates/
 | `save_scene` / `load_scene` | persist scene to/from `.json` |
 | `get_revision` | current world revision (concurrency token) |
 | `rollback` | restore scene to an earlier revision |
-| `apply_batch` | apply N commands atomically in one call — the engine's "tick" |
+| `apply_batch` | ordered `partial` (default), or single-revision `atomic` scene batch with batch CAS |
 | `list_assets` | list files in `assets/` |
 | `run_blender_script` | headless Blender → generated GLB assets land in `assets/` |
 | `blender_status` / `blender_start` | inspect local bridge/version or launch an engine-owned headless bridge |
 | `blender_exec` / `blender_scene_info` | run trusted Python on Blender's main thread; inspect objects and `ai_*` props |
 | `blender_sync` | export meshes to `assets/blender/`, upsert by stable `source_uid`; optional `objects` names/UIDs and explicit `prune:true` |
+| `blender_push_props` | push engine gameplay fields/custom `ai_*` props by `ai_uid`; reject concurrent Blender changes; sync to acknowledge |
 | `claim_entities` / `release_entities` / `list_locks` | agent-owned entity locks with expiry (`ttl_s`, default 60, range 1–86400) |
 | `get_changes_since` | scene mutation journal after `revision`: agent, tool, affected entity `ids` |
 | `task_create` / `task_claim` / `task_complete` / `task_list` | shared task board; dependencies must complete before claim |
@@ -269,13 +273,40 @@ curl http://127.0.0.1:7777/mcp -H 'Content-Type: application/json' \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"spawn_primitive","arguments":{"kind":"box"}}}'
 ```
 
+### Atomic changes and Blender ownership (M7)
+
+`apply_batch {mode:"atomic",expected_revision,commands:[...]}` permits only
+`spawn_primitive`, `set_transform`, `set_color`, `remove_entity`, `set_camera`.
+It commits one revision/snapshot and one journal entry, or changes neither scene,
+revision, journal nor assets on rejection. No per-command CAS, nested batches,
+`write_script`, Blender tools, load/rollback, save or export are permitted inside.
+Empty atomic batches are no-ops. Default `mode:"partial"` retains earlier
+successes when a later command fails. Invalid CAS types (including strings/null)
+are rejected rather than treated as an omitted revision.
+Atomic results contain `{mode,applied,revision,ids}`; partial success retains the
+legacy result array, and partial errors include `mode:"partial"` and `applied`.
+
+Blender owns geometry/transform. Gameplay fields use three-way merging: unchanged
+Blender fields never overwrite newer engine values; divergent simultaneous edits
+report conflicts. Missing fields preserve engine values. Explicit removal uses a
+JSON `"null"` custom-property string, or
+`obj['ai_deleted_props'] = json.dumps(['ai_script'])`. This applies to tags,
+collider, rigidbody, script and custom `ai_*` properties. `blender_push_props
+{ids,expected_revision?}` pushes gameplay values by stable `ai_uid` after checking
+locks and concurrent Blender changes, without moving/remodeling objects. Sync
+after a push to acknowledge its baseline. Script versions include source in the
+scene/snapshots, so load/rollback never depends on later file edits.
+`load_scene` resolves script files against the active project root, including
+when the scene JSON is in a nested folder.
+
 Locks reject edits/removal by other agents, including batch commands. Replacing
 the world (`load_scene`/`rollback`) requires no foreign entity locks. Claims and
 releases are all-or-nothing; expired locks disappear automatically on the next
 call. A batch inherits its outer agent (subcommands cannot override it).
 `get_changes_since` returns `{entries, current_revision, oldest_revision}`;
-the last 1024 scene mutations are retained. Each successful batch subcommand is
-journaled separately; lock/task metadata does not advance the scene revision.
+the last 1024 scene mutations are retained. Each successful **partial** batch
+subcommand is journaled separately; an **atomic** batch creates one revision and
+one journal entry containing all affected IDs. Lock/task metadata does not advance the scene revision.
 If your revision predates the journal window, re-read the scene. All coordination
 state is in memory and resets on restart.
 
@@ -361,8 +392,8 @@ scene is in `blender/sync_demo.py`; comparison images:
   reason about directly.
 - **Deterministic conflict resolution**: mutations are serialized by the
   single-threaded stdio loop (line order = canonical order). `apply_batch`
-  makes "same tick" explicit — its commands run atomically in array order
-  within one call. On top of that, `expected_revision` adds optimistic
+  runs in array order. Its default `mode:"partial"` keeps earlier successes on
+  failure; `mode:"atomic"` commits all scene edits together. `expected_revision` adds optimistic
   concurrency — when two agents read the same revision and both mutate,
   the first wins and the second gets a `revision conflict` error and must
   re-read. Every mutation records a per-revision `Scene` snapshot (ring of

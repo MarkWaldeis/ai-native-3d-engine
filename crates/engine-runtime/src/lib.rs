@@ -154,6 +154,7 @@ impl Simulation {
 
     fn source(&self, script: &Script, name: &str) -> Result<(String, String)> {
         let path = match script {
+            Script::Versioned { path, source } => return Ok((path.clone(), source.clone())),
             Script::Inline { source } => return Ok((format!("<{name}:inline>"), source.clone())),
             Script::Path(path) | Script::File { path } => path,
         };

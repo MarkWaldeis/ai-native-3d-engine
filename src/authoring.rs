@@ -9,6 +9,20 @@ use shared::{
 use std::path::{Component, Path};
 
 impl Engine {
+    pub(crate) fn script_affected_ids(&self, args: &Value) -> Result<Vec<u64>, String> {
+        let mut ids: Vec<u64> = serde_json::from_value(args["ids"].clone()).map_err(|e| e.to_string())?;
+        ids.extend(self.script_reference_ids(args)?);
+        ids.sort_unstable(); ids.dedup(); Ok(ids)
+    }
+
+    pub(crate) fn script_reference_ids(&self, args: &Value) -> Result<Vec<u64>, String> {
+        let path = args["path"].as_str().ok_or("write_script requires path")?;
+        let root = self.assets_dir.parent().unwrap_or(Path::new("."));
+        let resolve = |path: &str| [root.join(path), root.join("assets").join(path)].into_iter().find_map(|p|p.canonicalize().ok());
+        let file = resolve(path);
+        Ok(self.world.scene.entities.iter().filter(|e| e.script.as_ref().and_then(Script::path).is_some_and(|p| p == path || (file.is_some() && resolve(p) == file))).map(|e|e.id).collect())
+    }
+
     pub(crate) fn write_script(&mut self, args: &Value) -> Result<Value> {
         let path = args["path"]
             .as_str()
@@ -47,11 +61,8 @@ impl Engine {
             bail!("script path must be a relative .rhai file inside the project");
         }
         let file = root.join(requested);
-        if !file
-            .parent()
-            .context("script parent missing")?
-            .canonicalize()?
-            .starts_with(&root)
+        let parent = file.parent().context("script parent missing")?.canonicalize()?;
+        if !parent.starts_with(&root)
             || file.is_symlink()
         {
             bail!("script path escapes project root");
@@ -69,10 +80,11 @@ impl Engine {
         }
         std::fs::write(&staging, source)?;
         std::fs::rename(staging, &file)?;
+        let version_path = parent.join(file.file_name().context("script filename missing")?).strip_prefix(&root)?.to_string_lossy().replace('\\', "/");
         let result = self.apply_cmd(
             Command::SetScripts {
                 ids,
-                script: Script::Path(path.replace('\\', "/")),
+                script: Script::Versioned { path: version_path, source: source.into() },
             },
             crate::expected_rev(args),
         )?;
