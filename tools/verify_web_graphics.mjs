@@ -11,6 +11,15 @@ export async function verifyGraphics(browser, base, errors, shots) {
   await page.addInitScript(() => {
     const proto = WebGL2RenderingContext.prototype;
     const setParameter = proto.texParameterf;
+    const getExtension = proto.getExtension;
+    window.gpuTimerRequests = 0;
+    proto.getExtension = function(name) {
+      if (name === 'EXT_disjoint_timer_query_webgl2') {
+        window.gpuTimerRequests++;
+        if (new URLSearchParams(location.search).has('no_timer')) return null;
+      }
+      return getExtension.call(this, name);
+    };
     window.textureAnisotropy = [];
     proto.texParameterf = function(target, parameter, value) {
       if (parameter === 0x84fe) window.textureAnisotropy.push(value);
@@ -28,11 +37,24 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const actual = await page.evaluate(() => {
         advanceFrames(1);
         const canvas = document.getElementById('game');
-        return [canvas.dataset.graphics, canvas.dataset.quality, window.__engineStats.drawCalls];
+        return [canvas.dataset.graphics, canvas.dataset.quality, window.__engineStats.drawCalls, window.gpuTimerRequests];
       });
       assert.deepEqual(actual.slice(0, 2), [mode, level]);
       assert.ok(actual[2] > 0, `the exported ${query} player renders a frame`);
+      assert.equal(actual[3], 0, 'default player does not request GPU timing');
     }
+    await page.goto(`${base}/coin_game/?quality=ultra&stats=1&no_timer`);
+    await ready();
+    const timing = await page.evaluate(() => {
+      advanceFrames(1);
+      const {renderCpuMs, renderGpuMs} = window.__engineStats;
+      return {renderCpuMs, renderGpuMs, requests:window.gpuTimerRequests, text:document.getElementById('render-stats').textContent};
+    });
+    assert.ok(Number.isFinite(timing.renderCpuMs) && timing.renderCpuMs >= 0, JSON.stringify(timing));
+    assert.equal(timing.renderGpuMs, null);
+    assert.equal(timing.requests, 1);
+    assert.match(timing.text, /CPU [\d.]+ ms · GPU —$/);
+    console.log('PASS render timing: opt-in CPU submission and GPU fallback');
     const result = await page.evaluate(async () => {
       const THREE = await import('three');
       const { HDRPipeline } = await import('./hdr.js');
