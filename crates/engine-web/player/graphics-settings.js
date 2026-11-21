@@ -1,3 +1,5 @@
+import { daylightDefaults } from './nature-settings.js';
+
 function object(value) {
   if (typeof value === 'string') {
     try { value = JSON.parse(value); } catch { return null; }
@@ -21,11 +23,14 @@ function direction(value) {
   return length > 0 && Number.isFinite(length) ? value.map(v => v / length) : defaultSun;
 }
 
-export function graphicsConfig(authored, preset, skyColor) {
-  const value = object(authored);
+export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
+  const primary = object(authored), alias = object(deprecatedAlias);
+  const value = primary || alias ? {...primary,...alias} : null;
+  if (preset === 'high' || preset === 'medium') preset = 'balanced';
   const quality = ['low', 'balanced', 'ultra'].indexOf(preset);
   if (preset === 'legacy' || (!value && quality < 0)) return null;
-  const config = value ?? {};
+  const config = {...daylightDefaults(value?.time_of_day),...value};
+  const foliage = object(config.foliage), water = object(config.water);
   return {
     quality,
     sky: hex(config.sky, '#4d88cb'),
@@ -41,6 +46,9 @@ export function graphicsConfig(authored, preset, skyColor) {
     hdrAntialias: config.hdr_antialias !== false,
     bloomStrength: bounded(config.bloom_strength, 0.22, 0, 2),
     bloomThreshold: bounded(config.bloom_threshold, 1.1, 0, 8),
+    foliage: config.foliage === true || foliage ? {density:bounded(foliage?.density,1,0,4),distance:bounded(foliage?.distance,64,16,128)} : false,
+    water: water ? {level:bounded(water.level,0,-10000,10000),color:hex(water.color,'#126e61')} : false,
+    fogDensity: Number.isFinite(config.fog_density) ? bounded(config.fog_density,0.004,0,0.2) : undefined,
   };
 }
 

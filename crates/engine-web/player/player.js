@@ -244,7 +244,7 @@ function updateCamera(immediate = false, elapsed = 1 / 60) {
   camera.fov = 55; camera.updateProjectionMatrix();
   const preview = previewingRoute();
   $('game').dataset.cameraMode = preview ? 'route' : 'follow';
-  if (!streaming) { world.fog.near = preview ? 30 : 12; world.fog.far = preview ? 120 : 55; }
+  if (!streaming && world.fog?.isFog) { world.fog.near = preview ? 30 : 12; world.fog.far = preview ? 120 : 55; }
   if (preview) {
     const points = [...objectives.values()].filter(object => object.visible).map(object => object.position.toArray());
     const framing = routeFrame(points, camera.aspect, camera.fov);
@@ -429,7 +429,8 @@ function frame(now) {
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
-    if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances`;
+    if (effects.nature) Object.assign(stats, effects.nature.stats());
+    if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''}`;
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
 }
@@ -472,12 +473,12 @@ async function boot() {
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   const preset = new URLSearchParams(location.search).get('quality');
-  effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color));
+  effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
   await effects.prepareEnvironment();
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config);
-    world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance;
+    if (world.fog?.isFog) { world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance; }
   }
   if (new URLSearchParams(location.search).get('stats') === '1') {
     statsOverlay = document.createElement('div');

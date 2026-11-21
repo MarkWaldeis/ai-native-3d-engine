@@ -3,6 +3,8 @@ import { qualitySettings } from './presentation.js';
 import { HDRPipeline } from './hdr.js';
 import { applySky, loadEnvironment } from './sky.js';
 import { LocalLights } from './local-lights.js';
+import { NatureVisuals } from './nature.js';
+import { adaptQuality } from './nature-settings.js';
 
 export class ShadowGrid {
   constructor(sunOffset, up) {
@@ -29,6 +31,7 @@ export class GameEffects {
     this.graphics = graphics;
     this.localLights = graphics ? new LocalLights(scene) : null;
     this.level = graphics?.quality >= 0 ? graphics.quality : matchMedia('(pointer: coarse)').matches ? 1 : 2;
+    this.startLevel = this.level; this.fast = 0;
     this.sunOffset = new THREE.Vector3(...(graphics?.sunDirection || [-6, 16, 9]));
     if (graphics) this.sunOffset.setLength(20);
     this.slow = 0; this.sampleTime = 0; this.frames = 0;
@@ -61,6 +64,8 @@ export class GameEffects {
     this.points = new THREE.Points(geometry, new THREE.PointsMaterial({size:0.19,map:this.glowTexture,transparent:true,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));
     this.points.frustumCulled = false; scene.add(this.points); geometry.setDrawRange(0,0);
     this.configure();
+    if (graphics?.fogDensity !== undefined) scene.fog = new THREE.FogExp2(graphics.horizon, graphics.fogDensity);
+    if (graphics?.foliage || graphics?.water) this.nature = new NatureVisuals(scene, graphics, this.level);
   }
   async prepareEnvironment() {
     if (!this.hdr?.supported) return;
@@ -84,6 +89,7 @@ export class GameEffects {
     this.renderer.domElement.dataset.quality = String(this.level);
     this.renderer.domElement.dataset.graphics = this.hdr?.sceneTarget ? 'hdr' : this.graphics ? 'standard' : 'legacy';
     this.renderer.shadowMap.needsUpdate = true;
+    if (this.nature && this.nature.level !== this.level) this.nature.setQuality(this.level);
   }
   render(camera) {
     if (this.hdr) this.hdr.render(this.scene, camera);
@@ -103,7 +109,8 @@ export class GameEffects {
   }
   reset() {
     this.localLights?.reset();
-    this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = 0;
+    this.nature?.clearTiles();
+    this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = this.fast = 0;
   }
   update(elapsed, objects, camera, active, frameElapsed = elapsed, shadowTarget) {
     this.time += elapsed;
@@ -121,6 +128,7 @@ export class GameEffects {
     if (shadowTarget) this.sun.target.position.copy(shadowTarget);
     this.shadowGrid?.align(this.sun.target.position, this.sun.shadow.camera, this.sun.shadow.mapSize);
     this.sun.position.copy(this.sun.target.position).add(this.sunOffset);
+    this.nature?.update(elapsed, camera);
     this.particles = this.particles.filter(p => p.age < 0.85);
     this.particles.forEach((p,i) => {
       p.age += elapsed; p.velocity.y -= elapsed*3; p.position.addScaledVector(p.velocity,elapsed);
@@ -133,8 +141,12 @@ export class GameEffects {
       if (this.sampleTime >= 3) {
         const fps = this.frames/this.sampleTime;
         this.renderer.domElement.dataset.fps = fps.toFixed(1);
-        this.slow = fps < 42 ? this.slow + 1 : 0;
-        if (this.slow >= 2 && this.level > 0 && !(this.graphics?.quality >= 0)) { this.level--; this.configure(); this.slow = 0; }
+        if (this.graphics) {
+          if (this.graphics.quality < 0 && adaptQuality(this, fps, this.sampleTime, matchMedia('(pointer: coarse)').matches ? 30 : 42)) this.configure();
+        } else {
+          this.slow = fps < 42 ? this.slow + 1 : 0;
+          if (this.slow >= 2 && this.level > 0) { this.level--; this.configure(); this.slow = 0; }
+        }
         this.sampleTime = this.frames = 0;
       }
     }
