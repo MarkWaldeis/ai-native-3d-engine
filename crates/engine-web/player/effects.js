@@ -73,7 +73,7 @@ export class GameEffects {
     const url = this.graphics.environmentMap;
     let environment;
     if (url && (this.graphics.environmentIntensity || this.graphics.environmentBackground)) {
-      try { environment = await loadEnvironment(url); }
+      try { environment = await loadEnvironment(url, this.graphics.environmentRotation); }
       catch (error) { console.warn('Environment map unavailable; using the procedural sky.', error); }
     }
     applySky(this.renderer, this.scene, this.graphics, this.sunOffset.clone().normalize(), environment);

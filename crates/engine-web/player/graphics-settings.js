@@ -17,10 +17,10 @@ function hex(value, fallback) {
 
 const defaultSun = [-6, 16, 9];
 
-function direction(value) {
-  if (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite)) return defaultSun;
+function direction(value, fallback = defaultSun) {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite)) return fallback;
   const length = Math.hypot(...value);
-  return length > 0 && Number.isFinite(length) ? value.map(v => v / length) : defaultSun;
+  return length > 0 && Number.isFinite(length) ? value.map(v => v / length) : fallback;
 }
 
 export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
@@ -42,6 +42,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     environmentIntensity: bounded(config.environment_intensity, 0.66, 0, 3),
     environmentMap: config.environment_map === 'assets/environment.hdr' ? config.environment_map : null,
     environmentBackground: config.environment_background !== false,
+    environmentRotation: Number.isFinite(config.environment_rotation_deg) ? config.environment_rotation_deg % 360 : 0,
     exposure: bounded(config.exposure, 1, 0.1, 4),
     toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
     hdrAntialias: config.hdr_antialias !== false,
@@ -68,6 +69,10 @@ export function hdrSettings(level, supported, strength, width, height, pixelRati
 
 export function materialSettings(authored) {
   const value = object(authored);
+  const anisotropy = bounded(value?.anisotropy, 0, 0, 1);
+  const sheen = bounded(value?.sheen, 0, 0, 1);
+  const iridescence = bounded(value?.iridescence, 0, 0, 1);
+  const film = bounded(value?.iridescence_thickness_nm, 400, 100, 1200);
   return {
     roughness: bounded(value?.roughness, 0.55, 0, 1),
     metalness: bounded(value?.metalness, 0.08, 0, 1),
@@ -75,23 +80,44 @@ export function materialSettings(authored) {
     emissiveIntensity: bounded(value?.emissive_intensity, 1, 0, 32),
     clearcoat: bounded(value?.clearcoat, 0, 0, 1),
     clearcoatRoughness: bounded(value?.clearcoat_roughness, 0.2, 0, 1),
+    ...(anisotropy > 0 ? {
+      anisotropy,
+      anisotropyRotation: (Number.isFinite(value.anisotropy_rotation_deg) ? value.anisotropy_rotation_deg % 360 : 0) * Math.PI / 180,
+    } : {}),
+    ...(sheen > 0 ? {
+      sheen, sheenColor: hex(value.sheen_color, '#ffffff').toLowerCase(),
+      sheenRoughness: bounded(value.sheen_roughness, 0.6, 0, 1),
+    } : {}),
+    ...(iridescence > 0 ? {
+      iridescence, iridescenceIOR: bounded(value.iridescence_ior, 1.3, 1, 2.5),
+      iridescenceThicknessRange: [film, film],
+    } : {}),
   };
 }
 
-export const MAX_POINT_LIGHT_RANGE = 64;
+export const MAX_LOCAL_LIGHT_RANGE = 64;
 
-export function pointLightSettings(authored) {
+export function localLightSettings(authored) {
   const value = object(authored);
   if (!value) return null;
   const intensity = bounded(value.intensity, 16, 0, 1000);
   if (intensity === 0) return null;
+  const type = value.type ?? 'point';
+  if (type !== 'point' && type !== 'spot') return null;
   const offset = Array.isArray(value.offset) && value.offset.length === 3 && value.offset.every(Number.isFinite)
     ? value.offset.map(component => bounded(component, 0, -32, 32))
     : [0, 0, 0];
+  const angle = bounded(value.outer_angle, 35, 1, 89);
   return {
+    type,
     color: hex(value.color, '#ffffff').toLowerCase(),
     intensity,
-    range: bounded(value.range, 8, 0.25, MAX_POINT_LIGHT_RANGE),
+    range: bounded(value.range, 8, 0.25, MAX_LOCAL_LIGHT_RANGE),
     offset,
+    ...(type === 'spot' ? {
+      axis: direction(value.direction, [0, 0, -1]),
+      angle: angle * Math.PI / 180,
+      penumbra: 1 - bounded(value.inner_angle, angle * 0.65, 0, angle * 0.999) / angle,
+    } : {}),
   };
 }

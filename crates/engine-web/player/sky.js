@@ -64,12 +64,26 @@ export function environmentLighting(texture, intensity, maxWidth = 1024) {
   return equirectangularTexture(pixels, w, h, texture.flipY);
 }
 
-export async function loadEnvironment(url) {
+export function rotatePanorama(data, width, degrees) {
+  const pixels = Math.round(width * (degrees % 360) / 360);
+  const shift = ((pixels % width + width) % width) * 4;
+  if (!shift) return;
+  const stride = width * 4, tail = new Uint16Array(shift);
+  for (let start = 0; start < data.length; start += stride) {
+    const end = start + stride, wrap = end - shift;
+    tail.set(data.subarray(wrap, end));
+    data.copyWithin(start + shift, start, wrap);
+    data.set(tail, start);
+  }
+}
+
+export async function loadEnvironment(url, rotation = 0) {
   const [{ RGBELoader }, response] = await Promise.all([
     import('./vendor/addons/loaders/RGBELoader.js'), fetch(url, { mode: 'same-origin' }),
   ]);
   if (!response.ok) throw new Error(`HDR map: HTTP ${response.status}`);
   const { data, width, height } = new RGBELoader().parse(await response.arrayBuffer());
+  rotatePanorama(data, width, rotation);
   return equirectangularTexture(data, width, height, true);
 }
 

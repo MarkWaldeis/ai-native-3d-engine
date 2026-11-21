@@ -15,7 +15,7 @@
       "props": {
         "ai_ui": {
           "title": "Materiallabor", "badge": "AI ENGINE · MATERIALSTUDIO",
-          "intro_title": "Ein Licht. Vier Materialien.",
+          "intro_title": "Vier Materialien im Licht.",
           "intro_text": "Entdecke Chrom, Kupfer, Klarlack und Neon. Laufe mit WASD oder dem Joystick an den Podesten entlang und beobachte, wie sich Reflexionen und Glanz verändern.",
           "mission": "Links nach rechts: Chrom · Kupfer · Klarlack · Neon"
         },
@@ -34,14 +34,15 @@
     {"id": 5, "name": "platform", "kind": "box", "size": [8.7, 0.18, 2.9], "transform": {"position": [0, 0.09, -1.18]}, "color": [0.074, 0.084, 0.12, 1]},
     {"id": 6, "name": "platform-strip", "kind": "box", "size": [8.52, 0.035, 0.022], "transform": {"position": [0, 0.1, 0.279]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#4aa5ff", "emissive_intensity": 2.5}}},
     {"id": 7, "name": "chrome-plinth", "kind": "cylinder", "radius": 0.74, "height": 0.82, "segments": 48, "transform": {"position": [-3, 0.59, -1.15]}, "color": [0.09, 0.115, 0.15, 1]},
-    {"id": 8, "name": "copper-plinth", "kind": "cylinder", "radius": 0.74, "height": 0.82, "segments": 48, "transform": {"position": [-1, 0.59, -1.15]}, "color": [0.09, 0.115, 0.15, 1]},
+    {"id": 8, "name": "copper-plinth", "kind": "cylinder", "radius": 0.74, "height": 0.82, "segments": 48, "transform": {"position": [-1, 0.59, -1.15]}, "color": [0.09, 0.115, 0.15, 1], "props": {"ai_material": {"roughness": 0.82, "metalness": 0, "sheen": 0.75, "sheen_color": "#6da2e8"}}},
     {"id": 9, "name": "lacquer-plinth", "kind": "cylinder", "radius": 0.74, "height": 0.82, "segments": 48, "transform": {"position": [1, 0.59, -1.15]}, "color": [0.09, 0.115, 0.15, 1]},
     {"id": 10, "name": "neon-plinth", "kind": "cylinder", "radius": 0.74, "height": 0.82, "segments": 48, "transform": {"position": [3, 0.59, -1.15]}, "color": [0.09, 0.115, 0.15, 1]},
     {"id": 11, "name": "chrome", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [-3, 1.63, -1.15]}, "color": [0.82, 0.86, 0.9, 1], "props": {"ai_material": {"metalness": 1, "roughness": 0.09}}},
-    {"id": 12, "name": "copper", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [-1, 1.63, -1.15]}, "color": [0.94, 0.43, 0.21, 1], "props": {"ai_material": {"metalness": 1, "roughness": 0.3}}},
-    {"id": 13, "name": "lacquer", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [1, 1.63, -1.15]}, "color": [0.035, 0.19, 0.35, 1], "props": {"ai_material": {"metalness": 0.36, "roughness": 0.44, "clearcoat": 1, "clearcoat_roughness": 0.13}}},
+    {"id": 12, "name": "copper", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [-1, 1.63, -1.15]}, "color": [0.94, 0.43, 0.21, 1], "props": {"ai_material": {"metalness": 1, "roughness": 0.3, "anisotropy": 0.73, "anisotropy_rotation_deg": 28}}},
+    {"id": 13, "name": "lacquer", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [1, 1.63, -1.15]}, "color": [0.035, 0.19, 0.35, 1], "props": {"ai_material": {"metalness": 0.36, "roughness": 0.44, "clearcoat": 1, "clearcoat_roughness": 0.13, "iridescence": 0.45, "iridescence_thickness_nm": 370}}},
     {"id": 14, "name": "neon", "kind": "sphere", "radius": 0.59, "segments": 64, "transform": {"position": [3, 1.59, -1.15]}, "color": [0.05, 0.004, 0.06, 1], "props": {"ai_material": {"emissive": "#fc277d", "emissive_intensity": 2.7, "roughness": 0.35}, "ai_light": {"color": "#fc277d", "intensity": 6, "range": 3.2}}},
     {"id": 15, "name": "left-lamp", "kind": "box", "size": [0.11, 1.7, 0.1], "transform": {"position": [-5.5, 0.85, -3.56]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#ffba76", "emissive_intensity": 4}, "ai_light": {"color": "#ffba76", "intensity": 15, "range": 6, "offset": [0.15, 0, 0.12]}}},
-    {"id": 16, "name": "right-lamp", "kind": "box", "size": [0.11, 1.7, 0.1], "transform": {"position": [5.5, 0.85, -3.56]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#5fcfff", "emissive_intensity": 4}, "ai_light": {"color": "#5fcfff", "intensity": 15, "range": 6, "offset": [-0.15, 0, 0.12]}}}
+    {"id": 16, "name": "right-lamp", "kind": "box", "size": [0.11, 1.7, 0.1], "transform": {"position": [5.5, 0.85, -3.56]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#5fcfff", "emissive_intensity": 4}, "ai_light": {"color": "#5fcfff", "intensity": 15, "range": 6, "offset": [-0.15, 0, 0.12]}}},
+    {"id": 17, "name": "gallery-spot", "kind": "cylinder", "radius": 0.17, "height": 0.16, "segments": 24, "transform": {"position": [-1, 3.4, -2.4], "rotation_deg": [56, 0, 0]}, "color": [0.06, 0.062, 0.075, 1], "props": {"ai_material": {"metalness": 0.62, "roughness": 0.34}, "ai_light": {"type": "spot", "direction": [0, 0, 1], "offset": [0, 0, 0.22], "color": "#ffe0ab", "intensity": 24, "range": 5.5, "inner_angle": 12, "outer_angle": 29}}}
   ]
 }

@@ -33,9 +33,11 @@ project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
 panorama (64–4096 pixels wide, up to 32 MiB, standard `-Y +X` orientation).
 Export validates and bundles it locally. It becomes both the background and
 the source of reflected light; set `environment_background: false` to keep the
-procedural sky visible while using the HDR map for lighting. The map doesn't
-change the authored sun or fog; align the sun direction with the image when
-needed. If the asset fails to load, the player uses the procedural sky.
+procedural sky visible while using the HDR map for lighting. Set
+`environment_rotation_deg: 90` to turn the panorama and its reflections from
++X toward +Z (rounds to one horizontal HDRI pixel). Rotation affects only the
+authored map, not the sun or fog. If the asset fails to load, the player uses
+the procedural sky.
 
 **Try it:** Export the material studio to compare chrome, copper, clearcoat and
 neon under the same studio lighting. Its HDR map can be regenerated with
@@ -80,6 +82,15 @@ For primitives, set `props.ai_material` (object or JSON string) to supply
 `emissive` is an sRGB `#rrggbb` color; `emissive_intensity` is a linear
 multiplier (0–32). Emissive materials above the bloom threshold can glow without
 adding a light to the scene. The existing entity `color` is the linear base color.
+Optional finishes use Three.js physical shading only when enabled:
+
+| Finish | `ai_material` properties |
+| --- | --- |
+| Brushed metals | `anisotropy` (0–1), `anisotropy_rotation_deg` (UV-space angle) |
+| Cloth highlights | `sheen` (0–1), `sheen_color` (sRGB hex), `sheen_roughness` (0–1) |
+| Thin-film colors | `iridescence` (0–1), `iridescence_ior` (1–2.5), `iridescence_thickness_nm` (100–1200) |
+
+Set the strength to zero or omit it to keep the corresponding shader work off.
 Authored GLB textures and material parameters are not overridden, and streamed
 primitive instances only share a draw when their resolved materials match.
 For mipmapped GLB textures, balanced and ultra sharpen shallow viewing angles
@@ -97,9 +108,20 @@ with `props.ai_light` (object or JSON string) in an enhanced scene:
 Intensity is measured in candela (0–1000); zero disables the light. Range is
 in metres (0.25–64). The optional offset is in the entity's local coordinates.
 Lights follow moving entities and illuminate PBR surfaces, but do not cast
-shadows. The web player renders the closest 2, 4 or 8 lights for low, balanced
-or ultra. Streamed worlds select around the player rather than the distant
+shadows. The web player renders the closest 2, 4 or 8 point lights for low,
+balanced or ultra. Streamed worlds select around the player rather than the distant
 follow camera, so nearby fixtures stay lit without increasing the GPU budget.
+
+Set `type: "spot"` for a directional cone that follows the entity's local axes
+under rotation and scale.
+It defaults to local −Z; set `direction` to aim along a different local vector.
+`outer_angle` sets the cone half-angle in degrees (1–89, default 35).
+`inner_angle` is the half-angle before the soft edge begins (defaults to 65%
+of the outer angle). The separate spotlight budget is 1, 2 or 4 by tier.
+
+```json
+{"ai_light": {"type": "spot", "direction": [0, -1, 0], "intensity": 30, "range": 7, "inner_angle": 12, "outer_angle": 25}}
+```
 
 These settings affect browser rendering only. They don't change native
 screenshots or the deterministic simulation.
