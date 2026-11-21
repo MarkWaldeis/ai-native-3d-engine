@@ -469,6 +469,7 @@ window.addEventListener('resize', () => { resetInput(); if (renderer && camera) 
 function frame(now) {
   requestAnimationFrame(frame);
   if (!renderer || !ready) return;
+  const frameStart = statsOverlay ? performance.now() : 0;
   try {
     const rawElapsed = (now - previous) / 1000;
     const elapsed = Math.min(rawElapsed, 0.1); previous = now;
@@ -490,18 +491,36 @@ function frame(now) {
       }
     }
     renderer.info.reset();
+    if (statsOverlay) {
+      stats.ticksPerFrame = 0;
+      stats.tickFrameMs = 0;
+      stats.maxTickMs = 0;
+      stats.simFrameMs = 0;
+      stats.frameGapMs = rawElapsed * 1000;
+    }
     if (running) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
       if (previewRemaining === 0) stopPreview();
       accumulator += elapsed;
+      const simStart = statsOverlay ? performance.now() : 0;
       while (accumulator >= 1 / 60 && running) {
         const position = transforms.get(playerId)?.transform.position;
         if (streaming && position) game.set_active_region(position[0],position[2],streaming.config.sim_radius,streaming.config.sim_hysteresis);
         const tickStart = performance.now();
-        apply(JSON.parse(game.tick(JSON.stringify(controls()))));
+        const inputs = JSON.stringify(controls());
+        const wasmStart = statsOverlay ? performance.now() : 0;
+        const result = game.tick(inputs);
+        if (statsOverlay) {
+          const tickMs = performance.now() - wasmStart;
+          stats.ticksPerFrame++;
+          stats.tickFrameMs += tickMs;
+          stats.maxTickMs = Math.max(stats.maxTickMs, tickMs);
+        }
+        apply(JSON.parse(result));
         stats.tickMs = performance.now() - tickStart;
         accumulator -= 1 / 60;
       }
+      if (statsOverlay) stats.simFrameMs = performance.now() - simStart;
     }
     updateCamera(false, elapsed);
     occluder?.beginFrame();
@@ -531,6 +550,7 @@ function frame(now) {
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
+      stats.frameCpuMs = performance.now() - frameStart;
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
       statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
