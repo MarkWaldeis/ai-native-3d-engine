@@ -10,6 +10,7 @@ use shared::mcp_protocol::{builtin_tools, error_result, JsonRpcRequest, JsonRpcR
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
 pub const SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
 mod discovery;
+pub mod savegame;
 mod netcode;
 pub mod terrain;
 pub mod animation;
@@ -110,7 +111,7 @@ fn dispatch(req: &JsonRpcRequest, handler: &mut dyn ToolHandler) -> Value {
                 return error(id, -32602, "arguments must be an object");
             }
             if !builtin_tools().iter().any(|tool| tool.name == name) && !terrain::NAMES.contains(&name)
-                && !physics::NAMES.contains(&name) && name != "net_simulate" {
+                && !physics::NAMES.contains(&name) && !savegame::NAMES.contains(&name) && name != "net_simulate" {
                 return error(
                     id,
                     -32602,
@@ -119,7 +120,7 @@ fn dispatch(req: &JsonRpcRequest, handler: &mut dyn ToolHandler) -> Value {
                         shared::suggestions::hint(
                             name,
                             builtin_tools().iter().map(|tool| tool.name)
-                                .chain(terrain::NAMES.iter().chain(physics::NAMES).copied())
+                                .chain(terrain::NAMES.iter().chain(physics::NAMES).chain(savegame::NAMES).copied())
                                 .chain(std::iter::once("net_simulate"))
                         )
                     ),
