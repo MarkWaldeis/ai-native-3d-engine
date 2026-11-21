@@ -1,5 +1,6 @@
 //! Deterministic, isolated gameplay runtime.
 mod physics;
+mod terrain_stream;
 pub mod report;
 mod script;
 
@@ -135,17 +136,18 @@ impl Simulation {
             .map_err(|e| anyhow::anyhow!("{label}:{}: {e}", e.position().line().unwrap_or(1)))
     }
     pub fn new(scene: Scene, root: &Path) -> Result<Self> {
-        Self::create(scene, root.canonicalize()?, None)
+        Self::create(scene, root.canonicalize()?, None, BTreeMap::new())
     }
 
     pub fn from_sources(scene: Scene, sources: BTreeMap<String, String>) -> Result<Self> {
-        Self::create(scene, PathBuf::new(), Some(sources))
+        Self::from_sources_with_terrain(scene, sources, BTreeMap::new())
     }
 
     fn create(
         mut scene: Scene,
         root: PathBuf,
         sources: Option<BTreeMap<String, String>>,
+        terrains: BTreeMap<String, engine_terrain::web::StreamedTerrain>,
     ) -> Result<Self> {
         if scene.entities.len() > MAX_ENTITIES {
             bail!("simulation supports at most {MAX_ENTITIES} entities");
@@ -181,12 +183,16 @@ impl Simulation {
             grounded: BTreeSet::new(),
             next_id,
         }));
-        let engine = script::engine(data.clone());
+        let terrain_sources: terrain_stream::TerrainSources = Rc::new(RefCell::new(terrains.into_iter().map(|(p,t)| (p,Rc::new(RefCell::new(t)))).collect()));
+        let mut engine = script::engine(data.clone());
+        terrain_stream::register(&mut engine, data.clone(), terrain_sources.clone());
+        let mut physics = Physics::new(root.clone());
+        physics.terrain_sources = terrain_sources;
         let mut simulation = Self {
             data,
             engine,
             scripts: BTreeMap::new(),
-            physics: Physics::new(root.clone()),
+            physics,
             root,
             sources,
             active_region: None,
@@ -194,6 +200,7 @@ impl Simulation {
             tick: 0,
             failed: false,
         };
+        simulation.physics.reconcile_terrain(&simulation.data.borrow().scene)?;
         simulation.prepare_scripts()?;
         simulation
             .physics
