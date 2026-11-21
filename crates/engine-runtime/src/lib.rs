@@ -6,7 +6,7 @@ mod physics;
 mod physics_config;
 mod ragdoll;
 mod netcode;
-pub use netcode::{NetEntityState, SimState};
+pub use netcode::{NetBoneState, NetEntityState, NetRagdollState, SimState};
 mod terrain_stream;
 pub mod report;
 mod script;

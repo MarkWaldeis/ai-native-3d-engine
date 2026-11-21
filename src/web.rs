@@ -16,6 +16,8 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("net.js", include_str!("../crates/engine-web/player/net.js")),
     ("input.js", include_str!("../crates/engine-web/player/input.js")),
     ("input-settings.js", include_str!("../crates/engine-web/player/input-settings.js")),
+    ("touch.js", include_str!("../crates/engine-web/player/touch.js")),
+    ("touch-controls.js", include_str!("../crates/engine-web/player/touch-controls.js")),
     ("animation.js", include_str!("../crates/engine-web/player/animation.js")),
     ("favicon.svg", include_str!("../crates/engine-web/favicon.svg")),
     ("asset-streaming.js", include_str!("../crates/engine-web/player/asset-streaming.js")),
@@ -92,6 +94,8 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("hud.js", include_str!("../crates/engine-web/player/hud.js")),
     ("hud-layout.js", include_str!("../crates/engine-web/player/hud-layout.js")),
     ("hud-renderer.js", include_str!("../crates/engine-web/player/hud-renderer.js")),
+    ("sdf-font.js", include_str!("../crates/engine-web/player/sdf-font.js")),
+    ("sdf-text.js", include_str!("../crates/engine-web/player/sdf-text.js")),
     (
         "vendor/three.module.js",
         include_str!("../crates/engine-web/player/vendor/three.module.js"),

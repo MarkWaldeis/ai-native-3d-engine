@@ -85,3 +85,14 @@ test('gamepad capture waits for held buttons to release and Escape cancels keybo
   settings.dialog.dispatchEvent(escape);
   assert.equal(settings.capturing, null); assert.ok(settings.open); assert.ok(escape.defaultPrevented);
 });
+
+test('Vibration toggle persists alongside bindings, loads over authored strength and resets', () => {
+  const { settings, input, storage, elements } = fixture(undefined, { haptics: { strength: 0.4 } });
+  const toggle = elements.get('input-haptics');
+  assert.equal(toggle.checked, true); toggle.checked = false; toggle.dispatchEvent(new Event('change'));
+  assert.deepEqual(JSON.parse(storage.get(settings.storageKey)).haptics, { enabled: false, strength: 0.4 });
+  assert.deepEqual(input.config.haptics, { enabled: false, strength: 0.4 });
+  const restored = fixture(JSON.stringify({ haptics: { enabled: false } }), { haptics: { strength: 0.4 } });
+  assert.equal(restored.elements.get('input-haptics').checked, false); assert.equal(restored.input.config.haptics.strength, 0.4);
+  elements.get('input-reset').dispatchEvent(new Event('click')); assert.equal(toggle.checked, true);
+});

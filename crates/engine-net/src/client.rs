@@ -224,14 +224,42 @@ impl NetClient {
         actions: Actions,
         now_ms: f64,
     ) -> Result<ClientMessage> {
+        self.advance_to_with_first_actions(server_tick, actions.clone(), actions, now_ms)
+    }
+
+    /// Use first_actions on only the first prediction tick, then held actions.
+    pub fn advance_to_with_first_actions(
+        &mut self,
+        server_tick: u64,
+        actions: Actions,
+        first_actions: Actions,
+        now_ms: f64,
+    ) -> Result<ClientMessage> {
         let target = server_tick.saturating_add(self.stats.lead_ticks.max(1));
         if target.saturating_sub(self.simulation.tick) > self.config.history_capacity as u64 {
             bail!("client clock jump exceeds history");
         }
+        let first_tick = self.simulation.tick;
+        let has_impulse = first_actions != actions;
+        let mut next_actions = first_actions;
         while self.simulation.tick < target {
-            self.tick(actions.clone(), now_ms)?;
+            self.tick(next_actions, now_ms)?;
+            next_actions = actions.clone();
         }
-        Ok(self.input_message())
+        let mut message = self.input_message();
+        if has_impulse && self.simulation.tick > first_tick {
+            if let ClientMessage::Input { frames, .. } = &mut message {
+                // Preserve both impulse and release across a large catch-up batch.
+                for tick in first_tick..(first_tick + 2).min(self.simulation.tick) {
+                    if !frames.iter().any(|frame| frame.tick == tick) {
+                        if let Some(frame) = self.frames.get(&tick) { frames.push(frame.clone()); }
+                    }
+                }
+                frames.sort_by_key(|frame| frame.tick);
+                while frames.len() > 128 { frames.remove(2); }
+            }
+        }
+        Ok(message)
     }
 
     pub fn input_message(&self) -> ClientMessage {
@@ -309,6 +337,19 @@ impl NetClient {
                 .chain(&s.rotation_deg)
                 .chain(&s.linvel)
                 .chain(&s.angvel)
+                .chain(s.ragdoll.iter().flat_map(|rig| {
+                    rig.upright_rotation_deg
+                        .iter()
+                        .chain(rig.parts.iter().flat_map(|bone| {
+                            bone.position
+                                .iter()
+                                .chain(&bone.rotation_deg)
+                                .chain(&bone.linvel)
+                                .chain(&bone.angvel)
+                                .chain(std::iter::once(&bone.radius))
+                                .chain(std::iter::once(&bone.half_height))
+                        }))
+                }))
                 .any(|v| !v.is_finite())
         }) {
             bail!("non-finite snapshot entity");
@@ -451,7 +492,8 @@ impl NetClient {
             }
         }
         self.simulation.tick = tick;
-        self.simulation.apply_net_entity_states(&snapshot.entities);
+        self.simulation
+            .apply_net_entity_states(&snapshot.entities)?;
         self.simulation
             .apply_net_script_state(snapshot.script_state.clone());
         self.simulation
@@ -544,6 +586,13 @@ impl NetClient {
             let decay = (1.0 - elapsed / self.config.smoothing_ms).clamp(0.0, 1.0) as f32;
             for i in 0..3 {
                 own.position[i] += self.smooth_offset[i] * decay;
+            }
+            if let Some(rig) = &mut own.ragdoll {
+                for bone in &mut rig.parts {
+                    for i in 0..3 {
+                        bone.position[i] += self.smooth_offset[i] * decay;
+                    }
+                }
             }
             states.push(own);
         }

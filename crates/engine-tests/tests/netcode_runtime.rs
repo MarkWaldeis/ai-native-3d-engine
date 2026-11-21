@@ -80,7 +80,8 @@ fn rollback_and_corrections_preserve_active_ragdoll_physics() {
     assert!(sim.net_entity_states()[0].linvel[1] < 0.0);
     let mut corrections = sim.net_entity_states();
     corrections[0].position[0] += 4.0;
-    sim.apply_net_entity_states(&corrections);
+    corrections[0].ragdoll = None;
+    sim.apply_net_entity_states(&corrections).unwrap();
     let corrected = sim.ragdoll_states();
     for (before, after) in checkpoint_pose[0]["parts"].as_array().unwrap().iter()
         .zip(corrected[0]["parts"].as_array().unwrap()) {
@@ -157,7 +158,7 @@ fn network_entity_insertion_replaces_definitions_preserves_ids_and_is_atomic() {
 #[test]
 fn network_corrections_update_bodies_velocities_and_script_map() {
     let mut sim = simulation();
-    sim.apply_net_entity_states(&[]);
+    sim.apply_net_entity_states(&[]).unwrap();
     let mut states = sim.net_entity_states();
     assert_eq!(states.iter().map(|s| s.id).collect::<Vec<_>>(), vec![1,2,3]);
     let ball = &mut states[1];
@@ -165,11 +166,11 @@ fn network_corrections_update_bodies_velocities_and_script_map() {
     ball.rotation_deg = [10.0,20.0,30.0];
     ball.linvel = [2.0,0.0,0.0];
     ball.angvel = [0.0,1.0,0.0];
-    sim.apply_net_entity_states(&states);
+    sim.apply_net_entity_states(&states).unwrap();
     assert_eq!(sim.net_entity_states(), states);
     let mut unknown = states[1].clone();
     unknown.id = 999;
-    sim.apply_net_entity_states(&[unknown]);
+    sim.apply_net_entity_states(&[unknown]).unwrap();
     assert_eq!(sim.net_entity_states(), states);
     sim.apply_net_script_state(json!({"count":40,"server":true}));
     sim.apply_net_script_state(json!(null));

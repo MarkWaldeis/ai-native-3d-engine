@@ -19,7 +19,7 @@ export class InputSettings {
         const parsed = parseInputConfig(overrides);
         this.warnings.push(...parsed.warnings);
         if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
-          input.fromJSON({ ...input.toJSON(), ...overrides, bindings: { ...input.config.bindings, ...overrides.bindings } });
+          input.fromJSON({ ...input.toJSON(), ...overrides, bindings: { ...input.config.bindings, ...overrides.bindings }, haptics: { ...input.config.haptics, ...overrides.haptics } });
         }
       }
     } catch { this.warnings.push('Steuerung: gespeicherte Einstellungen konnten nicht geladen werden.'); }
@@ -29,6 +29,8 @@ export class InputSettings {
     this.trigger = document.getElementById('input-settings');
     this.trigger.disabled = false;
     this.trigger.addEventListener('click', () => this.show());
+    this.vibration = document.getElementById('input-haptics');
+    this.vibration.addEventListener('change', () => { input.config.haptics.enabled = this.vibration.checked; this.save(); });
     document.getElementById('input-close').addEventListener('click', () => this.dialog.close());
     this.dialog.addEventListener('close', () => { this.cancelCapture(); this.trigger.focus(); });
     this.dialog.addEventListener('cancel', event => { if (this.capturing) { event.preventDefault(); this.cancelCapture(); } });
@@ -58,6 +60,7 @@ export class InputSettings {
   cancelCapture() { this.capturing = null; this.status.textContent = 'Wähle eine Aktion zum Belegen. Escape bricht die Aufnahme ab.'; }
   render() {
     this.onChange();
+    this.vibration.checked = this.input.config.haptics.enabled;
     this.list.replaceChildren();
     for (const action of ACTIONS) {
       const row = document.createElement('li'), text = document.createElement('div');
@@ -77,9 +80,10 @@ export class InputSettings {
     this.input.config.bindings[action] = this.input.config.bindings[action].filter(current => (current.type === 'key') !== (binding.type === 'key'));
     this.input.rebind(action, binding); this.cancelCapture(); this.render();
     this.status.textContent = `${labels[action]}: ${describeBinding(binding)} gespeichert.`;
-    try { localStorage.setItem(this.storageKey, JSON.stringify(this.input)); } catch { this.warnStorage(); }
+    this.save();
     this.list.querySelector(`[data-action="${action}"]`).focus();
   }
+  save() { try { localStorage.setItem(this.storageKey, JSON.stringify(this.input)); } catch { this.warnStorage(); } }
   poll(pads) {
     if (!this.open || !this.capturing) return;
     const pushed = pushedBindings(pads), held = new Set(pushed.map(signature));

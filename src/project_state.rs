@@ -9,9 +9,36 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+#[path = "checkpoint_journal.rs"]
+mod journal;
+
 pub(crate) struct Storage {
     root: PathBuf,
     _writer: File,
+    journal: std::sync::Mutex<journal::Cache>,
+}
+
+impl Drop for Storage {
+    fn drop(&mut self) {
+        let _ = self._writer.unlock();
+    }
+}
+
+#[cfg(test)]
+mod storage_tests {
+    #[test]
+    fn drop_releases_writer_even_with_an_outliving_duplicate_descriptor() {
+        let root=std::env::temp_dir().join(format!("storage-drop-{}-{}",std::process::id(),std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        let storage=super::Storage::open(&root).unwrap();
+        let duplicate=storage._writer.try_clone().unwrap();
+        assert!(super::Storage::open(&root).is_err());
+        drop(storage);
+        let next=super::Storage::open(&root).unwrap();
+        drop(next);
+        drop(duplicate);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 }
 
 fn metadata_dir(root: &Path) -> Result<PathBuf> {
@@ -115,18 +142,13 @@ impl Storage {
         Ok(Self {
             root: root.into(),
             _writer: writer,
+            journal: Default::default(),
         })
     }
 
     pub(crate) fn restore(&self) -> Result<Option<(World, Swarm)>> {
-        let path = project_path(&self.root, Path::new(".ai-engine/state.json"))?;
-        let bytes = match std::fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(error.into()),
-        };
-        let state: Value = serde_json::from_slice(&bytes)
-            .context("invalid coordination checkpoint; refusing to reset project state")?;
+        let mut journal = self.journal.lock().map_err(|_|anyhow::anyhow!("checkpoint cache poisoned"))?;
+        let Some(state) = journal.load(&self.root)? else {return Ok(None)};
         ensure!(
             state["version"] == 1,
             "unsupported coordination checkpoint version"
@@ -266,10 +288,9 @@ impl Storage {
         let instant = Instant::now();
         let deadline =
             |expiry: Instant| wall + expiry.saturating_duration_since(instant).as_millis() as u64;
-        atomic_write(
+        self.journal.lock().map_err(|_|anyhow::anyhow!("checkpoint cache poisoned"))?.save(
             &self.root,
-            "state.json",
-            &json!({"version":1,"project_id":self.root,"saved_at_ms":wall,
+            json!({"version":1,"project_id":self.root,"saved_at_ms":wall,
                 "world":world.checkpoint(),"tasks":swarm.tasks,"task_sequence":swarm.task_sequence,
                 "task_journal":swarm.task_journal,"scene_journal":swarm.journal,
                 "locks":swarm.locks.iter().map(|(id,(agent,expiry))|json!({"id":id,"agent":agent,"expires_at_ms":deadline(*expiry)})).collect::<Vec<_>>(),

@@ -233,7 +233,7 @@ fn task_leases_renew_release_expire_take_over_and_fence_late_workers() {
     let first = call(
         &mut engine,
         "task_claim",
-        json!({"id":a,"agent":"worker-a","ttl_s":1}),
+        json!({"id":a,"agent":"worker-a","ttl_s":60}),
     );
     assert!(first["ttl_s"].as_f64().unwrap() > 0.0);
     assert!(engine
@@ -246,7 +246,7 @@ fn task_leases_renew_release_expire_take_over_and_fence_late_workers() {
     call(
         &mut engine,
         "task_renew",
-        json!({"id":a,"agent":"worker-a","lease":first["lease"],"ttl_s":1}),
+        json!({"id":a,"agent":"worker-a","lease":first["lease"],"ttl_s":60}),
     );
     call(
         &mut engine,
@@ -256,7 +256,7 @@ fn task_leases_renew_release_expire_take_over_and_fence_late_workers() {
     let second = call(
         &mut engine,
         "task_claim",
-        json!({"id":a,"agent":"worker-a","ttl_s":1}),
+        json!({"id":a,"agent":"worker-a","ttl_s":60}),
     );
     assert!(engine
         .handle(
@@ -265,6 +265,11 @@ fn task_leases_renew_release_expire_take_over_and_fence_late_workers() {
         )
         .unwrap_err()
         .contains("stale"));
+    call(
+        &mut engine,
+        "task_renew",
+        json!({"id":a,"agent":"worker-a","lease":second["lease"],"ttl_s":1}),
+    );
     std::thread::sleep(Duration::from_millis(1100));
     assert_eq!(
         call(&mut engine, "task_list", json!({"status":"expired"}))
@@ -331,17 +336,17 @@ fn task_leases_renew_release_expire_take_over_and_fence_late_workers() {
     assert_eq!(
         events,
         vec![
-            "create", "create", "claim", "renew", "release", "claim", "takeover", "complete",
+            "create", "create", "claim", "renew", "release", "claim", "renew", "takeover", "complete",
             "claim", "complete"
         ]
     );
-    assert_eq!(journal["entries"][6]["previous_agent"], "worker-a");
+    assert_eq!(journal["entries"][7]["previous_agent"], "worker-a");
     assert_eq!(
         call(&mut engine, "get_task_changes_since", json!({"sequence":6}))["entries"]
             .as_array()
             .unwrap()
             .len(),
-        4
+        5
     );
     assert_eq!(engine.world.revision, revision);
     assert_eq!(

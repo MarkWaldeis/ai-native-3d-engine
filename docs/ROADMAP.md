@@ -22,8 +22,20 @@ Stand: **21. November 2026**, [`3ae0be5`](https://github.com/MarkWaldeis/ai-nati
 | WebKit-CI und Review-Fixes | Verpflichtende iPhone-/iPad-WebKit-Release-Prüfungen, Coin-Touch-Toleranz/Kamera, robuste erste Aktivierung und Favicon; integriert und nach Rebase verifiziert. | [`e3b23b3`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/e3b23b3) |
 | Charakteranimation | Echter Blender-Rig mit mehreren Actions, deterministische Animator-State-Machine/Rhai-Parameter, MCP-Lint sowie simulationsgetriebene Web-Skinning-Crossfades. | [`8028ee6`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/8028ee6), [Details](CHARACTER_ANIMATION.md) |
 | NPC-Navigation | Konservatives 2.5D-Quad-Navmesh mit Region-Tiles und inkrementellem Bake, deterministisches A*/String-Pulling, Nav-Agent/Rhai, MCP-Lint/QA-Overlay und Laternen-Patrouille mit Paritätstrace. | [`417a43d`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/417a43d), [Details](NAVIGATION.md) |
+| Waldwächter-Showcase | Größerer Blender-Wald mit Collection-Prefabs/LODs, vier animierten Rigs, drei Navmesh-Patrouillen, fünf Relikten und Checkpoint-Rückkehr. Bestehende Runtime und Spielersteuerung unverändert. | [Messbericht und Grenzen](SHOWCASE_REPORT.md) |
 
 Der Windows-Flake im Mock-Blender-Socket des Projekt-Recovery-Tests ist mit [`3ae0be5`](https://github.com/MarkWaldeis/ai-native-3d-engine/commit/3ae0be5) behoben. Das ist eine Test-Fixture-Korrektur, keine Änderung der Navigations- oder Renderinglogik.
+
+### Waldwächter: Portrait-Nacharbeit
+
+Der nähere Follow-Ausschnitt ist ausschließlich als `ai_world.camera_distance:18`
+im Spiel, Blender-Original und Inhaltsrezept hinterlegt; Spieler-/Kameracode
+bleibt unverändert. Chromium und WebKit auf iPhone-/iPad-Profilen prüfen weiterhin
+Sieg, Neustart und native/WASM-Parität. **Zuständigkeit beibehalten:** Abstand
+zwischen „BEWEGEN“ und Footer-Hilfe wurde Touch-/Layout-PR **#57** überlassen
+(auch #48 besitzt die Stylesheet-Datei), ohne konkurrierenden CSS-Fix. Der Rebase
+übernimmt jetzt #57: Footer-Hilfe bleibt im Steuerungsdialog zugänglich und wird
+bei aktiven Touch-Controls ausgeblendet. Physische Geräte bleiben offen.
 
 ## Vorschlag: nächste Meilensteine M11+
 
@@ -35,7 +47,7 @@ Priorisierungsvorschlag aus den dokumentierten Grenzen, **keine bereits zugesagt
 | **M12 · Präzisere und dynamische Navigation** | **QA-Teilumfang geliefert:** [begrenzte Multi-Agent-Workloads](NAVIGATION.md#m12-qa-subset-bounded-multi-agent-parity-workloads), vorgebackene L-Korridore/Rampen über negative Tiles, 0–128 Agenten, deterministische Ankunft und native/WASM-Routenparität in Chromium/WebKit mit expliziten Smoke-Budgets. **Offen/abgegrenzt:** dreiecksgenaue Geometrie, direkte Heightfields, Crowd-Avoidance, dynamische Hindernisse und Nav-Tile-IO wegen #37-Physik-/Navigation- und #32/#35-Streaming-Zuständigkeit. |
 | **M13 · Play-State-Recovery** | **In diesem Durchlauf übersprungen:** Savegames (#33) und vollständiger Runtime-/Physik-Rollback (#40) besitzen die nötigen Dateien. Exakte Prozess-Kill/Resume-Abnahme und automatische Play-State-Recovery bleiben offen; vorhandene Savegame-APIs werden nicht dupliziert ([Abgrenzung](DISTRIBUTED_COORDINATION.md#abgrenzung-zu-m13-und-parallelen-arbeiten)). |
 | **M14 · Verteilte Koordination** | **Nur Vertrags-/Doku-Teilumfang geliefert:** [vorgeschlagener Mehrserver-Vertrag](DISTRIBUTED_COORDINATION.md) für dauerhafte Identitäten, Authority, Leases/Fencing, Idempotenz und Partitionen plus Abnahmekatalog. **Nicht implementiert/geprüft:** verteiltes Backend, Migration, Zwei-Server-/Partitionstests; der Runtime-/Netcode-Bereich (#40) bleibt unangetastet. Aktuell weiterhin projektlokaler Single-Writer, kein verteiltes Locking durch kopierte Checkpoints. |
-| **M15 · Prefab-native Laufzeit und skalierbare Persistenz** | **Teilumfang geliefert:** [Authoring-Query-Indizes](LARGE_WORLD_AUTHORING.md#m15-safe-subset-indexed-authoring-queries) für Tags, Komponenten, Prefabs und 128-m-Regionen, mit sicherer Invalidierung/Rebuild nach Änderungen, Rollback und Wiederanlauf; Speicher und MCP-Latenz auf 44 km² gemessen. **Offen/abgegrenzt:** Runtime-Vertrag für geteilte Templates, inkrementelle Checkpoints und Asset-GC wegen eingefrorenem Shared-Vertrag sowie Savegame-/Asset-Streaming-Zuständigkeit. |
+| **M15 · Prefab-native Laufzeit und skalierbare Persistenz** | **Teilumfang geliefert:** [Authoring-Query-Indizes](LARGE_WORLD_AUTHORING.md#m15-safe-subset-indexed-authoring-queries) für Tags, Komponenten, Prefabs und 128-m-Regionen; [inkrementelle Projekt-Checkpoints und konservativer GLB-GC](PROJECT_STORAGE.md) mit Delta-Journal, periodischer Kompaktierung und Dry-run als Standard. **Blockiert/ausdrücklich verschoben:** Prefab-native Laufzeit bis zur Integration von **#34/#46/#48/#51** und Freigabe des eingefrorenen Scene-/Runtime-Vertrags. Instanzen bleiben bis dahin materialisiert. CPU/Heap für vollständige Checkpoint-JSONs und GC weiterer Asset-Typen bleiben offen. |
 | **M16 · Natives Skinning und Animationsausbau** | [Native CPU-Skinning-Wiedergabe und QA-Bounds](CHARACTER_ANIMATION.md#m16--native-posen-und-skinning) nutzen dieselben deterministischen Clip-/Blendzeiten; Posen/Vertices werden gegen three.js geprüft. Keine Änderungen an Material-/Licht-/Post-Qualität. **Weiter offen:** natives GPU-Skinning/Crowd-Budgets, Root Motion, IK/Retargeting und skinned LODs. |
 
 ## Historischer Ausgangspunkt und ursprünglicher Plan

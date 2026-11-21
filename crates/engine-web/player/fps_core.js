@@ -50,8 +50,8 @@ export function fpsInputs(move, look, buttons) {
   if (length > 1) { x /= length; z /= length; }
   return {
     move_x: x, move_z: z, look_yaw: look.yaw, look_pitch: look.pitch,
-    fire: buttons.fire ? 1 : 0, reload: buttons.reload ? 1 : 0,
-    sprint: buttons.sprint ? 1 : 0, jump: buttons.jump ? 1 : 0,
+    fire: buttons.fire > 0.5 ? 1 : 0, reload: buttons.reload > 0.5 ? 1 : 0,
+    sprint: buttons.sprint > 0.5 ? 1 : 0, jump: buttons.jump > 0.5 ? 1 : 0,
   };
 }
 

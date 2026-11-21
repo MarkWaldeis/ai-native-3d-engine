@@ -67,6 +67,53 @@ die Benutzerbelegung und lädt die Autoreneinstellungen bzw. Engine-Standards.
 Ohne verfügbaren Speicher bleibt die Belegung für diese Sitzung wirksam;
 eine Warnung erscheint im Dialog und Protokoll. Es werden keine Daten versendet.
 
+## Touch-Tasten und Vibration
+
+`props.ai_touch` akzeptiert ein Objekt oder JSON-String:
+
+```json
+{"buttons":[
+  {"action":"sprint","label":"Sprint","icon":"»","anchor":"bottom-left","size":"md","hold":true},
+  {"action":"fire","label":"Feuer","anchor":"bottom-right","size":"lg","hold":true},
+  {"action":"reload","label":"Laden","anchor":"right","hold":false}
+],"joystick":{"side":"left","size":120},"hide_default_action":false}
+```
+
+Aktionen entsprechen exakt den oben genannten `InputSystem`-Aktionen. Labels
+erhalten deutsche ARIA-Beschreibungen; fehlende Labels nutzen deutsche
+Aktionsnamen. Anker: `bottom-right` (Standard), `right`, `bottom-left`,
+`top-right`. Größen: `md` (56 px) und `lg` (72 px). `hold` ist standardmäßig
+`true`: gehaltene Finger liefern die Aktion kontinuierlich; `false` liefert
+einen Impuls für den nächsten Simulationstick. Auch sehr kurze Taps bleiben
+bis zum Tick erhalten; Cancel, Pause, Fokusverlust und Neustart löschen sie.
+Jeder Finger wird unabhängig erfasst. `look_x/y` wirken wie positive digitale
+Look-Bindungen; Tastatur-/Gamepad-Remaps ändern die logischen Touch-Aktionen nicht.
+Für `look_x/y` gilt immer `hold:true`; `hold:false` wird mit Warnung korrigiert.
+
+Joystick-Seite: `left` (Standard) oder `right`. Größe: 80–180 px, alternativ
+`md` = 120 und `lg` = 150; im Querformat maximal 100 px. Authored Controls
+ordnen auch Standard-Aktion und FPS-Feuer/Nachladen kollisionsfrei neu an.
+Safe-Area, ShooterHud, Mission/Ziel und Footer bleiben frei; benutzerdefinierte
+HUDs berücksichtigen alle Touch-Tasten. FPS-Touch-Controls vermeiden das
+ShooterHud auch ohne `ai_touch`. Auf Touch-Geräten steht die Hilfe im
+Steuerungsdialog statt über dem HUD im Footer.
+Maximal 12 Zusatztasten; ungültige Felder nutzen Standards und erzeugen Warnungen.
+Bei zu kleinen Viewports werden nicht platzierbare Tasten mit Warnung verborgen.
+`hide_default_action:true` verbirgt nur die normale Aktions-/Sprungtaste.
+
+`ai_input.haptics`: `{"enabled":true,"strength":1}`. `enabled` ist boolesch,
+`strength` liegt zwischen 0 und 1. „Vibration“ im Steuerungsdialog wird zusammen
+mit Remaps pro Spieltitel gespeichert; Reset lädt die Autoreneinstellungen.
+Sammeln/Sieg und WASM-FPS-Treffer-/Schadensereignisse lösen kurze Impulse aus:
+aktives Gamepad via `vibrationActuator.playEffect('dual-rumble', ...)`, sonst
+Touch-Gerät via `navigator.vibrate(ms)`. Stärke skaliert Rumble-Amplituden bzw.
+Vibrationsdauer; 0 oder deaktiviert unterdrückt Impulse. Nicht unterstützte/
+abgelehnte APIs werden ignoriert. Kein Vibrationsversprechen auf iOS/Safari.
+
+DOM-freie Kerne: `touch.js` (Validierung, Layout, Pointer-Zustand, Haptik);
+DOM: `touch-controls.js`. Tests: `tools/test_web_touch.mjs`, echter Browser:
+`tools/verify_web_touch.mjs`; Bilder: `target/touch-shots/`.
+
 ## Module und Prüfungen
 
 `input.js` ist DOM-frei (`InputSystem`, Konfigurationsparser, Totzone,

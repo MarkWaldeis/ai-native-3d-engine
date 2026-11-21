@@ -196,7 +196,20 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 - Tests: `tools/test_web_hud.mjs`, echter Browser: `tools/verify_web_hud.mjs`;
   Bilder unter `target/hud-shots/`. JS enthält keine Spielregeln.
 
+## Welttext / SDF
+
+Entity-Prop `ai_text`: String oder `{text,size,color,outline_color,outline_width,
+offset,billboard,align,max_width,depth_test,fade_distance}`; Vorlagen wie im HUD.
+Runtime-Canvas/SDF-Atlas ohne externe Assets, eine Geometrie pro Label; JS stellt
+nur WASM-State dar. Standard 0.5 m, aufrechte Billboards; Details: `docs/TEXT.md`.
+Tests: `tools/test_web_sdf.mjs`, `tools/verify_web_sdf.mjs`; Bilder:
+`target/sdf-shots/`. Stats: `sdfLabels`, `sdfGlyphs`.
+
 ## Eingabe / Gamepad
+
+`ai_touch` ergänzt logische Touch-Tasten/Joystick-Layout; `ai_input.haptics`
+steuert optionale Gamepad-/Touch-Vibration, gespeichert über „Steuerung“.
+Schema: `docs/INPUT.md`; Tests: `test_web_touch.mjs`, `verify_web_touch.mjs`.
 
 Web-Player: WASD/Pfeile, Leertaste sowie Standard-Gamepads (linker Stick/D-Pad:
 Bewegen, rechter Stick: Zielen, A: Aktion, RT: Feuer, X: Nachladen, L3: Sprint,
