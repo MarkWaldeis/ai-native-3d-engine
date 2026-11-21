@@ -33,7 +33,8 @@ export class GameEffects {
     this.level = graphics?.quality >= 0 ? graphics.quality : matchMedia('(pointer: coarse)').matches ? 1 : 2;
     this.startLevel = this.level; this.fast = 0;
     this.sunOffset = new THREE.Vector3(...(graphics?.sunDirection || [-6, 16, 9]));
-    if (graphics) this.sunOffset.setLength(20);
+    const shadowScale = (graphics?.shadowExtent ?? 24) / 24, shadowHalf = 12 * shadowScale;
+    if (graphics) this.sunOffset.setLength(20 * shadowScale);
     this.slow = 0; this.sampleTime = 0; this.frames = 0;
     const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 256;
     const context = canvas.getContext('2d'), gradient = context.createLinearGradient(0, 0, 0, 256);
@@ -46,7 +47,10 @@ export class GameEffects {
     if (graphics) this.hdr = new HDRPipeline(renderer, graphics);
     scene.add(new THREE.HemisphereLight(graphics?.sky || 0xd9f4ff, graphics?.ground || 0x546445, graphics ? 1.25 : 2));
     this.sun = new THREE.DirectionalLight(graphics?.sunColor || 0xffe6b5, graphics?.sunIntensity ?? 3.2); this.sun.castShadow = this.sun.intensity > 0;
-    Object.assign(this.sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 0.5, far: 55 });
+    Object.assign(this.sun.shadow.camera, {
+      left: -shadowHalf, right: shadowHalf, top: shadowHalf, bottom: -shadowHalf,
+      near: 0.5 * shadowScale, far: 55 * shadowScale,
+    });
     this.sun.shadow.normalBias = 0.045; this.sun.shadow.bias = -0.00015;
     if (graphics) this.shadowGrid = new ShadowGrid(this.sunOffset, this.sun.shadow.camera.up);
     scene.add(this.sun, this.sun.target);

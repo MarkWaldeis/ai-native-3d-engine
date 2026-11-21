@@ -4,7 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {installClock, verifyLantern, verifyLanternTouch} from './lantern_maze/browser.mjs';
-import {verifyGraphics} from './verify_web_graphics.mjs';
+import {verifyGraphics, verifyMobileGraphics} from './verify_web_graphics.mjs';
 const {chromium,webkit,devices} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const engine=process.env.BROWSER_ENGINE || 'chromium';
 assert.ok(['chromium','webkit'].includes(engine),'BROWSER_ENGINE must be chromium or webkit');
@@ -42,6 +42,9 @@ try {
   catch(error){throw new Error(`${engine} release checks cannot run. Install the pinned Playwright browser and OS dependencies (playwright install --with-deps ${engine}); no browser fallback or silent skip is allowed. ${error.message}`);}
   if(engine==='chromium')await verifyGraphics(browser, base, errors, shots);
   const profiles=engine==='webkit'?['iPhone 13','iPad Pro 11']:[null];
+  if(engine==='webkit')for (const profile of profiles) {
+    await verifyMobileGraphics(browser, base, profile, devices[profile], errors, shots);
+  }
   for (const {game,profile} of profiles.flatMap(profile=>games.map(game=>({game,profile})))) {
     const pageShots=profile?path.join(shots,profile.replaceAll(' ','-')):shots;
     await fs.mkdir(pageShots,{recursive:true});

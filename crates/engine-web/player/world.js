@@ -3,6 +3,7 @@ import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
 import { isCollectible } from './presentation.js';
 import { primitiveMaterial, tuneAssetTextures } from './materials.js';
+import { sunShadowSettings } from './graphics-settings.js';
 
 export class WebAssets {
   constructor(anisotropy = 1) {
@@ -71,7 +72,9 @@ export class StreamingWorld {
     const t = e.transform || {position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]};
     const radius = entityRadius(e);
     const key = this.grid.register(e.id,t.position,radius);
-    this.entities.set(e.id,{e,object,key,signature:object ? null : batchKey(e),level:undefined}); this.dirty.add(key);
+    const shadows = object ? null : sunShadowSettings(e.props?.ai_sun_shadow);
+    const signature = shadows ? `${batchKey(e)}:${shadows.castShadow}:${shadows.receiveShadow}` : null;
+    this.entities.set(e.id,{e,object,key,signature,shadows,level:undefined}); this.dirty.add(key);
   }
   batched(e) { return this.config.instancing && canInstance(e); }
   remove(id) {
@@ -101,7 +104,8 @@ export class StreamingWorld {
         if (this.builds.get(key) !== group) return;
         for (const part of parts) {
           const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.billboard = part.billboard; mesh.userData.items = items;
-          mesh.castShadow = !part.billboard; mesh.receiveShadow = true;
+          mesh.castShadow = items[0].shadows.castShadow && !part.billboard;
+          mesh.receiveShadow = items[0].shadows.receiveShadow;
           mesh.userData.support = !!items[0].e.collider;
           items.forEach((item,index) => { this.setMatrix(mesh,index,item,part.matrix); mesh.userData.ids.set(item.e.id,[index]); });
           mesh.computeBoundingSphere(); group.add(mesh);

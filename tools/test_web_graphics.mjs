@@ -34,6 +34,10 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(graphicsConfig({hdr_antialias:false}, 'ultra').hdrAntialias, false);
   assert.equal(config.contactStrength, 0);
   assert.equal(config.contactRadius, 1.2);
+  assert.equal(config.shadowExtent, 24);
+  assert.equal(graphicsConfig({shadow_extent:1000}, 'ultra').shadowExtent, 160);
+  assert.equal(graphicsConfig({shadow_extent:0}, 'ultra').shadowExtent, 8);
+  assert.equal(graphicsConfig({shadow_extent:'90'}, 'ultra').shadowExtent, 24);
   assert.equal(graphicsConfig({contact_occlusion:9}, 'ultra').contactStrength, 1);
   assert.equal(graphicsConfig({contact_radius:0}, 'ultra').contactRadius, 0.1);
   assert.equal(config.sky, '#4d88cb');
