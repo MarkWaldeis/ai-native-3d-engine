@@ -3,6 +3,57 @@ import assert from 'node:assert/strict';
 import * as THREE from '../crates/engine-web/player/vendor/three.module.js';
 import {createTerrain, decodeHeights, sampleTile, terrainLOD, TileQueue} from '../crates/engine-web/player/terrain.js';
 
+function heightfield(magic,n,value) {
+  const bytes=new Uint8Array(12+n*n*2), view=new DataView(bytes.buffer);
+  bytes.set(new TextEncoder().encode(magic)); view.setUint32(4,n,true); view.setUint32(8,n,true);
+  for(let i=0;i<n*n;i++) view.setUint16(12+i*2,value,true);
+  return bytes;
+}
+
+async function terrainFixture(t,{size=[3,3],tile=2,entities,game={},failTile=false}={}) {
+  const originals=['window','location'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]);
+  t.after(()=>{for(const [key,descriptor] of originals) {if(descriptor) Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}});
+  globalThis.window={};globalThis.location={href:'http://localhost/demo/'};
+  const grid=size.map(v=>Math.ceil(v/tile));
+  const manifest={config:{size_m:size,tile_m:tile,samples:3},grid,height_range:[0,100],coarse:{dims:size.map(v=>Math.ceil(v/tile)+1),step:tile,file:'coarse.bin'},tiles:'tiles/{x}_{z}.bin'};
+  const requests=[],registered=[],inserted=[],errors=[];
+  t.mock.method(globalThis,'fetch',async url=>{
+    requests.push(url);
+    if(url.includes('/tiles/') && failTile) return new Response('',{status:404});
+    return new Response(url.endsWith('.json')?JSON.stringify(manifest):url.endsWith('coarse.bin')?heightfield('AITC',manifest.coarse.dims[0],16384):heightfield('AITT',5,49151));
+  });
+  const world=new THREE.Scene();world.fog=new THREE.Fog(0,1,100);
+  const wasm={set_terrain(...args){registered.push(args);},add_terrain_tile(...args){inserted.push(args);},terrain_tiles_wanted(){return '[]';},...game};
+  const api=await createTerrain(THREE,entities||[{props:{ai_terrain:'terrain.json'}}],wasm,world,{},e=>errors.push(e));
+  return {api,world,wasm,requests,registered,inserted,errors};
+}
+
+test('coarse and full-resolution meshes cover padded edge tiles like Rapier', async t=>{
+  const {api,world,errors}=await terrainFixture(t);
+  const assertBounds=()=>{
+    assert.equal(world.children.length,4);
+    for(const mesh of world.children) {
+      mesh.geometry.computeBoundingBox();
+      assert.equal(mesh.geometry.boundingBox.max.x,2);
+      assert.equal(mesh.geometry.boundingBox.max.z,2);
+    }
+    assert.equal(Math.max(...world.children.map(m=>m.position.x+m.geometry.boundingBox.max.x)),4);
+  };
+  assertBounds();
+  api.update(new THREE.PerspectiveCamera(),0);
+  await new Promise(resolve=>setImmediate(resolve));
+  api.update(new THREE.PerspectiveCamera(),500);
+  const fine=world.children.filter(m=>m.visible);
+  assert.equal(fine.length,4);
+  for(const mesh of fine) {
+    const p=mesh.geometry.attributes.position;
+    assert.equal(Math.max(...Array.from({length:p.count},(_,i)=>p.getX(i))),2);
+    assert.equal(Math.max(...Array.from({length:p.count},(_,i)=>p.getZ(i))),2);
+    assert.ok(Math.abs(p.getY(8)-75)<.001);
+  }
+  assert.deepEqual(errors,[]);
+});
+
 test('scenes without terrain need no renderer, WASM calls or browser globals', async () => {
   assert.equal(await createTerrain(null,[],null,null,null,null),null);
   assert.equal(await createTerrain(null,[{props:{}}],null,null,null,null),null);

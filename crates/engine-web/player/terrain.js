@@ -137,7 +137,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
   }
   function buildMesh(chunk, heights, stride) {
     const {map,x,z,offset,material} = chunk, c = map.manifest.config;
-    const width = Math.min(c.tile_m,c.size_m[0]-x*c.tile_m), depth = Math.min(c.tile_m,c.size_m[1]-z*c.tile_m);
+    const width = c.tile_m, depth = c.tile_m;
     const step = heights ? c.tile_m/(c.samples-1)*stride : map.manifest.coarse.step;
     const nx = Math.ceil(width/step)+1, nz = Math.ceil(depth/step)+1;
     const positions = [], normals = [];
