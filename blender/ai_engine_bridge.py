@@ -163,7 +163,7 @@ def _export(request):
 def _dispatch(request):
     command = request.get("command")
     if command == "ping":
-        return {"version": bpy.app.version_string, "background": bpy.app.background}
+        return {"version": bpy.app.version_string, "background": bpy.app.background, "bridge_protocol": 1}
     if command == "exec":
         code = request.get("code")
         if not isinstance(code, str):
@@ -215,7 +215,7 @@ def _dispatch(request):
         return {"objects": [_object_info(obj) for obj in bpy.context.scene.objects]}
     if command == "export":
         return _export(request)
-    raise ValueError(f"unknown command {command!r}; valid commands: ping, exec, scene_info, export")
+    raise ValueError(f"unknown command {command!r}; valid commands: ping, exec, scene_info, export, push_props")
 
 
 def _drain():

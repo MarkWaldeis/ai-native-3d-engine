@@ -1,0 +1,646 @@
+{
+  "measurement": {
+    "start_utc": "2026-11-21T11:44:19.609596+00:00",
+    "init_to_correct_export_s": 907.8462896347046,
+    "init_to_browser_acceptance_s": 954.9461090564728,
+    "model_topology": "one reasoning AI, interleaved live roles; scripted concurrent QA and dying worker",
+    "human_interventions": 0
+  },
+  "role_requests": {
+    "Lead": 24,
+    "QA-Watcher": 4964,
+    "Artist": 23,
+    "Gameplay": 10,
+    "QA": 18,
+    "Ausfall-Worker": 4,
+    "QA-Uebernahme": 7
+  },
+  "observer": {
+    "samples": 1252,
+    "first_s": 121.91272377967834,
+    "last_s": 1467.076455116272,
+    "entity_counts": [
+      0,
+      2,
+      21
+    ],
+    "requests_overlapping_artist_exec": 0,
+    "nonempty_findings": 0
+  },
+  "recovery": {
+    "lease_ttl_s": 2,
+    "worker_exit_code": 23,
+    "old_lease": 1,
+    "new_lease": 2,
+    "death_to_completed_s": 47.68136501312256,
+    "late_worker_rejected": true,
+    "late_worker_error": "task 5 must be claimed by Ausfall-Worker before task_complete"
+  },
+  "rollback": {
+    "stable_revision": 7,
+    "bad_script_assertions_passed": false,
+    "restored_assertions_passed": true,
+    "detection_through_restore_s": 0.020961999893188477,
+    "atomic_rejection_nonmutating": true
+  },
+  "rejected_calls": [
+    {
+      "agent": "Artist",
+      "tool": "set_transform",
+      "arguments": {
+        "id": 2,
+        "position": [
+          0,
+          1,
+          0
+        ]
+      },
+      "start_s": 202.64371490478516,
+      "duration_s": 0.007067499999999997,
+      "ok": false,
+      "expected_error": true
+    },
+    {
+      "agent": "Gameplay",
+      "tool": "set_color",
+      "arguments": {
+        "id": 2,
+        "color": [
+          1,
+          0,
+          0,
+          1
+        ],
+        "expected_revision": 3
+      },
+      "start_s": 202.6951379776001,
+      "duration_s": 0.004877584000000001,
+      "ok": false,
+      "expected_error": true
+    },
+    {
+      "agent": "Lead",
+      "tool": "apply_batch",
+      "arguments": {
+        "mode": "atomic",
+        "expected_revision": 4,
+        "commands": [
+          {
+            "tool": "set_camera",
+            "arguments": {
+              "position": [
+                0,
+                12,
+                12
+              ],
+              "target": [
+                0,
+                0,
+                0
+              ],
+              "fov_deg": 52
+            }
+          },
+          {
+            "tool": "set_color",
+            "arguments": {
+              "id": 999999,
+              "color": [
+                1,
+                0,
+                0,
+                1
+              ]
+            }
+          }
+        ]
+      },
+      "start_s": 202.74318885803223,
+      "duration_s": 0.009403958,
+      "ok": false,
+      "expected_error": true
+    },
+    {
+      "agent": "Ausfall-Worker",
+      "tool": "task_complete",
+      "arguments": {
+        "id": 5,
+        "lease": 1
+      },
+      "start_s": 285.6925230026245,
+      "duration_s": 0.0007037080000000043,
+      "ok": false,
+      "expected_error": true
+    },
+    {
+      "agent": "Lead",
+      "tool": "apply_batch",
+      "arguments": {
+        "mode": "atomic",
+        "expected_revision": 7,
+        "commands": [
+          {
+            "tool": "set_transform",
+            "arguments": {
+              "id": 2,
+              "position": [
+                99,
+                99,
+                99
+              ]
+            }
+          },
+          {
+            "tool": "remove_entity",
+            "arguments": {
+              "id": 999999
+            }
+          }
+        ]
+      },
+      "start_s": 285.69936084747314,
+      "duration_s": 0.0011337500000000028,
+      "ok": false,
+      "expected_error": true
+    },
+    {
+      "agent": "Artist",
+      "tool": "blender_push_props",
+      "arguments": {
+        "ids": [
+          2
+        ]
+      },
+      "start_s": 578.2392930984497,
+      "duration_s": 0.029813209000000004,
+      "ok": false,
+      "expected_error": false
+    }
+  ],
+  "scene_journal": {
+    "current_revision": 12,
+    "entries": [
+      {
+        "agent": "Artist",
+        "ids": [
+          1,
+          2
+        ],
+        "revision": 2,
+        "tool": "blender_sync"
+      },
+      {
+        "agent": "Gameplay",
+        "ids": [
+          2
+        ],
+        "revision": 3,
+        "tool": "write_script"
+      },
+      {
+        "agent": "Artist",
+        "ids": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "revision": 4,
+        "tool": "blender_sync"
+      },
+      {
+        "agent": "Lead",
+        "ids": [],
+        "revision": 5,
+        "tool": "apply_batch"
+      },
+      {
+        "agent": "Ausfall-Worker",
+        "ids": [
+          19
+        ],
+        "revision": 6,
+        "tool": "set_transform"
+      },
+      {
+        "agent": "QA-Uebernahme",
+        "ids": [
+          19
+        ],
+        "revision": 7,
+        "tool": "apply_batch"
+      },
+      {
+        "agent": "Lead",
+        "ids": [
+          2
+        ],
+        "revision": 8,
+        "tool": "write_script"
+      },
+      {
+        "agent": "Lead",
+        "ids": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "revision": 9,
+        "tool": "rollback"
+      },
+      {
+        "agent": "Gameplay",
+        "ids": [
+          2
+        ],
+        "revision": 10,
+        "tool": "write_script"
+      },
+      {
+        "agent": "Artist",
+        "ids": [
+          2
+        ],
+        "revision": 11,
+        "tool": "blender_sync"
+      },
+      {
+        "agent": "Artist",
+        "ids": [
+          2
+        ],
+        "revision": 12,
+        "tool": "blender_sync"
+      }
+    ],
+    "oldest_revision": 2
+  },
+  "task_journal": {
+    "current_sequence": 21,
+    "entries": [
+      {
+        "agent": "Lead",
+        "event": "create",
+        "lease": 0,
+        "previous_agent": null,
+        "sequence": 1,
+        "status": "pending",
+        "task_id": 1,
+        "tool": "task_create",
+        "ttl_s": null
+      },
+      {
+        "agent": "Lead",
+        "event": "create",
+        "lease": 0,
+        "previous_agent": null,
+        "sequence": 2,
+        "status": "pending",
+        "task_id": 2,
+        "tool": "task_create",
+        "ttl_s": null
+      },
+      {
+        "agent": "Lead",
+        "event": "create",
+        "lease": 0,
+        "previous_agent": null,
+        "sequence": 3,
+        "status": "pending",
+        "task_id": 3,
+        "tool": "task_create",
+        "ttl_s": null
+      },
+      {
+        "agent": "Lead",
+        "event": "create",
+        "lease": 0,
+        "previous_agent": null,
+        "sequence": 4,
+        "status": "pending",
+        "task_id": 4,
+        "tool": "task_create",
+        "ttl_s": null
+      },
+      {
+        "agent": "Lead",
+        "event": "create",
+        "lease": 0,
+        "previous_agent": null,
+        "sequence": 5,
+        "status": "pending",
+        "task_id": 5,
+        "tool": "task_create",
+        "ttl_s": null
+      },
+      {
+        "agent": "Artist",
+        "event": "claim",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 6,
+        "status": "claimed",
+        "task_id": 1,
+        "tool": "task_claim",
+        "ttl_s": 599.99998825
+      },
+      {
+        "agent": "Artist",
+        "event": "complete",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 7,
+        "status": "completed",
+        "task_id": 1,
+        "tool": "task_complete",
+        "ttl_s": null
+      },
+      {
+        "agent": "Gameplay",
+        "event": "claim",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 8,
+        "status": "claimed",
+        "task_id": 3,
+        "tool": "task_claim",
+        "ttl_s": 1799.999996
+      },
+      {
+        "agent": "Artist",
+        "event": "claim",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 9,
+        "status": "claimed",
+        "task_id": 2,
+        "tool": "task_claim",
+        "ttl_s": 1799.999995208
+      },
+      {
+        "agent": "Lead",
+        "event": "create",
+        "lease": 0,
+        "previous_agent": null,
+        "sequence": 10,
+        "status": "pending",
+        "task_id": 6,
+        "tool": "task_create",
+        "ttl_s": null
+      },
+      {
+        "agent": "QA-Watcher",
+        "event": "claim",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 11,
+        "status": "claimed",
+        "task_id": 6,
+        "tool": "task_claim",
+        "ttl_s": 3599.999993791
+      },
+      {
+        "agent": "Gameplay",
+        "event": "complete",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 12,
+        "status": "completed",
+        "task_id": 3,
+        "tool": "task_complete",
+        "ttl_s": null
+      },
+      {
+        "agent": "Artist",
+        "event": "complete",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 13,
+        "status": "completed",
+        "task_id": 2,
+        "tool": "task_complete",
+        "ttl_s": null
+      },
+      {
+        "agent": "QA",
+        "event": "claim",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 14,
+        "status": "claimed",
+        "task_id": 4,
+        "tool": "task_claim",
+        "ttl_s": 3599.999995959
+      },
+      {
+        "agent": "Ausfall-Worker",
+        "event": "claim",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 15,
+        "status": "claimed",
+        "task_id": 5,
+        "tool": "task_claim",
+        "ttl_s": 1.999994083
+      },
+      {
+        "agent": "QA-Uebernahme",
+        "event": "takeover",
+        "lease": 2,
+        "previous_agent": "Ausfall-Worker",
+        "sequence": 16,
+        "status": "claimed",
+        "task_id": 5,
+        "tool": "task_claim",
+        "ttl_s": 119.999997
+      },
+      {
+        "agent": "QA-Uebernahme",
+        "event": "complete",
+        "lease": 2,
+        "previous_agent": null,
+        "sequence": 17,
+        "status": "completed",
+        "task_id": 5,
+        "tool": "task_complete",
+        "ttl_s": null
+      },
+      {
+        "agent": "QA",
+        "event": "renew",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 18,
+        "status": "claimed",
+        "task_id": 4,
+        "tool": "task_renew",
+        "ttl_s": 3599.999997209
+      },
+      {
+        "agent": "QA-Watcher",
+        "event": "renew",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 19,
+        "status": "claimed",
+        "task_id": 6,
+        "tool": "task_renew",
+        "ttl_s": 3599.999997458
+      },
+      {
+        "agent": "QA",
+        "event": "complete",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 20,
+        "status": "completed",
+        "task_id": 4,
+        "tool": "task_complete",
+        "ttl_s": null
+      },
+      {
+        "agent": "QA-Watcher",
+        "event": "complete",
+        "lease": 1,
+        "previous_agent": null,
+        "sequence": 21,
+        "status": "completed",
+        "task_id": 6,
+        "tool": "task_complete",
+        "ttl_s": null
+      }
+    ],
+    "oldest_sequence": 1
+  },
+  "tasks": [
+    {
+      "agent": "Artist",
+      "depends_on": [],
+      "description": "",
+      "id": 1,
+      "lease": 1,
+      "note": "Blender 5.3: Boden, Figur, Physik und deutsche Spiel-UI synchronisiert.",
+      "status": "completed",
+      "title": "Blender-Grundlage: Boden und Spielfigur"
+    },
+    {
+      "agent": "Artist",
+      "depends_on": [
+        1
+      ],
+      "description": "",
+      "id": 2,
+      "lease": 1,
+      "note": "Blender-Quelle gespeichert; 19 neue GLB-Objekte synchronisiert, gesperrtes Spielerskript unverändert.",
+      "status": "completed",
+      "title": "Blender-Labyrinth, vier Laternen und Tor"
+    },
+    {
+      "agent": "Gameplay",
+      "depends_on": [
+        1
+      ],
+      "description": "",
+      "id": 3,
+      "lease": 1,
+      "note": "Rhai implementiert; QA bestätigt Sieg, kein automatisches Anzünden, Halten statt erneut drücken und Leerlauf.",
+      "status": "completed",
+      "title": "Rhai: Annähern, Anzünden, Tor und Sieg"
+    },
+    {
+      "agent": "QA",
+      "depends_on": [
+        2,
+        3
+      ],
+      "description": "",
+      "id": 4,
+      "lease": 1,
+      "note": "Fünf native Fälle, Desktop und iPhone-Touch-Sieg, vier Lampenpositionen, Tor, Neustart und exakte native/WASM-Parität Tick 685 geprüft; Screenshots angesehen.",
+      "status": "completed",
+      "title": "QA: Negativfälle und spielbarer Export"
+    },
+    {
+      "agent": "QA-Uebernahme",
+      "depends_on": [
+        2
+      ],
+      "description": "",
+      "id": 5,
+      "lease": 2,
+      "note": "Nach echtem Prozessausfall und Lease-Ablauf übernommen; Tor atomar fertig ausgerichtet.",
+      "status": "completed",
+      "title": "Tor ausrichten und Abschluss prüfen"
+    },
+    {
+      "agent": "QA-Watcher",
+      "depends_on": [],
+      "description": "",
+      "id": 6,
+      "lease": 1,
+      "note": "Parallele Journal-/Validierungs-/Simulationsbeobachtung beendet.",
+      "status": "completed",
+      "title": "Parallele QA-Beobachtung während der Modellierung"
+    }
+  ],
+  "locks": [],
+  "native_qa_cases": [
+    "win",
+    "no_action",
+    "held_action",
+    "idle",
+    "far_action"
+  ],
+  "parity": {
+    "win_tick": 685,
+    "cases": 2,
+    "samples_per_case": 25
+  },
+  "reproduction": {
+    "wall_s": 5.837635040283203,
+    "recovery_s": 2.0388667583465576,
+    "source": "separate fresh project; scripted warm-cache replay, not AI design time",
+    "native_cases": 5,
+    "iphone_touch_verified": true
+  },
+  "tests": {
+    "rust_passed": 71,
+    "rust_failed": 0,
+    "rust_ignored": 0,
+    "skip_notices": 0,
+    "javascript_passed": 10
+  }
+}

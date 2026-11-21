@@ -1,0 +1,1349 @@
+{
+  "name": "untitled",
+  "entities": [
+    {
+      "id": 1,
+      "name": "Fundament",
+      "kind": "gltf",
+      "path": "assets/1.glb",
+      "transform": {
+        "position": [
+          0.0,
+          -0.2,
+          0.0
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Fundament",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              6.0,
+              0.20000000298023224,
+              5.0
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.699999988079071,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "ground"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [6, 0.2, 5]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0.7}",
+          "ai_tags": "[\"ground\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [6, 0.2, 5]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0.7}",
+        "ai_tags": "[\"ground\"]"
+      },
+      "tags": [
+        "ground"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          6.0,
+          0.2,
+          5.0
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.7,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 2,
+      "name": "Lumi",
+      "kind": "gltf",
+      "path": "assets/2.glb",
+      "transform": {
+        "position": [
+          -4.5,
+          0.4,
+          3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Lumi",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "radius": 0.3199999928474426,
+            "shape": "sphere"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "dynamic"
+          },
+          "ai_script": {
+            "path": "scripts/player.rhai",
+            "source": "fn on_start(ctx) {\n    ctx.state_set(\"score\", 0);\n    ctx.state_set(\"won\", false);\n    ctx.state_set(\"gate_open\", false);\n    ctx.state_set(\"_held\", false);\n    ctx.state_set(\"_respawns\", 0);\n    ctx.state_set(\"_spawn\", ctx.position());\n}\n\nfn on_tick(ctx, dt) {\n    let p = ctx.position();\n    if p[1] < -4.0 || abs(p[0]) > 7.0 || abs(p[2]) > 6.0 {\n        ctx.set_position(ctx.state_get(\"_spawn\"));\n        ctx.set_velocity([0.0, 0.0, 0.0]);\n        ctx.state_set(\"_respawns\", ctx.state_get(\"_respawns\") + 1);\n        return;\n    }\n    let v = ctx.velocity();\n    ctx.set_velocity([ctx.input(\"move_x\") * 2.5, v[1], ctx.input(\"move_z\") * 2.5]);\n    let pressed = ctx.input(\"action\") > 0.5;\n    if pressed && !ctx.state_get(\"_held\") {\n        for lantern in ctx.find_by_tag(\"lantern\") {\n            let target = ctx.entity_position(lantern);\n            let dx = p[0] - target[0];\n            let dz = p[2] - target[2];\n            if dx*dx + dz*dz < 0.81 {\n                ctx.remove(lantern);\n                let count = ctx.state_get(\"score\") + 1;\n                ctx.spawn_entity(#{name: \"Licht-\" + count.to_string(), kind: \"sphere\", radius: 0.18, segments: 12,\n                    transform: #{position: target}, color: [1.0, 0.71, 0.15, 1.0], tags: [\"lit_lantern\", \"floating\"]});\n                ctx.state_set(\"score\", count);\n                ctx.log(\"Eine Laterne leuchtet!\");\n                break;\n            }\n        }\n    }\n    ctx.state_set(\"_held\", pressed);\n    if ctx.state_get(\"score\") == 4 && !ctx.state_get(\"gate_open\") {\n        ctx.remove(ctx.find_by_name(\"Tor-Riegel\"));\n        ctx.state_set(\"gate_open\", true);\n        ctx.log(\"Alle Laternen leuchten. Das Tor ist offen!\");\n    }\n    if ctx.state_get(\"gate_open\") {\n        let goal = ctx.entity_position(ctx.find_by_name(\"Ausgang\"));\n        let dx = p[0] - goal[0];\n        let dz = p[2] - goal[2];\n        if dx*dx + dz*dz < 0.3025 {\n            ctx.state_set(\"won\", true);\n        }\n    }\n}\n"
+          },
+          "ai_tags": [
+            "player"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"radius\": 0.3199999928474426, \"shape\": \"sphere\"}",
+          "ai_friction_combine": "min",
+          "ai_lock_rotation": true,
+          "ai_rigidbody": "{\"friction\": 0.0, \"mass\": 1.0, \"restitution\": 0.0, \"type\": \"dynamic\"}",
+          "ai_script": "{\"path\": \"scripts/player.rhai\", \"source\": \"fn on_start(ctx) {\\n    ctx.state_set(\\\"score\\\", 0);\\n    ctx.state_set(\\\"won\\\", false);\\n    ctx.state_set(\\\"gate_open\\\", false);\\n    ctx.state_set(\\\"_held\\\", false);\\n    ctx.state_set(\\\"_respawns\\\", 0);\\n    ctx.state_set(\\\"_spawn\\\", ctx.position());\\n}\\n\\nfn on_tick(ctx, dt) {\\n    let p = ctx.position();\\n    if p[1] < -4.0 || abs(p[0]) > 7.0 || abs(p[2]) > 6.0 {\\n        ctx.set_position(ctx.state_get(\\\"_spawn\\\"));\\n        ctx.set_velocity([0.0, 0.0, 0.0]);\\n        ctx.state_set(\\\"_respawns\\\", ctx.state_get(\\\"_respawns\\\") + 1);\\n        return;\\n    }\\n    let v = ctx.velocity();\\n    ctx.set_velocity([ctx.input(\\\"move_x\\\") * 2.5, v[1], ctx.input(\\\"move_z\\\") * 2.5]);\\n    let pressed = ctx.input(\\\"action\\\") > 0.5;\\n    if pressed && !ctx.state_get(\\\"_held\\\") {\\n        for lantern in ctx.find_by_tag(\\\"lantern\\\") {\\n            let target = ctx.entity_position(lantern);\\n            let dx = p[0] - target[0];\\n            let dz = p[2] - target[2];\\n            if dx*dx + dz*dz < 0.81 {\\n                ctx.remove(lantern);\\n                let count = ctx.state_get(\\\"score\\\") + 1;\\n                ctx.spawn_entity(#{name: \\\"Licht-\\\" + count.to_string(), kind: \\\"sphere\\\", radius: 0.18, segments: 12,\\n                    transform: #{position: target}, color: [1.0, 0.71, 0.15, 1.0], tags: [\\\"lit_lantern\\\", \\\"floating\\\"]});\\n                ctx.state_set(\\\"score\\\", count);\\n                ctx.log(\\\"Eine Laterne leuchtet!\\\");\\n                break;\\n            }\\n        }\\n    }\\n    ctx.state_set(\\\"_held\\\", pressed);\\n    if ctx.state_get(\\\"score\\\") == 4 && !ctx.state_get(\\\"gate_open\\\") {\\n        ctx.remove(ctx.find_by_name(\\\"Tor-Riegel\\\"));\\n        ctx.state_set(\\\"gate_open\\\", true);\\n        ctx.log(\\\"Alle Laternen leuchten. Das Tor ist offen!\\\");\\n    }\\n    if ctx.state_get(\\\"gate_open\\\") {\\n        let goal = ctx.entity_position(ctx.find_by_name(\\\"Ausgang\\\"));\\n        let dx = p[0] - goal[0];\\n        let dz = p[2] - goal[2];\\n        if dx*dx + dz*dz < 0.3025 {\\n            ctx.state_set(\\\"won\\\", true);\\n        }\\n    }\\n}\\n\"}",
+          "ai_tags": "[\"player\"]",
+          "ai_ui": "{\"title\": \"Laternen-Labyrinth\", \"score_label\": \"Laternen\", \"score_target\": 4, \"hud_keys\": [\"score\"], \"collectible_tag\": \"lantern\", \"objective_label\": \"Nächste Laterne\", \"action_label\": \"Anzünden\", \"sky_color\": \"#344f69\", \"intro_title\": \"Licht weist den Weg\", \"intro_text\": \"Folge den hellen Wegsteinen zu vier dunklen Laternen. Geh nah heran und tippe auf Anzünden oder drücke die Leertaste. Erst dann öffnet sich das Tor. Der Pfeil zeigt die Luftlinie.\", \"mission\": \"Vier Laternen anzünden · dann zum grünen Ausgang\", \"win_text\": \"Alle vier Laternen leuchten. Das Labyrinth ist erwacht!\", \"win_badge\": \"LICHT GEFUNDEN\", \"badge\": \"ABENDSPAZIERGANG\"}"
+        },
+        "ai_collider": "{\"radius\": 0.3199999928474426, \"shape\": \"sphere\"}",
+        "ai_friction_combine": "min",
+        "ai_lock_rotation": true,
+        "ai_rigidbody": "{\"friction\": 0.0, \"mass\": 1.0, \"restitution\": 0.0, \"type\": \"dynamic\"}",
+        "ai_script": "{\"path\": \"scripts/player.rhai\", \"source\": \"fn on_start(ctx) {\\n    ctx.state_set(\\\"score\\\", 0);\\n    ctx.state_set(\\\"won\\\", false);\\n    ctx.state_set(\\\"gate_open\\\", false);\\n    ctx.state_set(\\\"_held\\\", false);\\n    ctx.state_set(\\\"_respawns\\\", 0);\\n    ctx.state_set(\\\"_spawn\\\", ctx.position());\\n}\\n\\nfn on_tick(ctx, dt) {\\n    let p = ctx.position();\\n    if p[1] < -4.0 || abs(p[0]) > 7.0 || abs(p[2]) > 6.0 {\\n        ctx.set_position(ctx.state_get(\\\"_spawn\\\"));\\n        ctx.set_velocity([0.0, 0.0, 0.0]);\\n        ctx.state_set(\\\"_respawns\\\", ctx.state_get(\\\"_respawns\\\") + 1);\\n        return;\\n    }\\n    let v = ctx.velocity();\\n    ctx.set_velocity([ctx.input(\\\"move_x\\\") * 2.5, v[1], ctx.input(\\\"move_z\\\") * 2.5]);\\n    let pressed = ctx.input(\\\"action\\\") > 0.5;\\n    if pressed && !ctx.state_get(\\\"_held\\\") {\\n        for lantern in ctx.find_by_tag(\\\"lantern\\\") {\\n            let target = ctx.entity_position(lantern);\\n            let dx = p[0] - target[0];\\n            let dz = p[2] - target[2];\\n            if dx*dx + dz*dz < 0.81 {\\n                ctx.remove(lantern);\\n                let count = ctx.state_get(\\\"score\\\") + 1;\\n                ctx.spawn_entity(#{name: \\\"Licht-\\\" + count.to_string(), kind: \\\"sphere\\\", radius: 0.18, segments: 12,\\n                    transform: #{position: target}, color: [1.0, 0.71, 0.15, 1.0], tags: [\\\"lit_lantern\\\", \\\"floating\\\"]});\\n                ctx.state_set(\\\"score\\\", count);\\n                ctx.log(\\\"Eine Laterne leuchtet!\\\");\\n                break;\\n            }\\n        }\\n    }\\n    ctx.state_set(\\\"_held\\\", pressed);\\n    if ctx.state_get(\\\"score\\\") == 4 && !ctx.state_get(\\\"gate_open\\\") {\\n        ctx.remove(ctx.find_by_name(\\\"Tor-Riegel\\\"));\\n        ctx.state_set(\\\"gate_open\\\", true);\\n        ctx.log(\\\"Alle Laternen leuchten. Das Tor ist offen!\\\");\\n    }\\n    if ctx.state_get(\\\"gate_open\\\") {\\n        let goal = ctx.entity_position(ctx.find_by_name(\\\"Ausgang\\\"));\\n        let dx = p[0] - goal[0];\\n        let dz = p[2] - goal[2];\\n        if dx*dx + dz*dz < 0.3025 {\\n            ctx.state_set(\\\"won\\\", true);\\n        }\\n    }\\n}\\n\"}",
+        "ai_tags": "[\"player\"]",
+        "ai_ui": "{\"title\": \"Laternen-Labyrinth\", \"score_label\": \"Laternen\", \"score_target\": 4, \"hud_keys\": [\"score\"], \"collectible_tag\": \"lantern\", \"objective_label\": \"Nächste Laterne\", \"action_label\": \"Anzünden\", \"sky_color\": \"#344f69\", \"intro_title\": \"Licht weist den Weg\", \"intro_text\": \"Folge den hellen Wegsteinen zu vier dunklen Laternen. Geh nah heran und tippe auf Anzünden oder drücke die Leertaste. Erst dann öffnet sich das Tor. Der Pfeil zeigt die Luftlinie.\", \"mission\": \"Vier Laternen anzünden · dann zum grünen Ausgang\", \"win_text\": \"Alle vier Laternen leuchten. Das Labyrinth ist erwacht!\", \"win_badge\": \"LICHT GEFUNDEN\", \"badge\": \"ABENDSPAZIERGANG\"}"
+      },
+      "tags": [
+        "player"
+      ],
+      "collider": {
+        "shape": "sphere",
+        "radius": 0.32
+      },
+      "rigidbody": {
+        "type": "dynamic",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": {
+        "path": "scripts/player.rhai",
+        "source": "fn on_start(ctx) {\n    ctx.state_set(\"score\", 0);\n    ctx.state_set(\"won\", false);\n    ctx.state_set(\"gate_open\", false);\n    ctx.state_set(\"_held\", false);\n    ctx.state_set(\"_respawns\", 0);\n    ctx.state_set(\"_spawn\", ctx.position());\n}\n\nfn on_tick(ctx, dt) {\n    let p = ctx.position();\n    if p[1] < -4.0 || abs(p[0]) > 7.0 || abs(p[2]) > 6.0 {\n        ctx.set_position(ctx.state_get(\"_spawn\"));\n        ctx.set_velocity([0.0, 0.0, 0.0]);\n        ctx.state_set(\"_respawns\", ctx.state_get(\"_respawns\") + 1);\n        return;\n    }\n    let v = ctx.velocity();\n    ctx.set_velocity([ctx.input(\"move_x\") * 2.5, v[1], ctx.input(\"move_z\") * 2.5]);\n    let pressed = ctx.input(\"action\") > 0.5;\n    if pressed && !ctx.state_get(\"_held\") {\n        for lantern in ctx.find_by_tag(\"lantern\") {\n            let target = ctx.entity_position(lantern);\n            let dx = p[0] - target[0];\n            let dz = p[2] - target[2];\n            if dx*dx + dz*dz < 0.81 {\n                ctx.remove(lantern);\n                let count = ctx.state_get(\"score\") + 1;\n                ctx.spawn_entity(#{name: \"Licht-\" + count.to_string(), kind: \"sphere\", radius: 0.18, segments: 12,\n                    transform: #{position: target}, color: [1.0, 0.71, 0.15, 1.0], tags: [\"lit_lantern\", \"floating\"]});\n                ctx.state_set(\"score\", count);\n                ctx.log(\"Eine Laterne leuchtet!\");\n                break;\n            }\n        }\n    }\n    ctx.state_set(\"_held\", pressed);\n    if ctx.state_get(\"score\") == 4 && !ctx.state_get(\"gate_open\") {\n        ctx.remove(ctx.find_by_name(\"Tor-Riegel\"));\n        ctx.state_set(\"gate_open\", true);\n        ctx.log(\"Alle Laternen leuchten. Das Tor ist offen!\");\n    }\n    if ctx.state_get(\"gate_open\") {\n        let goal = ctx.entity_position(ctx.find_by_name(\"Ausgang\"));\n        let dx = p[0] - goal[0];\n        let dz = p[2] - goal[2];\n        if dx*dx + dz*dz < 0.3025 {\n            ctx.state_set(\"won\", true);\n        }\n    }\n}\n"
+      }
+    },
+    {
+      "id": 3,
+      "name": "Mauer-West",
+      "kind": "gltf",
+      "path": "assets/3.glb",
+      "transform": {
+        "position": [
+          -5.9,
+          0.45,
+          0.0
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Mauer-West",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              0.10000000149011612,
+              0.5,
+              5.0
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "wall"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.1, 0.5, 5.0]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"wall\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.1, 0.5, 5.0]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"wall\"]"
+      },
+      "tags": [
+        "wall"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          0.1,
+          0.5,
+          5.0
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 4,
+      "name": "Mauer-Ost",
+      "kind": "gltf",
+      "path": "assets/4.glb",
+      "transform": {
+        "position": [
+          5.9,
+          0.45,
+          0.0
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Mauer-Ost",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              0.10000000149011612,
+              0.5,
+              5.0
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "wall"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.1, 0.5, 5.0]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"wall\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.1, 0.5, 5.0]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"wall\"]"
+      },
+      "tags": [
+        "wall"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          0.1,
+          0.5,
+          5.0
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 5,
+      "name": "Mauer-Nord",
+      "kind": "gltf",
+      "path": "assets/5.glb",
+      "transform": {
+        "position": [
+          0.0,
+          0.45,
+          -4.9
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Mauer-Nord",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              6.0,
+              0.5,
+              0.10000000149011612
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "wall"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [6.0, 0.5, 0.1]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"wall\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [6.0, 0.5, 0.1]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"wall\"]"
+      },
+      "tags": [
+        "wall"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          6.0,
+          0.5,
+          0.1
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 6,
+      "name": "Mauer-Süd",
+      "kind": "gltf",
+      "path": "assets/6.glb",
+      "transform": {
+        "position": [
+          0.0,
+          0.45,
+          4.9
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Mauer-Süd",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              6.0,
+              0.5,
+              0.10000000149011612
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "wall"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [6.0, 0.5, 0.1]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"wall\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [6.0, 0.5, 0.1]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"wall\"]"
+      },
+      "tags": [
+        "wall"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          6.0,
+          0.5,
+          0.1
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 7,
+      "name": "Mauer-Gang-A",
+      "kind": "gltf",
+      "path": "assets/7.glb",
+      "transform": {
+        "position": [
+          -2.0,
+          0.45,
+          1.5
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Mauer-Gang-A",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              0.1599999964237213,
+              0.5,
+              2.5
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "wall"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.16, 0.5, 2.5]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"wall\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.16, 0.5, 2.5]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"wall\"]"
+      },
+      "tags": [
+        "wall"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          0.16,
+          0.5,
+          2.5
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 8,
+      "name": "Mauer-Gang-B",
+      "kind": "gltf",
+      "path": "assets/8.glb",
+      "transform": {
+        "position": [
+          1.2,
+          0.45,
+          -1.5
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Mauer-Gang-B",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              0.1599999964237213,
+              0.5,
+              2.5
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "wall"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.16, 0.5, 2.5]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"wall\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.16, 0.5, 2.5]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"wall\"]"
+      },
+      "tags": [
+        "wall"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          0.16,
+          0.5,
+          2.5
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 9,
+      "name": "Mauer-Gang-C",
+      "kind": "gltf",
+      "path": "assets/9.glb",
+      "transform": {
+        "position": [
+          3.6,
+          0.45,
+          1.8
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Mauer-Gang-C",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              0.1599999964237213,
+              0.5,
+              2.200000047683716
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "wall"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.16, 0.5, 2.2]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"wall\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.16, 0.5, 2.2]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"wall\"]"
+      },
+      "tags": [
+        "wall"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          0.16,
+          0.5,
+          2.2
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 10,
+      "name": "Laternenfuß-1",
+      "kind": "gltf",
+      "path": "assets/10.glb",
+      "transform": {
+        "position": [
+          -4.9,
+          0.0,
+          -3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laternenfuß-1",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"floating\"]"
+        },
+        "ai_tags": "[\"floating\"]"
+      },
+      "tags": [
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 11,
+      "name": "Laterne-1",
+      "kind": "gltf",
+      "path": "assets/11.glb",
+      "transform": {
+        "position": [
+          -4.9,
+          0.98,
+          -3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laterne-1",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "lantern",
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"lantern\", \"floating\"]"
+        },
+        "ai_tags": "[\"lantern\", \"floating\"]"
+      },
+      "tags": [
+        "lantern",
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 12,
+      "name": "Laternenfuß-2",
+      "kind": "gltf",
+      "path": "assets/12.glb",
+      "transform": {
+        "position": [
+          -0.8,
+          0.0,
+          -3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laternenfuß-2",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"floating\"]"
+        },
+        "ai_tags": "[\"floating\"]"
+      },
+      "tags": [
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 13,
+      "name": "Laterne-2",
+      "kind": "gltf",
+      "path": "assets/13.glb",
+      "transform": {
+        "position": [
+          -0.8,
+          0.98,
+          -3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laterne-2",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "lantern",
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"lantern\", \"floating\"]"
+        },
+        "ai_tags": "[\"lantern\", \"floating\"]"
+      },
+      "tags": [
+        "lantern",
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 14,
+      "name": "Laternenfuß-3",
+      "kind": "gltf",
+      "path": "assets/14.glb",
+      "transform": {
+        "position": [
+          -0.8,
+          0.0,
+          3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laternenfuß-3",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"floating\"]"
+        },
+        "ai_tags": "[\"floating\"]"
+      },
+      "tags": [
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 15,
+      "name": "Laterne-3",
+      "kind": "gltf",
+      "path": "assets/15.glb",
+      "transform": {
+        "position": [
+          -0.8,
+          0.98,
+          3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laterne-3",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "lantern",
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"lantern\", \"floating\"]"
+        },
+        "ai_tags": "[\"lantern\", \"floating\"]"
+      },
+      "tags": [
+        "lantern",
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 16,
+      "name": "Laternenfuß-4",
+      "kind": "gltf",
+      "path": "assets/16.glb",
+      "transform": {
+        "position": [
+          2.5,
+          0.0,
+          3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laternenfuß-4",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"floating\"]"
+        },
+        "ai_tags": "[\"floating\"]"
+      },
+      "tags": [
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 17,
+      "name": "Laterne-4",
+      "kind": "gltf",
+      "path": "assets/17.glb",
+      "transform": {
+        "position": [
+          2.5,
+          0.98,
+          3.3
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Laterne-4",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "lantern",
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"lantern\", \"floating\"]"
+        },
+        "ai_tags": "[\"lantern\", \"floating\"]"
+      },
+      "tags": [
+        "lantern",
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 18,
+      "name": "Torrahmen",
+      "kind": "gltf",
+      "path": "assets/18.glb",
+      "transform": {
+        "position": [
+          4.8,
+          0.0,
+          -3.5
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Torrahmen",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"floating\"]"
+        },
+        "ai_tags": "[\"floating\"]"
+      },
+      "tags": [
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 19,
+      "name": "Tor-Riegel",
+      "kind": "gltf",
+      "path": "assets/19.glb",
+      "transform": {
+        "position": [
+          4.8,
+          0.8,
+          -3.5
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Tor-Riegel",
+      "props": {
+        "_blender_gameplay": {
+          "ai_collider": {
+            "half_extents": [
+              0.75,
+              0.800000011920929,
+              0.05999999865889549
+            ],
+            "shape": "box"
+          },
+          "ai_rigidbody": {
+            "friction": 0.0,
+            "mass": 1.0,
+            "restitution": 0.0,
+            "type": "static"
+          },
+          "ai_tags": [
+            "gate_bar"
+          ]
+        },
+        "_blender_props": {
+          "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.75, 0.8, 0.06]}",
+          "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+          "ai_tags": "[\"gate_bar\"]"
+        },
+        "ai_collider": "{\"shape\": \"box\", \"half_extents\": [0.75, 0.8, 0.06]}",
+        "ai_rigidbody": "{\"type\": \"static\", \"friction\": 0}",
+        "ai_tags": "[\"gate_bar\"]"
+      },
+      "tags": [
+        "gate_bar"
+      ],
+      "collider": {
+        "shape": "box",
+        "half_extents": [
+          0.75,
+          0.8,
+          0.06
+        ]
+      },
+      "rigidbody": {
+        "type": "static",
+        "mass": 1.0,
+        "friction": 0.0,
+        "restitution": 0.0
+      },
+      "script": null
+    },
+    {
+      "id": 20,
+      "name": "Ausgang",
+      "kind": "gltf",
+      "path": "assets/20.glb",
+      "transform": {
+        "position": [
+          4.8,
+          0.04,
+          -4.1
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Ausgang",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "goal",
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"goal\", \"floating\"]"
+        },
+        "ai_tags": "[\"goal\", \"floating\"]"
+      },
+      "tags": [
+        "goal",
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    },
+    {
+      "id": 21,
+      "name": "Wegsteine",
+      "kind": "gltf",
+      "path": "assets/21.glb",
+      "transform": {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_deg": [
+          0.0,
+          -0.0,
+          0.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "color": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "visible": true,
+      "source_uid": "lantern-maze-Wegsteine",
+      "props": {
+        "_blender_gameplay": {
+          "ai_tags": [
+            "floating"
+          ]
+        },
+        "_blender_props": {
+          "ai_tags": "[\"floating\"]"
+        },
+        "ai_tags": "[\"floating\"]"
+      },
+      "tags": [
+        "floating"
+      ],
+      "collider": null,
+      "rigidbody": null,
+      "script": null
+    }
+  ],
+  "camera": {
+    "position": [
+      0.0,
+      12.0,
+      12.0
+    ],
+    "target": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "fov_deg": 52.0
+  },
+  "light_dir": [
+    0.5,
+    -1.0,
+    0.35
+  ],
+  "ambient": 0.25
+}

@@ -1,0 +1,7 @@
+.mcp.json
+.cursor/
+web/
+*.blend1
+scripts/recovery_probe.rhai
+assets/blender/
+!scene.json

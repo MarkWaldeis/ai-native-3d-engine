@@ -14,14 +14,22 @@ fn main() -> anyhow::Result<()> {
         let name = trace["name"].as_str().unwrap();
         let ticks = trace["ticks"].as_u64().unwrap();
         let keys = trace["keys"].as_array().unwrap();
-        let mut engine = Engine::new();
-        engine.assets_dir = root.join("assets");
+        let project = trace["project"]
+            .as_str()
+            .map(|path| root.join(path))
+            .unwrap_or_else(|| root.to_path_buf());
+        let mut engine = if trace["project"].is_string() {
+            Engine::from_project(&project)?
+        } else {
+            Engine::new()
+        };
+        engine.assets_dir = project.join("assets");
         engine.world.load_with_root(
             &root.join(format!(
                 "examples/{}/scene.json",
                 trace["game"].as_str().unwrap()
             )),
-            root,
+            &project,
         )?;
         let mut assertions: Vec<Value> = (0..=ticks)
             .map(|tick| json!({"state":"won","equals":true,"at_tick":tick}))

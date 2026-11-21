@@ -1,6 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GameAudio, feedbackEvents, qualitySettings, nextObjective, objectiveBearing } from '../crates/engine-web/player/presentation.js';
+import { GameAudio, feedbackEvents, qualitySettings, nextObjective, objectiveBearing, isCollectible } from '../crates/engine-web/player/presentation.js';
+
+test('authored collectible tags guide new games without targeting unrelated objects', () => {
+  const lantern={tags:['lantern'],position:[4,1,0]},coin={tags:['coin'],position:[1,0,0]},goal={tags:['goal'],position:[0,0,0]};
+  assert.equal(isCollectible(lantern,'lantern'),true);
+  assert.equal(isCollectible(coin,'lantern'),false);
+  assert.equal(isCollectible(lantern),false);
+  assert.equal(nextObjective([goal,coin,lantern],[0,0,0],'lantern'),lantern);
+  assert.equal(nextObjective([goal,coin],[0,0,0],'lantern'),goal);
+  assert.equal(nextObjective([], [0,0,0], 'lantern'),null);
+  assert.equal(nextObjective([coin], [0,0,0], 'unknown'),null);
+});
 
 test('objective guidance chooses the nearest remaining collectible, then the exit', () => {
   const goal={tags:['portal'],position:[1,0,0]},far={tags:['crystal'],position:[8,1,0]},near={tags:['coin'],position:[3,1,0]};

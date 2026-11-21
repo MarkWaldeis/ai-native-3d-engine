@@ -3,18 +3,21 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {installClock, verifyLantern, verifyLanternTouch} from './lantern_maze/browser.mjs';
 const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const site = path.resolve(process.argv[2] || 'target/m9-site');
 const native = JSON.parse(await fs.readFile(process.argv[3] || 'target/web-native.json', 'utf8'));
 const traces = JSON.parse(await fs.readFile(path.join(repo, 'tools/web_traces.json'), 'utf8'));
 assert.equal(new Set(traces.map(trace=>trace.name)).size,traces.length,'trace names must be unique');
-assert.deepEqual([...new Set(traces.map(trace=>trace.game))].sort(),['coin_game','sky_garden'],'both demos need parity traces');
+const games=['sky_garden','coin_game','lantern_maze'];
+assert.deepEqual([...new Set(traces.map(trace=>trace.game))].sort(),[...games].sort(),'all demos need parity traces');
 assert.deepEqual(Object.keys(native).sort(),traces.map(trace=>trace.name).sort(),'native reference must cover exactly these traces');
-for(const game of ['sky_garden','coin_game']) {
+for(const game of games) {
   assert.ok(traces.some(t=>t.game===game && t.expected.won===true),`${game}: missing victory trace`);
-  assert.ok(traces.some(t=>t.game===game && (t.expected.Rettungen>0 || t.expected._respawns>0)),`${game}: missing rescue trace`);
-  for(const trace of traces.filter(t=>t.game===game)) for(const key of ['score','won',game==='sky_garden'?'_checkpoint':'_respawns']) assert.ok(trace.keys.includes(key),`${trace.name}: missing parity field ${key}`);
+  if(game==='lantern_maze')assert.ok(traces.some(t=>t.game===game&&t.expected.gate_open===false&&t.expected.score===0),`${game}: missing closed-gate negative trace`);
+  else assert.ok(traces.some(t=>t.game===game && (t.expected.Rettungen>0 || t.expected._respawns>0)),`${game}: missing rescue trace`);
+  for(const trace of traces.filter(t=>t.game===game)) for(const key of ['score','won',game==='sky_garden'?'_checkpoint':game==='lantern_maze'?'gate_open':'_respawns']) assert.ok(trace.keys.includes(key),`${trace.name}: missing parity field ${key}`);
 }
 const shots = path.resolve(process.env.SHOTS_DIR || 'target/web-release-shots');
 await fs.mkdir(shots, {recursive:true});
@@ -33,7 +36,7 @@ let browser;
 const errors = [];
 try {
   browser = await chromium.launch({...(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {}),args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-  for (const game of ['sky_garden','coin_game']) {
+  for (const game of games) {
     const page = await browser.newPage({viewport:{width:1100,height:800}});
     page.setDefaultTimeout(120000);
     page.on('pageerror', error => errors.push(`${game}: ${error.message}`));
@@ -41,13 +44,7 @@ try {
     await page.route('**/*', route => new URL(route.request().url()).origin===base ? route.continue() : route.abort());
     // Only control frame scheduling: keyboard events still traverse the real UI,
     // camera-relative controls, fixed-step accumulator and exported WASM runtime.
-    await page.addInitScript(() => {
-      let clock = 1000, next = 0; const frames = new Map();
-      Object.defineProperty(performance,'now',{value:()=>clock});
-      window.requestAnimationFrame = callback => {frames.set(++next,callback);return next;};
-      window.cancelAnimationFrame = id => frames.delete(id);
-      window.advanceFrames = count => {for(let i=0;i<count;i++){clock+=1000/60+0.00001;const batch=[...frames.values()];frames.clear();for(const callback of batch)callback(clock);}};
-    });
+    await page.addInitScript(installClock);
     try {
       await page.goto(`${base}/${game}/`);
       await page.waitForFunction(()=>document.getElementById('start')?.disabled===false,null,{polling:50});
@@ -87,6 +84,7 @@ try {
         console.log(`PASS parity ${name}: win_tick=${result.win_tick}; ${result.checkpoints.length} score/checkpoint/rescue samples match native simulate`);
       }
       await page.getByRole('button',{name:'Spielen',exact:true}).click();
+      if(game==='lantern_maze'){await verifyLantern(page,shots);continue;}
       const advance = count => page.evaluate(n=>{advanceFrames(n);return snapshot;},count);
       let snapshot = await advance(2);
       async function until(predicate,label,max=900) {
@@ -140,6 +138,7 @@ try {
       await page.screenshot({path:path.join(shots,`${game}-failure.png`)}).catch(()=>{}); throw error;
     } finally {await page.close();}
   }
+  await verifyLanternTouch(browser,base,shots,errors);
   assert.deepEqual(errors,[],'browser exceptions or HTTP failures');
   console.log('PASS release browser: no page errors or failed asset responses; external requests blocked');
 } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));}

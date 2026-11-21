@@ -3,8 +3,12 @@ export function qualitySettings(level, pixelRatio = 1) {
   return { pixelRatio: Math.min(pixelRatio || 1, caps[level]), shadowSize: level === 2 ? 1024 : 512 };
 }
 
-export function nextObjective(entities, position) {
-  const collectibles = entities.filter(entity => entity.tags.some(tag => tag === 'coin' || tag === 'crystal'));
+export function isCollectible(entity, tag) {
+  return entity.tags.some(value => tag ? value === tag : value === 'coin' || value === 'crystal');
+}
+
+export function nextObjective(entities, position, collectibleTag) {
+  const collectibles = entities.filter(entity => isCollectible(entity, collectibleTag));
   const candidates = collectibles.length ? collectibles : entities.filter(entity => entity.tags.some(tag => tag === 'portal' || tag === 'goal'));
   const distance = entity => entity.position.reduce((sum, value, axis) => sum + (value-position[axis])**2, 0);
   return candidates.reduce((best, entity) => !best || distance(entity) < distance(best) ? entity : best, null);

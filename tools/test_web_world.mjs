@@ -62,6 +62,20 @@ test('failed, superseded and reset rebuilds cannot replace a complete chunk', as
   assert.equal(world.groups.size,0);
 });
 
+test('streamed objectives honor authored collectible tags without including unrelated collectibles', () => {
+  const {world} = fixture();
+  for (const [id,tags] of [[10,['lantern']],[11,['coin']],[12,['goal']]]) {
+    world.add({id,kind:'box',size:[1,1,1],tags,transform:{position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}});
+  }
+  for (const key of world.grid.chunks.keys()) world.grid.loaded.add(key);
+  assert.ok(world.objectiveEntries('lantern').some(e=>e.id===10));
+  assert.ok(!world.objectiveEntries('lantern').some(e=>e.id===11));
+  assert.ok(world.objectiveEntries('lantern').some(e=>e.id===12));
+  assert.ok(!world.objectiveEntries().some(e=>e.id===10));
+  world.reset();
+  assert.deepEqual(world.objectiveEntries('lantern'),[]);
+});
+
 test('initial chunk preparation waits for templates, supports empty scenes and propagates failures', async () => {
   const {world,key} = fixture();
   const camera = new THREE.PerspectiveCamera();

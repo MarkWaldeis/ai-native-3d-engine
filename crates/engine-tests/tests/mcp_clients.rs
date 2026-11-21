@@ -141,6 +141,8 @@ fn initialized_templates_are_portable_playable_and_configured() {
     for template in ["coin_game", "sky_garden", "empty"] {
         let project = Project::new();
         ai_engine::project::initialize(&project.0, template).unwrap();
+        let guide = std::fs::read_to_string(project.0.join("AGENTS.md")).unwrap();
+        assert_eq!(guide.contains("blender_scene.py"), template == "sky_garden");
         for directory in ["scripts", "assets"] {
             assert!(project.0.join(directory).is_dir());
         }

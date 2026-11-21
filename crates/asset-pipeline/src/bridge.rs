@@ -7,6 +7,13 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+fn compatible_ping(ping: Value) -> Result<Value> {
+    if ping["bridge_protocol"].as_u64() != Some(1) {
+        bail!("Blender bridge protocol mismatch; save your .blend and restart Blender with the current ai_engine_bridge.py. The existing process was not stopped.");
+    }
+    Ok(ping)
+}
+
 pub struct BlenderBridge {
     port: u16,
     child: Option<Child>,
@@ -51,7 +58,7 @@ impl BlenderBridge {
 
     pub fn start(&mut self, blender: &Path, script: &Path) -> Result<Value> {
         if let Ok(ping) = self.request(json!({"command":"ping"})) {
-            return Ok(ping);
+            return compatible_ping(ping);
         }
         if !script.is_file() {
             bail!("bridge script not found: {}", script.display());
@@ -80,7 +87,7 @@ impl BlenderBridge {
                 bail!("Blender exited before bridge became ready: {status}");
             }
             if let Ok(ping) = self.request(json!({"command":"ping"})) {
-                return Ok(ping);
+                return compatible_ping(ping);
             }
             if start.elapsed() > Duration::from_secs(30) {
                 if let Some(mut child) = self.child.take() {
@@ -99,6 +106,61 @@ impl Drop for BlenderBridge {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
             let _ = child.wait();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn start_checks_a_reused_peer_before_attempting_to_spawn_blender() {
+        for (ping, accepted) in [
+            (json!({"bridge_protocol":1}), true),
+            (json!({"version":"5.3.0"}), false),
+        ] {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let peer = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut request = String::new();
+                BufReader::new(&mut stream).read_line(&mut request).unwrap();
+                assert_eq!(
+                    serde_json::from_str::<Value>(&request).unwrap()["command"],
+                    "ping"
+                );
+                writeln!(stream, "{}", json!({"ok":true,"result":ping})).unwrap();
+            });
+            let result = BlenderBridge::new(port)
+                .start(Path::new("not-a-blender"), Path::new("missing-bridge.py"));
+            if accepted {
+                assert!(result.is_ok());
+            } else {
+                assert!(result
+                    .unwrap_err()
+                    .to_string()
+                    .contains("protocol mismatch"));
+            }
+            peer.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn bridge_handshake_accepts_current_and_rejects_stale_or_malformed_peers() {
+        let ping = json!({"version":"5.3.0","bridge_protocol":1});
+        assert_eq!(compatible_ping(ping.clone()).unwrap(), ping);
+        for ping in [
+            json!({}),
+            Value::Null,
+            json!({"version":"5.3.0"}),
+            json!({"bridge_protocol":0}),
+            json!({"bridge_protocol":"1"}),
+        ] {
+            assert!(compatible_ping(ping)
+                .unwrap_err()
+                .to_string()
+                .contains("save your .blend"));
         }
     }
 }

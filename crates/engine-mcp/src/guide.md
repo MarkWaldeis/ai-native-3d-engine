@@ -87,7 +87,8 @@ are JSON objects; `ai_script` is a project-relative path or script object.
 - Player tag enables browser follow camera, camera-relative controls and blob shadow.
   `props.ai_ui` (object or Blender JSON string): title, score_label, hud_keys,
   collectible_tag, action_label, sky_color, intro_title, intro_text, mission,
-  win_text, win_badge, badge. Private `_` state keys stay out of HUD.
+  win_text, win_badge, badge, objective_label (custom collectible guidance).
+  Private `_` state keys stay out of HUD.
 
 ## Rhai API reference / Skript-API
 
@@ -106,8 +107,10 @@ eval or clock APIs. Errors include script file/entity and line.
   convert camera-relative joystick/keyboard axes before sending them to simulation.
 - `ctx.state_get("score")`, `ctx.state_set("score", 3)` share global JSON-compatible
   state; missing keys return unit. `ctx.log("message")` writes bounded logs.
-- `ctx.spawn_entity(#{name:"ball",kind:"sphere",radius:0.5,segments:16})` returns ID;
+- `ctx.spawn_entity(#{name:"ball",kind:"sphere",radius:0.5,segments:16,transform:#{position:[0.0,1.0,0.0]}})` returns ID;
   only primitives, no GLB spawning. `ctx.remove(id)` removes an entity.
+  Script spawning takes an Entity: position is nested in transform, unlike the
+  flat position argument of the authoring tool spawn_primitive.
 
 ## Assertions / Prüfformen
 

@@ -4,7 +4,7 @@ import { ActionLatch, viewMovement, followDistance, routeFrame } from './control
 import { GameEffects } from './effects.js';
 import { worldConfig } from './streaming.js';
 import { StreamingWorld, loadAsset } from './world.js';
-import { GameAudio, feedbackEvents, nextObjective, objectiveBearing } from './presentation.js';
+import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -124,7 +124,7 @@ function createObject(entity) {
   group.add(object); group.visible = entity.visible !== false;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
   effects.decorate(group);
-  if (group.userData.tags.some(tag => ['player','coin','crystal','portal','goal'].includes(tag))) objectives.set(entity.id,group);
+  if (group.userData.tags.some(tag => ['player','portal','goal'].includes(tag)) || isCollectible(group.userData, ui.collectible_tag)) objectives.set(entity.id,group);
   streaming?.add(entity,group);
   group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
   if (group.userData.tags.includes('player')) {
@@ -154,7 +154,7 @@ function apply(result) {
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
     const object = objects.get(id);
-    if (object?.userData.tags.some(tag => tag === 'coin' || tag === 'crystal')) effects.burst(object.position, object.userData.tags.includes('crystal'));
+    if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
   for (const id of result.removed) { streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
@@ -433,9 +433,9 @@ function frame(now) {
 }
 
 function updateObjective() {
-  const entries = streaming ? streaming.objectiveEntries() : [...objectives].filter(([, object]) => object.visible).map(([id, object]) => ({id,tags:object.userData.tags,position:object.position.toArray()}));
+  const entries = streaming ? streaming.objectiveEntries(ui.collectible_tag) : [...objectives].filter(([, object]) => object.visible).map(([id, object]) => ({id,tags:object.userData.tags,position:object.position.toArray()}));
   const player = entries.find(entity => entity.tags.includes('player'));
-  const target = player && nextObjective(entries, player.position);
+  const target = player && nextObjective(entries, player.position, ui.collectible_tag);
   $('objective').hidden = !target;
   if (!target) return;
   const position = new THREE.Vector3(...target.position), projected = position.clone().project(camera);
@@ -443,7 +443,7 @@ function updateObjective() {
   const origin = new THREE.Vector3(...player.position).project(camera), sign = behind ? -1 : 1;
   const dx = (projected.x * sign - origin.x) * innerWidth, dy = (projected.y * sign - origin.y) * innerHeight;
   $('objective-arrow').style.transform = `rotate(${objectiveBearing(dx, dy)}rad)`;
-  const label = target.tags.includes('crystal') ? 'Nächster Kristall' : target.tags.includes('coin') ? 'Nächste Münze' : target.tags.includes('portal') ? 'Zum Portal' : 'Zum Ziel';
+  const label = target.tags.includes('crystal') ? 'Nächster Kristall' : target.tags.includes('coin') ? 'Nächste Münze' : isCollectible(target, ui.collectible_tag) ? ui.objective_label || 'Nächstes Sammelobjekt' : target.tags.includes('portal') ? 'Zum Portal' : 'Zum Ziel';
   const text = `${label} · ${Math.ceil(position.distanceTo(new THREE.Vector3(...player.position)))} m`;
   if ($('objective-text').textContent !== text) $('objective-text').textContent = text;
 }

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
+import { isCollectible } from './presentation.js';
 
 const assets = new Map();
 export function loadAsset(path) {
@@ -182,11 +183,11 @@ export class StreamingWorld {
     }
     return result;
   }
-  objectiveEntries() {
+  objectiveEntries(collectibleTag) {
     const result = [];
     for (const key of this.grid.loaded) for (const {id} of this.grid.chunks.get(key)?.values() || []) {
       const item = this.entities.get(id);
-      if (item && item.e.visible !== false && item.level !== 3 && item.e.tags?.some(t => ['player','coin','crystal','portal','goal'].includes(t))) result.push({id,tags:item.e.tags,position:item.e.transform.position});
+      if (item && item.e.visible !== false && item.level !== 3 && (item.e.tags?.some(t => ['player','portal','goal'].includes(t)) || isCollectible({tags:item.e.tags || []},collectibleTag))) result.push({id,tags:item.e.tags,position:item.e.transform.position});
     }
     return result;
   }
