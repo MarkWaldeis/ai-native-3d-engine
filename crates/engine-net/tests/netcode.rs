@@ -24,6 +24,148 @@ fn join(server: &mut NetServer, client: &mut NetClient, peer: u64) -> Result<()>
     )
 }
 
+fn animated_scene() -> shared::scene::Scene {
+    let mut scene=support::scene();
+    scene.entities.push(serde_json::from_value(json!({"id":8,"name":"animated","kind":"gltf","path":"unused.glb",
+        "animator":{"clips":[{"name":"Idle","duration":1.0}],"machine":{"initial":"idle","states":{"idle":{"clip":"Idle"}}}}})) .unwrap());
+    scene
+}
+
+#[test]
+fn animator_correction_preserves_live_state_during_replay() -> Result<()> {
+    let scene=animated_scene();
+    let mut server=NetServer::new(scene.clone(),BTreeMap::new(),ServerConfig {snapshot_interval:1,..ServerConfig::default()})?;
+    let mut client=NetClient::new(scene,BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut client,1)?;
+    for tick in 0..3 {client.tick(BTreeMap::from([("move_x".into(),1.0)]),tick as f64*17.0)?;}
+    for (_,snapshot) in server.tick()? {client.receive(snapshot,51.0)?;}
+    assert_eq!(client.stats().corrections,1);
+    let entity=client.simulation().scene().entities.into_iter().find(|e|e.id==8).unwrap();
+    let animator=entity.animator.unwrap();
+    assert_eq!(animator.current_state,"idle");
+    assert!((animator.time-3.0*engine_runtime::DT as f64).abs()<1e-6);
+    Ok(())
+}
+
+#[test]
+fn net_entity_insertion_initializes_authored_animator_defaults() -> Result<()> {
+    let scene=animated_scene();
+    let entity=scene.entities.last().unwrap().clone();
+    let mut sim=engine_runtime::Simulation::from_sources(scene,BTreeMap::new())?;
+    sim.insert_net_entity(entity)?;
+    sim.step(1,&[])?;
+    assert_eq!(sim.scene().entities.last().unwrap().animator.as_ref().unwrap().current_state,"idle");
+    let mut live=sim.scene().entities.last().unwrap().clone();
+    live.animator.as_mut().unwrap().time=0.5;
+    sim.insert_net_entity(live)?;
+    sim.step(1,&[])?;
+    assert!(sim.scene().entities.last().unwrap().animator.as_ref().unwrap().time>0.5);
+    Ok(())
+}
+
+fn check_replicated_script_start(pending:bool) -> Result<()> {
+    let mut scene=support::scene();
+    scene.entities[1].script=Some(shared::components::Script::Inline {source:r#"
+        fn on_tick(ctx,dt) {
+            if ctx.input("spawn")>0.0 && ctx.state_get("created")==() {
+                ctx.spawn_entity(#{name:"child",kind:"box",size:[1.0,1.0,1.0],
+                    script:#{source:"fn on_start(ctx) { let n=ctx.state_get(\"starts\"); if n==() {n=0;} ctx.state_set(\"starts\",n+1); ctx.state_set(\"initialized\",true); } fn on_tick(ctx,dt) { if ctx.state_get(\"initialized\")!=true {throw \"on_tick before on_start\";} }"}});
+                ctx.state_set("created",true);
+            }
+        }
+    "#.into()});
+    let mut server=NetServer::new(scene.clone(),BTreeMap::new(),ServerConfig{snapshot_interval:1,..ServerConfig::default()})?;
+    let mut client=NetClient::new(scene.clone(),BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut client,1)?;
+    server.receive(1,ClientMessage::Input {frames:vec![InputFrame {tick:0,seq:0,actions:BTreeMap::from([("spawn".into(),1.0)])}],ack_snapshot_tick:None})?;
+    let mut last=None;
+    for tick in 0..if pending {1} else {2} {
+        let actions=if tick==1 {BTreeMap::from([("spawn".into(),1.0)])} else {BTreeMap::new()};
+        client.tick(actions,tick as f64*17.0)?;
+        last=server.tick()?.pop().map(|(_,message)|message);
+    }
+    client.receive(last.unwrap(),34.0)?;
+    for tick in 2..4 {client.tick(BTreeMap::new(),tick as f64*17.0)?;}
+    assert_eq!(client.simulation().net_script_state()["starts"],json!(1));
+
+    // A late join must not repeat a start already represented in authoritative state.
+    let mut late=NetClient::new(scene,BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut late,2)?;
+    for (peer,message) in server.tick()? {if peer==2 {late.receive(message,68.0)?;}}
+    late.tick(BTreeMap::new(),85.0)?;
+    assert_eq!(late.simulation().net_script_state()["starts"],json!(1));
+    Ok(())
+}
+
+#[test]
+fn replicated_pending_script_runs_start_once_before_tick() -> Result<()> {
+    check_replicated_script_start(true)
+}
+
+#[test]
+fn replicated_started_script_does_not_repeat_start_on_prediction_or_late_join() -> Result<()> {
+    check_replicated_script_start(false)
+}
+
+#[test]
+fn discarded_predicted_spawn_restores_authoritative_allocation_cursor() -> Result<()> {
+    let mut scene=support::scene();
+    scene.entities[1].script=Some(shared::components::Script::Inline {source:r#"
+        fn on_tick(ctx,dt) {
+            if ctx.input("spawn")>0.0 && ctx.state_get("created")==() {
+                ctx.spawn_entity(#{name:"child",kind:"box",size:[1.0,1.0,1.0]});
+                ctx.state_set("created",true);
+            }
+        }
+    "#.into()});
+    let mut server=NetServer::new(scene.clone(),BTreeMap::new(),ServerConfig{snapshot_interval:1,..ServerConfig::default()})?;
+    let mut client=NetClient::new(scene,BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut client,1)?;
+    client.tick(BTreeMap::from([("spawn".into(),1.0)]),0.0)?;
+    for (_,snapshot) in server.tick()? {client.receive(snapshot,17.0)?;}
+    assert_eq!(client.simulation().scene().entities.len(),4);
+    server.receive(1,client.tick(BTreeMap::new(),17.0)?)?;
+    for (_,snapshot) in server.tick()? {client.receive(snapshot,34.0)?;}
+    server.receive(1,client.tick(BTreeMap::from([("spawn".into(),1.0)]),34.0)?)?;
+    server.tick()?;
+    assert_eq!(client.simulation().scene().entities.iter().map(|e|e.id).collect::<Vec<_>>(),
+        server.simulation().scene().entities.iter().map(|e|e.id).collect::<Vec<_>>());
+    Ok(())
+}
+
+#[test]
+fn pausing_neutralizes_held_inputs_and_discards_future_frames() -> Result<()> {
+    let mut server=NetServer::new(support::scene(),BTreeMap::new(),ServerConfig::default())?;
+    server.receive(1,ClientMessage::Hello{name:"pause".into()})?;
+    server.receive(1,ClientMessage::Input{frames:(0..3).map(|tick|InputFrame{tick,seq:tick,actions:BTreeMap::from([("move_x".into(),1.0)])}).collect(),ack_snapshot_tick:None})?;
+    server.tick()?;
+    server.receive(1,ClientMessage::Pause)?;
+    server.receive(99,ClientMessage::Pause)?;
+    for _ in 0..3 {
+        server.tick()?;
+        assert_eq!(server.simulation().net_entity_states().iter().find(|entity|entity.id==2).unwrap().linvel[0],0.0);
+    }
+    assert_eq!(server.assigned_entity(1),Some(2));
+    assert_eq!(server.assigned_entity(99),None);
+    Ok(())
+}
+
+#[test]
+fn transport_activity_keeps_an_idle_slot_without_inputs_but_silence_still_expires() -> Result<()> {
+    let mut server=NetServer::new(support::scene(),BTreeMap::new(),ServerConfig{timeout_ticks:3,..ServerConfig::default()})?;
+    server.receive(1,ClientMessage::Hello{name:"idle".into()})?;
+    for _ in 0..30 {
+        server.activity(1);
+        server.tick()?;
+        assert_eq!(server.assigned_entity(1),Some(2));
+    }
+    server.activity(99);
+    assert_eq!(server.assigned_entity(99),None);
+    for _ in 0..4 {server.tick()?;}
+    assert_eq!(server.assigned_entity(1),None);
+    Ok(())
+}
+
 #[test]
 fn zero_latency_prediction_is_bit_exact_without_corrections() -> Result<()> {
     let mut server = NetServer::new(support::scene(), BTreeMap::new(), ServerConfig::default())?;
@@ -75,6 +217,154 @@ fn assert_bits(a: &[NetEntityState], b: &[NetEntityState]) {
         };
         assert_eq!(bits(a), bits(b));
     }
+}
+
+#[test]
+fn spawned_entities_survive_loss_removal_and_late_join() -> Result<()> {
+    let mut scene = support::scene();
+    scene.entities[0].script = Some(shared::components::Script::Inline {
+        source: r#"
+        fn on_tick(ctx, dt) {
+            let t = ctx.state_get("spawn_tick");
+            if t == () { t = 0; }
+            if t < 180 && t % 30 == 0 {
+                let old = ctx.state_get("old_box");
+                if old != () { ctx.remove(old); }
+                let id = ctx.spawn_entity(#{name:"network box",kind:"box",size:[0.5,0.5,0.5],
+                    tags:["replicated"],transform:#{position:[0.0,2.0,10.0]},
+                    collider:#{shape:"box"},rigidbody:#{type:"dynamic"},
+                    script:#{source:"fn on_tick(ctx,dt) { ctx.state_set(\"box_alive\",true); }"}});
+                ctx.state_set("old_box",id);
+            }
+            ctx.state_set("spawn_tick",t+1);
+        }
+    "#
+        .into(),
+    });
+    let mut run = support::Harness::with_scene(
+        scene.clone(),
+        LinkConfig {
+            latency_ms: 50.0,
+            jitter_ms: 20.0,
+            loss: 0.05,
+            ..LinkConfig::default()
+        },
+        6,
+    )?;
+    let mut observed = std::collections::BTreeSet::new();
+    for _ in 0..600 {
+        run.step(240)?;
+        for client in &run.clients {
+            observed.extend(
+                client
+                    .entity_definitions()
+                    .into_iter()
+                    .filter(|e| e.tags.iter().any(|t| t == "replicated"))
+                    .map(|e| e.id),
+            );
+        }
+    }
+    assert!(
+        observed.len() >= 3,
+        "spawn/removal cycles must reach the renderer"
+    );
+    assert!(run.network.dropped_packets() > 0);
+    let authoritative = run.server.simulation().net_entity_states();
+    for client in &run.clients {
+        let predicted = client.simulation().net_entity_states();
+        assert_eq!(
+            predicted.iter().map(|e| e.id).collect::<Vec<_>>(),
+            authoritative.iter().map(|e| e.id).collect::<Vec<_>>()
+        );
+        for (a, b) in predicted.iter().zip(&authoritative) {
+            assert!(
+                distance(a.position, b.position) < 1e-3,
+                "entity {}: {:?} vs {:?}",
+                a.id,
+                a.position,
+                b.position
+            );
+        }
+        let definitions = client.entity_definitions();
+        assert_eq!(definitions.len(), authoritative.len());
+        assert_eq!(client.simulation().net_script_state()["box_alive"], true);
+        assert!(definitions
+            .iter()
+            .any(|e| e.name == "network box" && e.script.is_some() && e.collider.is_some()));
+    }
+    run.server.disconnect(2);
+    let mut late = NetClient::new(scene, BTreeMap::new(), ClientConfig::default())?;
+    join(&mut run.server, &mut late, 3)?;
+    for _ in 0..2 {
+        for (peer, message) in run.server.tick()? {
+            if peer == 3 {
+                let ServerMessage::Snapshot(snapshot) = &message else {
+                    panic!("snapshot expected");
+                };
+                assert!(snapshot.baseline_tick.is_none());
+                assert_eq!(snapshot.spawned.len(), 1);
+                late.receive(message, 10050.0)?;
+            }
+        }
+    }
+    assert!(late
+        .latest_snapshot()
+        .unwrap()
+        .spawned
+        .iter()
+        .any(|e| e.name == "network box"));
+    assert_eq!(
+        late.simulation().net_entity_states(),
+        run.server.simulation().net_entity_states()
+    );
+    Ok(())
+}
+
+#[test]
+fn authoritative_spawn_definition_replaces_same_predicted_id() -> Result<()> {
+    let mut scene = support::scene();
+    scene.entities[1].script = Some(shared::components::Script::Inline { source: r#"
+        fn on_tick(ctx,dt) {
+            if ctx.state_get("created") == () {
+                ctx.spawn_entity(#{name:"spawn",kind:"box",size:[ctx.input("size")+1.0,1.0,1.0],
+                    transform:#{position:[0.0,5.0,10.0]},collider:#{shape:"box"},rigidbody:#{type:"dynamic"}});
+                ctx.state_set("created",true);
+            }
+        }
+    "#.into() });
+    let mut server = NetServer::new(scene.clone(), BTreeMap::new(), ServerConfig::default())?;
+    let mut client = NetClient::new(scene, BTreeMap::new(), ClientConfig::default())?;
+    join(&mut server, &mut client, 1)?;
+    for tick in 0..2 {
+        client.tick(BTreeMap::from([("size".into(), 1.0)]), tick as f64 * 17.0)?;
+        for (_, message) in server.tick()? {
+            client.receive(message, 34.0)?;
+        }
+    }
+    assert_eq!(
+        client.simulation().scene().entities,
+        server.simulation().scene().entities
+    );
+    assert_eq!(
+        client
+            .simulation()
+            .scene()
+            .entities
+            .iter()
+            .filter(|e| e.id == 5)
+            .count(),
+        1
+    );
+    assert_eq!(
+        client
+            .entity_definitions()
+            .iter()
+            .find(|e| e.id == 5)
+            .unwrap()
+            .mesh,
+        shared::scene::PrimitiveKind::Box { size: [1.0; 3] }
+    );
+    Ok(())
 }
 
 #[test]
@@ -337,6 +627,7 @@ fn invalid_inputs_configs_and_removed_entities_have_explicit_behavior() -> Resul
 
 fn snapshot(tick: u64, x: f32) -> Snapshot {
     Snapshot {
+        next_id: None,
         server_tick: tick,
         last_processed_seq: None,
         input_late_ticks: 0,
@@ -348,6 +639,9 @@ fn snapshot(tick: u64, x: f32) -> Snapshot {
             linvel: [2.0, 0.0, 0.0],
             angvel: [0.0; 3],
         }],
+        spawned: vec![],
+        pending_starts: vec![],
+        players: vec![],
         removed: vec![],
         script_state: json!({}),
     }
@@ -387,6 +681,44 @@ fn interpolation_is_bracketed_monotone_and_extrapolation_is_bounded() {
     assert!((far - (20.0 / 30.0 + 0.5)).abs() < 1e-6);
     interp.push(&snapshot(10, 10.0 / 30.0)); // reordered arrival cannot rewind render time
     assert!(interp.render(0.0)[0].position[0] >= previous.unwrap().1);
+}
+
+#[test]
+fn spawned_definitions_delta_roundtrip_and_interpolated_lifetimes() -> Result<()> {
+    let baseline = snapshot(10, 0.0);
+    let mut full = snapshot(12, 0.0);
+    let mut definition = support::scene().entities[3].clone();
+    definition.id = 5;
+    let mut state = full.entities[0].clone();
+    state.id = 5;
+    full.spawned.push(definition.clone());
+    full.entities.push(state);
+    let delta = full.delta(&baseline, 1e-6);
+    assert_eq!(delta.spawned, vec![definition]);
+    let decoded: Snapshot = decode(&encode(&delta)?)?;
+    let expanded = decoded.expand(Some(&baseline))?;
+    assert_eq!(expanded.spawned, full.spawned);
+    assert_eq!(expanded.entities, full.entities);
+    let mut next = full.clone();
+    next.server_tick = 14;
+    assert!(next.delta(&expanded, 1e-6).spawned.is_empty());
+    let retained = next.delta(&expanded, 1e-6).expand(Some(&expanded))?;
+    assert_eq!(retained.spawned, full.spawned);
+    next.server_tick = 16;
+    next.entities.retain(|e| e.id != 5);
+    next.spawned.clear();
+    let removal = next.delta(&retained, 1e-6);
+    assert_eq!(removal.removed, vec![5]);
+    assert!(removal.expand(Some(&retained))?.spawned.is_empty());
+    let mut interp = Interpolator::default();
+    interp.push(&baseline);
+    interp.push(&full);
+    interp.push(&next);
+    assert!(!interp.sample(11.0).iter().any(|e| e.id == 5));
+    assert!(interp.sample(12.0).iter().any(|e| e.id == 5));
+    assert!(interp.sample(15.0).iter().any(|e| e.id == 5));
+    assert!(!interp.sample(16.0).iter().any(|e| e.id == 5));
+    Ok(())
 }
 
 #[test]

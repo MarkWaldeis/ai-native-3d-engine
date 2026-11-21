@@ -1,8 +1,8 @@
-use crate::{inputs, protocol::*, valid_actions, Interpolator, NetStats, TICK_MS};
+use crate::{inputs, protocol::*, valid_actions, Interpolator, NetStats, SimSource, TICK_MS};
 use anyhow::{bail, Result};
 use engine_runtime::{NetEntityState, SimState, Simulation};
 use serde_json::Value;
-use shared::scene::Scene;
+use shared::scene::{Entity, Scene};
 use std::collections::BTreeMap;
 
 #[derive(Clone, Debug)]
@@ -36,13 +36,16 @@ impl Default for ClientConfig {
 struct Checkpoint {
     state: SimState,
     entities: Vec<NetEntityState>,
+    definitions: Vec<Entity>,
     script: Value,
+    pending_starts: Vec<u64>,
+    next_id: u64,
 }
 
 pub struct NetClient {
     simulation: Simulation,
     initial_scene: Scene,
-    sources: BTreeMap<String, String>,
+    sources: SimSource,
     config: ClientConfig,
     entity: Option<u64>,
     client_id: Option<u64>,
@@ -62,14 +65,11 @@ pub struct NetClient {
     first_snapshot_ms: Option<f64>,
     smooth_offset: [f32; 3],
     smooth_tick: u64,
+    paused: bool,
 }
 
 impl NetClient {
-    pub fn new(
-        scene: Scene,
-        sources: BTreeMap<String, String>,
-        config: ClientConfig,
-    ) -> Result<Self> {
+    pub fn new(scene: Scene, sources: impl Into<SimSource>, config: ClientConfig) -> Result<Self> {
         if config.history_capacity < 2
             || config.initial_lead_ticks == 0
             || config.max_lead_ticks == 0
@@ -88,6 +88,7 @@ impl NetClient {
             bail!("invalid client configuration");
         }
         let mut interpolator = Interpolator::default();
+        let sources = sources.into();
         interpolator.delay_ticks = config.interpolation_delay_ticks;
         let stats = NetStats {
             lead_ticks: config.initial_lead_ticks,
@@ -95,7 +96,7 @@ impl NetClient {
         };
         let mut client = Self {
             initial_scene: scene.clone(),
-            simulation: Simulation::from_sources(scene, sources.clone())?,
+            simulation: sources.build(scene)?,
             sources,
             config,
             entity: None,
@@ -116,6 +117,7 @@ impl NetClient {
             first_snapshot_ms: None,
             smooth_offset: [0.0; 3],
             smooth_tick: 0,
+            paused: false,
         };
         client.checkpoint();
         Ok(client)
@@ -139,13 +141,44 @@ impl NetClient {
         self.history.get(&tick).map(|c| c.entities.as_slice())
     }
 
+    /// Continue decoding snapshots without running prediction or reconciliation.
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
+        if paused {
+            self.sent_at.clear();
+        }
+    }
+
+    /// Discard suspended inputs and bootstrap directly from the latest authority.
+    pub fn resync(&mut self) -> Result<()> {
+        let snapshot = self.latest_snapshot().cloned();
+        self.frames.clear();
+        self.history.clear();
+        self.sent_at.clear();
+        self.last_actions.clear();
+        self.stats.rtt_ms = 0.0;
+        self.stats.lead_ticks = self.config.initial_lead_ticks;
+        self.paused = false;
+        if let Some(snapshot) = snapshot {
+            self.simulation.tick = snapshot.server_tick;
+            self.reconcile(&snapshot)?;
+        } else {
+            self.checkpoint();
+        }
+        self.smooth_offset = [0.0; 3];
+        Ok(())
+    }
+
     fn checkpoint(&mut self) {
         self.history.insert(
             self.simulation.tick,
             Checkpoint {
                 state: self.simulation.save_state(),
                 entities: self.simulation.net_entity_states(),
+                definitions: self.simulation.scene().entities,
                 script: self.simulation.net_script_state(),
+                pending_starts: self.simulation.net_pending_starts(),
+                next_id: self.simulation.net_next_id(),
             },
         );
         while self.history.len() > self.config.history_capacity {
@@ -243,9 +276,7 @@ impl NetClient {
                 self.client_id = Some(client_id);
                 // Bootstrap late joiners at the authority tick; the first full
                 // snapshot supplies authoritative poses and script state.
-                while self.simulation.tick < server_tick {
-                    self.simulation.step(1, &[])?;
-                }
+                self.simulation.tick = server_tick;
                 self.history.clear();
                 self.checkpoint();
             }
@@ -320,7 +351,9 @@ impl NetClient {
         } else if snapshot.server_tick.is_multiple_of(120) && measured + 1 < self.stats.lead_ticks {
             self.stats.lead_ticks = self.stats.lead_ticks.saturating_sub(1).max(1);
         }
-        self.reconcile(&snapshot)?;
+        if !self.paused {
+            self.reconcile(&snapshot)?;
+        }
         self.interpolator.push(&snapshot);
         self.ack = Some(snapshot.server_tick);
         self.snapshots.insert(snapshot.server_tick, snapshot);
@@ -332,9 +365,10 @@ impl NetClient {
 
     fn reconcile(&mut self, snapshot: &Snapshot) -> Result<()> {
         let mut snapshot = snapshot.clone();
-        snapshot
-            .entities
-            .retain(|state| self.initial_scene.entities.iter().any(|e| e.id == state.id));
+        snapshot.entities.retain(|state| {
+            self.initial_scene.entities.iter().any(|e| e.id == state.id)
+                || snapshot.spawned.iter().any(|e| e.id == state.id)
+        });
         let entity = self.entity.unwrap();
         let server = snapshot
             .entities
@@ -352,6 +386,22 @@ impl NetClient {
         let mismatch = error > self.config.position_epsilon
             || predicted.is_none_or(|c| {
                 c.script != snapshot.script_state
+                    || c.pending_starts != snapshot.pending_starts
+                    || snapshot.next_id.is_some_and(|next| c.next_id != next)
+                    || snapshot.spawned.iter().any(|definition| {
+                        c.definitions
+                            .iter()
+                            .find(|e| e.id == definition.id)
+                            .is_none_or(|e| !same_definition(e, definition))
+                    })
+                    || snapshot.entities.iter().any(|state| {
+                        c.entities
+                            .iter()
+                            .find(|e| e.id == state.id)
+                            .is_none_or(|e| {
+                                crate::protocol::different(e, state, self.config.position_epsilon)
+                            })
+                    })
                     || c.entities
                         .iter()
                         .map(|e| e.id)
@@ -375,26 +425,40 @@ impl NetClient {
         } else {
             // Out-of-window corrections cannot replay missing inputs. Bootstrap
             // at T and retain only the history that is still available.
-            self.simulation =
-                Simulation::from_sources(self.initial_scene.clone(), self.sources.clone())?;
+            self.simulation = self.sources.build(self.initial_scene.clone())?;
         }
         let ids: std::collections::BTreeSet<_> = snapshot.entities.iter().map(|s| s.id).collect();
-        let mut scene = self.simulation.scene();
-        let mut changed = false;
-        for entity in &self.initial_scene.entities {
-            if ids.contains(&entity.id) && !scene.entities.iter().any(|e| e.id == entity.id) {
-                scene.entities.push(entity.clone());
-                changed = true;
+        for entity in self.simulation.scene().entities {
+            if !ids.contains(&entity.id) {
+                self.simulation.remove_net_entity(entity.id)?;
             }
         }
-        if changed || scene.entities.iter().any(|e| !ids.contains(&e.id)) {
-            scene.entities.retain(|e| ids.contains(&e.id));
-            self.simulation = Simulation::from_sources(scene, self.sources.clone())?;
+        for entity in self.initial_scene.entities.iter().chain(&snapshot.spawned) {
+            if !ids.contains(&entity.id) {
+                continue;
+            }
+            let existing = self
+                .simulation
+                .scene()
+                .entities
+                .into_iter()
+                .find(|e| e.id == entity.id);
+            if existing
+                .as_ref()
+                .is_none_or(|e| !same_definition(e, entity))
+            {
+                self.simulation.insert_net_entity(entity.clone())?;
+            }
         }
         self.simulation.tick = tick;
         self.simulation.apply_net_entity_states(&snapshot.entities);
         self.simulation
             .apply_net_script_state(snapshot.script_state.clone());
+        self.simulation
+            .apply_net_pending_starts(&snapshot.pending_starts)?;
+        if let Some(next_id) = snapshot.next_id {
+            self.simulation.apply_net_next_id(next_id)?;
+        }
         self.history.retain(|at, _| *at < tick);
         self.checkpoint();
         let mut previous = self
@@ -430,6 +494,39 @@ impl NetClient {
         Ok(())
     }
 
+    /// Definitions for the currently rendered set. Diff IDs between calls to create/remove meshes.
+    /// Authoritative definitions override predicted spawns; delayed removals follow interpolation.
+    pub fn entity_definitions(&self) -> Vec<Entity> {
+        self.entity_definitions_at(0.0)
+    }
+
+    pub fn entity_definitions_at(&self, now_tick_fraction: f64) -> Vec<Entity> {
+        let scene = self.simulation.scene();
+        self.render_states(now_tick_fraction)
+            .into_iter()
+            .filter_map(|state| {
+                let definition = self
+                    .snapshots
+                    .values()
+                    .rev()
+                    .find_map(|s| s.spawned.iter().find(|e| e.id == state.id))
+                    .or_else(|| {
+                        self.initial_scene
+                            .entities
+                            .iter()
+                            .find(|e| e.id == state.id)
+                    })
+                    .or_else(|| scene.entities.iter().find(|e| e.id == state.id));
+                definition.map(|definition| {
+                    let mut entity = definition.clone();
+                    entity.transform.position = state.position;
+                    entity.transform.rotation_deg = state.rotation_deg;
+                    entity
+                })
+            })
+            .collect()
+    }
+
     /// Fractional ticks since the last prediction tick / newest received snapshot.
     /// Smoothing changes presentation only; never feed rendered poses into physics.
     pub fn render_states(&self, now_tick_fraction: f64) -> Vec<NetEntityState> {
@@ -453,6 +550,27 @@ impl NetClient {
         states.sort_by_key(|s| s.id);
         states
     }
+}
+
+fn same_definition(a: &Entity, b: &Entity) -> bool {
+    let mut a = a.clone();
+    let same_animator = match (&a.animator, &b.animator) {
+        (Some(a), Some(b)) => {
+            a.clips == b.clips
+                && a.machine == b.machine
+                && a.speed == b.speed
+                && a.blend_time == b.blend_time
+        }
+        (None, None) => true,
+        _ => false,
+    };
+    if !same_animator {
+        return false;
+    }
+    a.animator = b.animator.clone();
+    a.transform.position = b.transform.position;
+    a.transform.rotation_deg = b.transform.rotation_deg;
+    a == *b
 }
 
 fn distance(a: [f32; 3], b: [f32; 3]) -> f32 {

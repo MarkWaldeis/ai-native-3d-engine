@@ -9,3 +9,6 @@ shared = { path = "../../shared" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tungstenite = "0.28"
