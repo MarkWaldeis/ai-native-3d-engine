@@ -205,6 +205,22 @@ def write_fallback_terrain(out, scene):
 
 
 # ---------------------------------------------------------------- world content
+def landing_jungle(scene):
+    rng = random.Random(4401)
+    for i in range(28):
+        angle = i * math.tau / 28 + rng.uniform(-0.05, 0.05)
+        radius = rng.uniform(30, 40)
+        x, z = LZ[0] + math.cos(angle) * radius, LZ[1] + math.sin(angle) * radius
+        if road_dist(x, z) < 9:
+            continue
+        scene.asset(f"lz-tree-{i}", "tree_palm" if i % 3 == 0 else "tree_broadleaf",
+                    x, z, rng.uniform(0, 360), rng.uniform(0.85, 1.15), lift=-0.2, tags=["tree"])
+        for j in range(2):
+            bx, bz = x + rng.uniform(-3, 3), z + rng.uniform(-3, 3)
+            scene.asset(f"lz-undergrowth-{i}-{j}", "bush" if j == 0 else "fern",
+                        bx, bz, rng.uniform(0, 360), rng.uniform(1, 1.5), lift=-0.1)
+
+
 def build(scene, rng, density, with_terrain_entity):
     E = scene
     # Player and world settings.
@@ -227,7 +243,8 @@ def build(scene, rng, density, with_terrain_entity):
               "ai_fps": {"eye_height": 1.65, "move_speed": 5.5, "sprint_speed": 9.0, "jump_speed": 5.0, "mouse_sens": 0.0022},
               "ai_viewmodel": f"{ASSETS}/rifle_viewmodel.glb",
               "ai_render": {"preset": "high", "sky": "tropical", "fog": 0.0011, "time_of_day": 16.5, "shadows": True, "foliage": True},
-              "ai_world": {"chunk_size": 128, "stream_radius": 640, "draw_distance": 600, "lod_distances": [70, 220], "camera_distance": 24,
+              "ai_graphics": {"time_of_day": 16.5, "foliage": True, "water": {"level": 0.6, "color": [0.18, 0.32, 0.28]}, "fog_density": 0.0011},
+              "ai_world": {"chunk_size": 128, "stream_radius": 640, "draw_distance": 600, "lod_distances": [70, 220], "camera_distance": 36,
                            "sim_radius": 260, "sim_hysteresis": 30},
               "ai_ui": player_ui,
           })
@@ -434,6 +451,7 @@ def build(scene, rng, density, with_terrain_entity):
                 E.asset(f"rock-{rock_i}", kind, x, z, yaw, rng.uniform(0.6, 1.8), lift=-0.4,
                         collider={"shape": "mesh"}, tags=["cover"] if rock_i % 4 == 0 else None)
                 rock_i += 1
+    landing_jungle(E)
     return len(enemies), len(covers)
 
 
