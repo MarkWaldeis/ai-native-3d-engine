@@ -40,7 +40,7 @@ impl Engine {
                     args["path"] = json!(project_path(root, &self.assets_dir.join(path))?);
                 }
             }
-            if name == "export_web" {
+            if matches!(name, "export_web" | "net_simulate") {
                 if let Some(Value::String(path)) = args.get("scene") {
                     let path = project_path(root, Path::new(path))?;
                     args["scene"] = json!(path);
@@ -55,6 +55,7 @@ impl Engine {
                 "save_scene"
                     | "play"
                     | "simulate"
+                    | "net_simulate"
                     | "get_screenshot"
                     | "validate_scene"
                     | "export_web"
