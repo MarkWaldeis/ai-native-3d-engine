@@ -1,4 +1,6 @@
 fn on_start(ctx) {
+    ctx.set_memo("start_position", ctx.position());
+    ctx.set_memo("start_rotation", ctx.rotation());
     ctx.state_set("Hitbox", "—");
     ctx.state_set("Health", 100);
     ctx.state_set("Sensor", "waiting");
@@ -16,8 +18,10 @@ fn on_tick(ctx, dt) {
     let fresh = pressed && ctx.memo("held") != true;
     ctx.set_memo("held", pressed);
     if !fresh { return; }
-    let target = ctx.find_by_name("Humanoid target");
+    let target = ctx.id();
     if ctx.ragdoll_active(target) {
+        ctx.set_position(ctx.memo("start_position"));
+        ctx.set_rotation(ctx.memo("start_rotation"));
         ctx.set_ragdoll(target, false);
         ctx.set_health(target, 100.0);
         ctx.state_set("Hitbox", "—");

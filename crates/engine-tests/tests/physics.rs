@@ -35,6 +35,41 @@ fn applied_force_is_cleared_after_one_tick() {
 }
 
 #[test]
+fn lab_reset_restores_the_target_to_its_authored_pose() {
+    let scene: shared::scene::Scene =
+        serde_json::from_str(include_str!("../../../examples/physics_lab/scene.json")).unwrap();
+    let start = scene.entities[1].transform.clone();
+    let mut simulation = Simulation::from_sources(
+        scene,
+        BTreeMap::from([(
+            "examples/physics_lab/lab.rhai".to_owned(),
+            include_str!("../../../examples/physics_lab/lab.rhai").to_owned(),
+        )]),
+    )
+    .unwrap();
+    simulation
+        .step(
+            120,
+            &[
+                input(0, "action"),
+                Input {
+                    tick: 1,
+                    action: "action".into(),
+                    value: 0.0,
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(simulation.ragdoll_states()[0]["id"], 2);
+    assert!(simulation.scene().entities[1].transform.position[1] < start.position[1] - 0.2);
+    simulation.step(1, &[input(120, "action")]).unwrap();
+    assert_eq!(simulation.ragdoll_states(), json!([]));
+    let pose = &simulation.scene().entities[1].transform;
+    assert_eq!(pose.position, start.position);
+    assert_eq!(pose.rotation_deg, start.rotation_deg);
+}
+
+#[test]
 fn nav_bake_does_not_treat_a_wall_as_part_of_the_supporting_floor() {
     let scene = serde_json::from_value(json!({"entities":[
         {"id":1,"name":"floor and wall","kind":"box","size":[1,1,1],
@@ -42,13 +77,20 @@ fn nav_bake_does_not_treat_a_wall_as_part_of_the_supporting_floor() {
             {"shape":"box","half_extents":[4,0.5,4],"position":[0,-0.5,0]},
             {"shape":"box","half_extents":[0.05,1.5,4],"position":[0.7,1.5,0]}
          ]}}}}
-    ]})).unwrap();
+    ]}))
+    .unwrap();
     let params = shared::navigation::NavParams {
         cell_size: 1.0,
         ..Default::default()
     };
-    let (mesh, _) = engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
-    let cells: Vec<_> = mesh.tiles.iter().flat_map(|tile| &tile.polygons).map(|poly| poly.cell).collect();
+    let (mesh, _) =
+        engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
+    let cells: Vec<_> = mesh
+        .tiles
+        .iter()
+        .flat_map(|tile| &tile.polygons)
+        .map(|poly| poly.cell)
+        .collect();
     assert!(cells.contains(&[-2, 0]));
     assert!(!cells.contains(&[0, 0]));
 }
@@ -64,9 +106,14 @@ fn ray_only_hitbox_does_not_trigger_an_overlapping_sensor() {
     ]));
     simulation.step(1, &[]).unwrap();
     assert_eq!(simulation.take_events()["events"], json!([]));
-    let hit = simulation.physics_query("raycast", &json!({
-        "origin":[3,0,-2],"direction":[0,0,1],"distance":4
-    })).unwrap();
+    let hit = simulation
+        .physics_query(
+            "raycast",
+            &json!({
+                "origin":[3,0,-2],"direction":[0,0,1],"distance":4
+            }),
+        )
+        .unwrap();
     assert_eq!(hit["hitbox"], "offset");
 }
 

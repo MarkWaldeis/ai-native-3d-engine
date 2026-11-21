@@ -13,6 +13,7 @@
       "transform":{"position":[0,1,0]},"color":[0.9,0.35,0.18,1],
       "collider":{"shape":"capsule","radius":0.23,"half_height":0.65},
       "rigidbody":{"type":"kinematic","mass":11},
+      "script":"examples/physics_lab/lab.rhai",
       "props":{"ai_health":100,"ai_physics":{
         "ragdoll":{"preset":"humanoid"},
         "hitboxes":[
@@ -24,8 +25,7 @@
     {
       "id":3,"name":"Lab controller","kind":"box","size":[1,1,1],"visible":false,
       "props":{"ai_ui":{"title":"Physics Lab","mission":"Press Space or the action button to hit the target; press again to reset.",
-        "action_label":"Hit / Reset","hud_keys":["Hitbox","Health","Sensor"]}},
-      "script":"examples/physics_lab/lab.rhai"
+        "action_label":"Hit / Reset","hud_keys":["Hitbox","Health","Sensor"]}}
     },
     {
       "id":4,"name":"Sensor gate","kind":"box","size":[1.4,0.08,1.4],
