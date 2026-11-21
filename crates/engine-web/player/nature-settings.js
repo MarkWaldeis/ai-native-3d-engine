@@ -23,7 +23,7 @@ export function foliagePlacements(tx,tz,{density=1,size=16,water=-Infinity,sampl
   const result=[];
   for(let i=0;i<Math.floor(220*density);i++) {
     const x=(tx+hash(i*4))*size,z=(tz+hash(i*4+1))*size,y=sample(x,z);
-    if (!Number.isFinite(y) || y < water || Math.abs(sample(x+0.5,z)-y)>0.45 || Math.abs(sample(x,z+0.5)-y)>0.45) continue;
+    if (!Number.isFinite(y) || y < water || !(Math.abs(sample(x+0.5,z)-y)<=0.45) || !(Math.abs(sample(x,z+0.5)-y)<=0.45)) continue;
     result.push({x,y,z,rotation:hash(i*4+2)*Math.PI*2,scale:0.65+hash(i*4+3)*0.8,tree:i%59===0});
   }
   return result;

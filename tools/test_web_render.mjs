@@ -32,6 +32,8 @@ test('placement is deterministic across negative tiles and rejects water, slopes
   assert.deepEqual(foliagePlacements(-2,3),foliagePlacements(-2,3));assert.notDeepEqual(foliagePlacements(-2,3),foliagePlacements(2,3));
   for(const options of [{density:0},{water:1},{sample:x=>x*2},{sample:()=>NaN}])assert.deepEqual(foliagePlacements(0,0,options),[]);
   assert.ok(foliagePlacements(0,0,{water:-1,sample:()=>1}).length>0);
+  let center=null;const nanNeighbours=(x,z)=>{if(center&&((x===center[0]+0.5&&z===center[1])||(x===center[0]&&z===center[1]+0.5)))return NaN;center=[x,z];return 0;};
+  assert.deepEqual(foliagePlacements(0,0,{sample:nanNeighbours}),[]);
   assert.ok(foliageSettings({},0).density<foliageSettings({},2).density);
   assert.equal(foliageSettings({distance:128},0).distance,24);
 });
