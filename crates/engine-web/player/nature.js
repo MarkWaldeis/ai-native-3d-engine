@@ -125,7 +125,7 @@ export class NatureVisuals {
       const x=Math.floor(camera.position.x/32)*32,z=Math.floor(camera.position.z/32)*32;
       if(x!==this.water.position.x||z!==this.water.position.z||this.time.value-this.waterRefresh>1){
         this.water.position.x=x;this.water.position.z=z;this.waterBounds.value.set(x,z,2000);
-        const image=this.depthTexture.image;
+        this.collectGrounds();const image=this.depthTexture.image;
         bakeWaterDepth(this.sample,this.config.water.level,x,z,2000,image.width,image.data);
         this.depthTexture.needsUpdate=true;this.waterRefresh=this.time.value;
       }
@@ -134,10 +134,10 @@ export class NatureVisuals {
     const cx=Math.floor(camera.position.x/16),cz=Math.floor(camera.position.z/16),r=Math.ceil(this.settings.distance/16);
     for(const [key,group] of this.tiles){const [x,z]=key.split(',').map(Number);if(Math.hypot(x-cx,z-cz)>r)this.removeTile(key,group);}
     for(let d=0;d<=r;d++)for(let x=cx-d;x<=cx+d;x++)for(let z=cz-d;z<=cz+d;z++)if(Math.hypot(x-cx,z-cz)<=r&&!this.tiles.has(`${x},${z}`)){
-      this.grounds=[];this.scene.updateMatrixWorld(true);this.scene.traverse(o=>{if(o.userData.support)this.grounds.push(o);});
-      this.tile(x,z);return;
+      this.collectGrounds();this.tile(x,z);return;
     }
   }
+  collectGrounds() {this.grounds=[];this.scene.updateMatrixWorld(true);this.scene.traverse(o=>{if(o.userData.support)this.grounds.push(o);});}
   stats() {return {foliageTiles:this.tiles.size,quality:['low','balanced','ultra'][this.level]};}
   dispose() {
     this.clearTiles();this.root.removeFromParent();
