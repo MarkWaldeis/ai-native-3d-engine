@@ -118,14 +118,8 @@ impl Harness {
         self.pump(now)?;
         for (i, client) in self.clients.iter_mut().enumerate() {
             if client.entity_id().is_some() {
-                // Include the upcoming authority tick when lead is zero.
-                let target = if client.stats().lead_ticks == 0 {
-                    self.tick + 1
-                } else {
-                    self.tick
-                };
                 let message =
-                    client.advance_to(target, actions(i, self.tick, moving_ticks), now)?;
+                    client.advance_to(self.tick, actions(i, self.tick, moving_ticks), now)?;
                 self.endpoints[i].send(0, &encode(&message)?)?;
             }
         }

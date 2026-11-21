@@ -28,15 +28,16 @@ fn join(server: &mut NetServer, client: &mut NetClient, peer: u64) -> Result<()>
 fn zero_latency_prediction_is_bit_exact_without_corrections() -> Result<()> {
     let mut server = NetServer::new(support::scene(), BTreeMap::new(), ServerConfig::default())?;
     let config = ClientConfig {
-        initial_lead_ticks: 0,
-        max_lead_ticks: 0,
+        initial_lead_ticks: 1,
+        max_lead_ticks: 1,
         jitter_buffer_ticks: 0,
         ..ClientConfig::default()
     };
     let mut client = NetClient::new(support::scene(), BTreeMap::new(), config)?;
     join(&mut server, &mut client, 1)?;
     for tick in 0..240 {
-        let message = client.tick(
+        let message = client.advance_to(
+            tick,
             support::actions(0, tick, 120),
             tick as f64 * engine_net::TICK_MS,
         )?;
@@ -54,6 +55,8 @@ fn zero_latency_prediction_is_bit_exact_without_corrections() -> Result<()> {
         }
     }
     assert_eq!(client.stats().corrections, 0);
+    assert_eq!(client.stats().lead_ticks, 1);
+    assert_eq!(server.stats().late_inputs, 0);
     Ok(())
 }
 
@@ -263,6 +266,18 @@ fn reconciliation_restores_predicted_pickups_and_ignores_unknown_entities() -> R
 
 #[test]
 fn invalid_inputs_configs_and_removed_entities_have_explicit_behavior() -> Result<()> {
+    for config in [
+        ClientConfig {
+            initial_lead_ticks: 0,
+            ..ClientConfig::default()
+        },
+        ClientConfig {
+            max_lead_ticks: 0,
+            ..ClientConfig::default()
+        },
+    ] {
+        assert!(NetClient::new(support::scene(), BTreeMap::new(), config).is_err());
+    }
     assert!(NetServer::new(
         support::scene(),
         BTreeMap::new(),

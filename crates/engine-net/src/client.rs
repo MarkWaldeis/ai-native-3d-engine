@@ -71,6 +71,8 @@ impl NetClient {
         config: ClientConfig,
     ) -> Result<Self> {
         if config.history_capacity < 2
+            || config.initial_lead_ticks == 0
+            || config.max_lead_ticks == 0
             || config.redundant_frames == 0
             || config.redundant_frames > 128
             || config.max_lead_ticks >= config.history_capacity as u64
@@ -189,7 +191,7 @@ impl NetClient {
         actions: Actions,
         now_ms: f64,
     ) -> Result<ClientMessage> {
-        let target = server_tick.saturating_add(self.stats.lead_ticks);
+        let target = server_tick.saturating_add(self.stats.lead_ticks.max(1));
         if target.saturating_sub(self.simulation.tick) > self.config.history_capacity as u64 {
             bail!("client clock jump exceeds history");
         }
@@ -308,14 +310,15 @@ impl NetClient {
             .input_late_ticks
             .saturating_sub(self.stats.late_inputs);
         self.stats.late_inputs = snapshot.input_late_ticks;
-        let measured =
-            (self.stats.rtt_ms / (2.0 * TICK_MS)).ceil() as u64 + self.config.jitter_buffer_ticks;
+        let measured = ((self.stats.rtt_ms / (2.0 * TICK_MS)).ceil() as u64
+            + self.config.jitter_buffer_ticks)
+            .clamp(1, self.config.max_lead_ticks);
         if late > 0 {
             self.stats.lead_ticks = (self.stats.lead_ticks + 1).min(self.config.max_lead_ticks);
         } else if measured > self.stats.lead_ticks {
             self.stats.lead_ticks = measured.min(self.config.max_lead_ticks);
         } else if snapshot.server_tick.is_multiple_of(120) && measured + 1 < self.stats.lead_ticks {
-            self.stats.lead_ticks = self.stats.lead_ticks.saturating_sub(1);
+            self.stats.lead_ticks = self.stats.lead_ticks.saturating_sub(1).max(1);
         }
         self.reconcile(&snapshot)?;
         self.interpolator.push(&snapshot);

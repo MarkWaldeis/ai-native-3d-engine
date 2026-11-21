@@ -154,14 +154,14 @@ pub fn run(
         },
     );
     let lead = if options.rtt_ms == 0.0 && options.jitter_ms == 0.0 {
-        0
+        1
     } else {
         (((options.rtt_ms / 2.0 + options.jitter_ms) / TICK_MS).ceil() as u64 + 2).min(30)
     };
     let config = ClientConfig {
         initial_lead_ticks: lead,
-        max_lead_ticks: if lead == 0 { 0 } else { 30 },
-        jitter_buffer_ticks: if lead == 0 { 0 } else { 2 },
+        max_lead_ticks: if lead == 1 { 1 } else { 30 },
+        jitter_buffer_ticks: if lead == 1 { 0 } else { 2 },
         ..ClientConfig::default()
     };
     let mut session = Session {
@@ -198,7 +198,7 @@ pub fn run(
             if client.entity_id().is_none() {
                 continue;
             }
-            let target = tick + client.stats().lead_ticks.max(1);
+            let target = tick + client.stats().lead_ticks;
             while client.simulation().tick < target {
                 let local_tick = client.simulation().tick;
                 while let Some(event) = options.inputs[index]
