@@ -13,6 +13,7 @@ import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
+import { HudLayout } from './hud-renderer.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -30,7 +31,7 @@ let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
-let terrain, occluder;
+let terrain, occluder, hudLayout;
 const enemies = new Map();
 const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0};
 const loading = new Set();
@@ -151,6 +152,7 @@ function createObject(entity) {
 }
 
 function apply(result) {
+  hudLayout?.update(result);
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
     const object = objects.get(id);
@@ -199,7 +201,7 @@ function apply(result) {
     if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
     $('state').replaceChildren(...fragments);
   }
-  $('logs').textContent = result.logs.slice(-12).join('\n');
+  $('logs').textContent = [...(hudLayout?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -305,6 +307,7 @@ async function restart() {
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   animations.clear();
+  hudLayout?.reset(source.entities);
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
@@ -421,6 +424,7 @@ window.addEventListener('resize', () => { resetInput(); if (renderer && camera) 
 
 function frame(now) {
   requestAnimationFrame(frame);
+  hudLayout?.frame(now);
   if (!renderer || !ready) return;
   try {
     const rawElapsed = (now - previous) / 1000;
@@ -514,6 +518,7 @@ async function boot() {
   const props = source.entities.find(e => e.tags?.includes('player'))?.props;
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
+  hudLayout = new HudLayout(props?.ai_hud, source.entities);
   const preset = new URLSearchParams(location.search).get('quality');
   const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
   renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });

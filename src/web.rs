@@ -84,6 +84,8 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("fps_core.js", include_str!("../crates/engine-web/player/fps_core.js")),
     ("fx.js", include_str!("../crates/engine-web/player/fx.js")),
     ("hud.js", include_str!("../crates/engine-web/player/hud.js")),
+    ("hud-layout.js", include_str!("../crates/engine-web/player/hud-layout.js")),
+    ("hud-renderer.js", include_str!("../crates/engine-web/player/hud-renderer.js")),
     (
         "vendor/three.module.js",
         include_str!("../crates/engine-web/player/vendor/three.module.js"),
