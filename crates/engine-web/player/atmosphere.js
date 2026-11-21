@@ -14,7 +14,7 @@ float cloudNoise(vec2 p) {
 export class Atmosphere {
   constructor(scene,config,level) {
     Object.assign(this,{scene,config,patched:new WeakSet(),time:0,lastScan:-Infinity});
-    this.uniforms={hazeLevel:{value:level},hazeDensity:{value:config.haze?.density??0},hazeBase:{value:config.haze?.height??18},hazeFalloff:{value:config.haze?.falloff??0.045},hazeHorizon:{value:new T.Color(config.horizon)},hazeSun:{value:new T.Color(config.sunColor)},hazeDirection:{value:new T.Vector3(...config.sunDirection)}};
+    this.uniforms={hazeLevel:{value:level},hazeDensity:{value:config.haze?.density??0},hazeBase:{value:config.haze?.height??18},hazeFalloff:{value:config.haze?.falloff??0.045},hazeHorizon:{value:new T.Color(config.horizon)},hazeSun:{value:new T.Color(config.sunColor)},hazeDirection:{value:new T.Vector3(...config.sunDirection).normalize()}};
     if(config.clouds) {
       const material=new T.ShaderMaterial({side:T.BackSide,transparent:true,depthWrite:false,fog:false,
         uniforms:{...this.uniforms,cloudTime:{value:0},cloudCoverage:{value:config.clouds.coverage}},
