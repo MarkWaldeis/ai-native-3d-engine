@@ -11,6 +11,13 @@ fn on_start(ctx) {
     ctx.state_set("won", false);
 }
 
+// Same defaults as the web player when an `ai_fps` field is missing or not numeric.
+fn setting(cfg, key, fallback) {
+    if type_of(cfg) != "map" { return fallback; }
+    let v = cfg[key];
+    if type_of(v) == "f64" || type_of(v) == "i64" { v.to_float() } else { fallback }
+}
+
 fn on_tick(ctx, dt) {
     let cfg = ctx.prop("ai_fps");
     let v = ctx.velocity();
@@ -19,10 +26,10 @@ fn on_tick(ctx, dt) {
         ctx.state_set("objective", "Gefallen – Neustart");
         return;
     }
-    let speed = if ctx.input("sprint") > 0.5 { cfg.sprint_speed } else { cfg.move_speed };
+    let speed = if ctx.input("sprint") > 0.5 { setting(cfg, "sprint_speed", 8.5) } else { setting(cfg, "move_speed", 5.0) };
     let m = ctx.move_dir();
     let vy = v[1];
-    if ctx.input("jump") > 0.5 && ctx.grounded() { vy = cfg.jump_speed; }
+    if ctx.input("jump") > 0.5 && ctx.grounded() { vy = setting(cfg, "jump_speed", 5.5); }
     ctx.set_velocity([m[0] * speed, vy, m[2] * speed]);
 
     let cooldown = ctx.state_get("_cooldown") - dt;
@@ -65,7 +72,7 @@ fn on_tick(ctx, dt) {
 
 fn fire(ctx, cfg) {
     let p = ctx.position();
-    let eye = [p[0], p[1] + cfg.eye_height, p[2]];
+    let eye = [p[0], p[1] + setting(cfg, "eye_height", 0.75), p[2]];
     let dir = ctx.aim_dir();
     let range = 250.0;
     let ray = ctx.raycast(eye, dir, range);
