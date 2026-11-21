@@ -7,6 +7,7 @@ pub(crate) fn tools() -> Value {
     tools.as_array_mut().unwrap().extend(crate::terrain::tools());
     tools.as_array_mut().unwrap().extend(crate::animation::tools());
     tools.as_array_mut().unwrap().extend(crate::navigation::tools());
+    tools.as_array_mut().unwrap().push(crate::netcode::tool());
     for tool in tools.as_array_mut().unwrap() {
         let name = tool["name"].as_str().unwrap();
         let read_only = matches!(
@@ -16,6 +17,7 @@ pub(crate) fn tools() -> Value {
                 | "animation_clips" | "animator_validate"
                 | "get_sim_state"
                 | "simulate"
+                | "net_simulate"
                 | "query"
                 | "query_entities" | "get_scene_summary"
                 | "blender_status"
@@ -72,6 +74,8 @@ pub fn agent_guide() -> String {
     for tool in crate::navigation::tools() {
         guide.push_str(&format!("- **{}**: {}\n", tool["name"].as_str().unwrap(), tool["description"].as_str().unwrap()));
     }
+    let tool = crate::netcode::tool();
+    guide.push_str(&format!("- **net_simulate**: {}\n", tool["description"].as_str().unwrap()));
     guide
 }
 

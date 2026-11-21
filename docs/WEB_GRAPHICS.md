@@ -1,5 +1,14 @@
 # Browser graphics
 
+Terrain-Verdeckung: `ai_world.occlusion` aktiviert standardmäßig gemeinsame
+Höhenfeldproben für Chunk-Gruppen und Terrain-Kacheln (auch ohne Chunk-Streaming).
+`occlusion_margin` (2 m) toleriert Höhenfehler; nahe Boxen und Kameras unter dem
+Terrain bleiben sichtbar. Neun obere Boxpunkte müssen verdeckt sein, bevor nach
+zwei Tests ausgeblendet wird. Das Round-Robin-Budget beträgt 96 Tests/Frame.
+Dies ist eine abgetastete Näherung, kein GPU-Depth-Test; bei stark überhängenden
+Objekten oder ungenauen Höhenfeldern lässt sie sich mit `occlusion:false` abschalten.
+`?stats=1` und Browser-Benchmarks zeigen verdeckte Chunks/Kacheln und Tests/Frame.
+
 Exports are self-contained WebGL 2 sites. Existing scenes keep the legacy look.
 Enable the enhanced renderer with an `ai_graphics` object (or JSON string) in
 `props` of the entity tagged `player`. An empty object enables the defaults.
@@ -233,11 +242,14 @@ graphics defaults are unchanged. `ai_render` is a deprecated object/JSON alias:
 it is merged over `ai_graphics`. `quality=high` and `quality=medium` both mean
 balanced; ultra/low/legacy retain their existing meanings.
 
-`foliage` accepts true or `{density,distance}` (density 0–4, distance 16–128 m,
-with preset distance caps of 24/48/64 m).
-Grass tufts and broadleaf trees are deterministic GPU instances on independent
+`foliage` accepts true or `{density,distance,trees}` (density 0–4, trees 0–1 with 0 disabling procedural trees, distance 16–128 m,
+with preset distance caps of 24/36/112 m).
+Short tapered grass, leafy clumps, occasional flowers and broadleaf trees are deterministic GPU instances on independent
 16-m tiles, with wind and distance fade. Camera-near trees shrink away to avoid
 blocking gameplay. Placement skips water and steep/non-finite sampled ground.
+The player supplies authored road footprints to exclude ground cover; ultra uses
+sparse, wider four-triangle tufts beyond 40 m. Balanced/low skip terrain detail
+texture samples and use smaller water masks.
 Default heights raycast static support meshes or fall back to zero; terrain may
 replace this with `window.__aiEngineVisuals.setHeightSampler((x,z)=>y)`.
 `water` accepts false or `{level,color}` and uses animated procedural normals,
@@ -269,3 +281,20 @@ Set `props.ai_terrain_detail` to a strength from 0 to 1 on a terrain entity
 procedural detail to the layered terrain on slopes and flats without tile seams,
 extra geometry, or requests. The detail fades from 25 to 90 m so distant
 terrain keeps its existing shading. Terrain heights and colliders are unchanged.
+
+### Valley haze and clouds
+
+`haze: true` or `{density,height,falloff}` enables height-dependent aerial
+perspective, with warmer scattering toward the sun. `height` is the low-valley
+reference elevation in world metres; the default density/height/falloff are
+0.002/18/0.045. Low uses a linear height approximation and omits sun scattering.
+`clouds: true` or `{coverage:0.48}` enables slowly drifting layered procedural
+clouds on the sky dome (four noise octaves on ultra, two on balanced, off on low).
+Clouds are not baked into the environment; the existing PMREM stays unchanged.
+Both features default off and add no postprocessing stack.
+
+`shadow_extent` also accepts `{low,balanced,ultra}` widths in metres, and
+`shadow_map_size` accepts per-tier power-of-two sizes from 256 to 4096 (clamped to
+the GPU limit). Rio Verde authors widths 24/64/144 m and maps 512/1024/4096;
+ultra therefore covers approximately 72 m either side of the target. The existing
+sun-space texel grid stabilizes each tier. This is a single map, not cascades.
