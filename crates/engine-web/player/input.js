@@ -186,6 +186,21 @@ export function keyboardHelp(config, firstPerson = false) {
   return help.join(' · ');
 }
 
+export function gamepadHelp(config, firstPerson = false) {
+  const label = action => {
+    const binding = config?.bindings?.[action]?.find(binding => binding.type === 'button' || binding.type === 'axis');
+    return binding ? describeBinding(binding) : 'nicht belegt';
+  };
+  const movement = ['move_left', 'move_right', 'move_forward', 'move_back'].map(label).join(' / ');
+  const help = ['Gamepad verbunden', `${movement}: Bewegen`, `${label('action')}: Aktion`];
+  if (firstPerson) {
+    help.push(`${label('look_x')} / ${label('look_y')}: Zielen`, `${label('fire')}: Feuer`,
+      `${label('reload')}: Nachladen`, `${label('sprint')}: Sprint`);
+  }
+  help.push(`${label('pause')}: Pause`);
+  return help.join(' · ');
+}
+
 export function describeBinding(value) {
   const binding = bindingCopy(value);
   if (!binding) return 'Unbekannte Bindung';

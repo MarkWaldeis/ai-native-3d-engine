@@ -12,7 +12,7 @@ import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectib
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
-import { InputSystem, InputEdges, keyboardHelp } from './input.js';
+import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
 import { InputSettings } from './input-settings.js';
 
 const $ = id => document.getElementById(id);
@@ -29,7 +29,7 @@ function showTouch() {
   updateHelp();
 }
 function updateHelp() {
-  const help = gamepadActive ? 'Gamepad verbunden · Sticks: Bewegen / Zielen · A: Aktion · Start: Pause' : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
+  const help = gamepadActive ? gamepadHelp(input.config, !!fps) : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
   if (help && $('help').textContent !== help) $('help').textContent = help;
 }
 if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch-input');

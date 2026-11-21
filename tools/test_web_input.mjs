@@ -1,9 +1,28 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, InputSystem, InputEdges, pushedBindings, keyboardHelp, parseInputConfig, radialDeadzone, sampleGamepads, describeBinding } from '../crates/engine-web/player/input.js';
+import { ACTIONS, InputSystem, InputEdges, pushedBindings, keyboardHelp, gamepadHelp, parseInputConfig, radialDeadzone, sampleGamepads, describeBinding } from '../crates/engine-web/player/input.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 const pad = (axes = [], pressed = []) => ({ axes, buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0 })) });
+
+test('gamepad help follows current bindings including FPS actions, reset and load', () => {
+  const input = new InputSystem();
+  const original = gamepadHelp(input.config);
+  assert.ok(original.startsWith('Gamepad verbunden'));
+  assert.match(original, /Gamepad A: Aktion/);
+  input.config.bindings.action = [{ type: 'key', code: 'KeyE' }, { type: 'button', index: 1 }];
+  input.config.bindings.move_left = [{ type: 'axis', index: 4, dir: -1 }];
+  input.config.bindings.pause = [];
+  const help = gamepadHelp(input.config, true);
+  for (const text of ['Achse 4 ←', 'Gamepad B: Aktion', 'Rechter Stick → / Rechter Stick ↓: Zielen', 'Gamepad RT: Feuer', 'Gamepad X: Nachladen', 'Gamepad L3: Sprint', 'nicht belegt: Pause']) assert.ok(help.includes(text), text);
+  assert.doesNotMatch(help, /Gamepad A: Aktion|Taste E/);
+  assert.equal(gamepadHelp(new InputSystem(JSON.stringify(input)).config, true), help);
+  input.reset(); assert.equal(gamepadHelp(input.config), original);
+  assert.match(gamepadHelp(undefined, true), /nicht belegt: Feuer/);
+  const empty = new InputSystem({ bindings: { action: [], fire: [] } });
+  assert.match(gamepadHelp(empty.config, true), /nicht belegt: Aktion/);
+  assert.match(gamepadHelp(empty.config, true), /nicht belegt: Feuer/);
+});
 
 test('keyboard help follows current first keys after remap, reset and load including FPS actions', () => {
   const input = new InputSystem();

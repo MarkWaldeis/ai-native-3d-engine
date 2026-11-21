@@ -27,20 +27,35 @@ function fixture(saved, authored) {
   return { input, settings, storage, elements, paused: () => paused, changes: () => changes };
 }
 
-test('settings opens paused, replaces an action, persists per title and resets authored defaults', () => {
+test('settings opens paused, replaces keyboard bindings only, persists per title and resets authored defaults', () => {
   const { input, settings, storage, elements, paused, changes } = fixture(undefined, { deadzone: 0.3 });
   assert.equal(changes(), 1, 'load refreshes help');
   settings.show(); assert.equal(settings.open, true); assert.equal(paused(), 1);
   elements.get('input-bindings').querySelector('[data-action="action"]').dispatchEvent(new Event('click'));
   settings.bind({ type: 'key', code: 'KeyE' });
   assert.equal(changes(), 3, 'open and rebind refresh help');
-  assert.deepEqual(input.config.bindings.action, [{ type: 'key', code: 'KeyE' }]);
-  assert.equal(JSON.parse(storage.get(settings.storageKey)).bindings.action[0].code, 'KeyE');
+  assert.deepEqual(input.config.bindings.action, [{ type: 'button', index: 0 }, { type: 'key', code: 'KeyE' }]);
+  assert.deepEqual(JSON.parse(storage.get(settings.storageKey)).bindings.action, input.config.bindings.action);
   settings.dialog.close(); assert.equal(settings.open, false); assert.ok(settings.trigger.focused);
   elements.get('input-reset').dispatchEvent(new Event('click'));
   assert.equal(changes(), 4, 'reset refreshes help');
   assert.equal(storage.has(settings.storageKey), false); assert.equal(input.config.deadzone, 0.3);
   assert.equal(input.config.bindings.action[0].code, 'Space');
+});
+
+test('gamepad capture replaces buttons and axes but retains keyboard bindings and resolves conflicts', () => {
+  const { settings, input, storage } = fixture(undefined, { bindings: { action: [
+    { type: 'key', code: 'Space' }, { type: 'button', index: 0 }, { type: 'axis', index: 5, dir: 1 },
+  ] } });
+  settings.capturing = 'action'; settings.bind({ type: 'axis', index: 0, dir: 1 });
+  assert.deepEqual(input.config.bindings.action, [{ type: 'key', code: 'Space' }, { type: 'axis', index: 0, dir: 1 }]);
+  assert.ok(!input.config.bindings.move_right.some(binding => binding.type === 'axis' && binding.index === 0 && binding.dir === 1));
+  settings.capturing = 'action'; settings.bind({ type: 'button', index: 1 });
+  assert.deepEqual(input.config.bindings.action, [{ type: 'key', code: 'Space' }, { type: 'button', index: 1 }]);
+  assert.deepEqual(JSON.parse(storage.get(settings.storageKey)).bindings.action, input.config.bindings.action);
+  input.config.bindings.fire = [];
+  settings.capturing = 'fire'; settings.bind({ type: 'key', code: 'KeyF' });
+  assert.deepEqual(input.config.bindings.fire, [{ type: 'key', code: 'KeyF' }]);
 });
 
 test('saved config loads; corrupt or unavailable storage produces warnings, not failures', () => {
@@ -51,7 +66,7 @@ test('saved config loads; corrupt or unavailable storage produces warnings, not 
   const { settings, input } = fixture();
   globalThis.localStorage.setItem = () => { throw new Error('denied'); };
   settings.capturing = 'action'; settings.bind({ type: 'key', code: 'KeyE' });
-  assert.equal(input.config.bindings.action[0].code, 'KeyE');
+  assert.ok(input.config.bindings.action.some(binding => binding.code === 'KeyE'));
   assert.ok(settings.warnings.some(message => message.includes('Speichern')));
 });
 

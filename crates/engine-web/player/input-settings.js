@@ -74,7 +74,7 @@ export class InputSettings {
   bind(binding) {
     const action = this.capturing;
     if (!action) return;
-    this.input.config.bindings[action] = [];
+    this.input.config.bindings[action] = this.input.config.bindings[action].filter(current => (current.type === 'key') !== (binding.type === 'key'));
     this.input.rebind(action, binding); this.cancelCapture(); this.render();
     this.status.textContent = `${labels[action]}: ${describeBinding(binding)} gespeichert.`;
     try { localStorage.setItem(this.storageKey, JSON.stringify(this.input)); } catch { this.warnStorage(); }
