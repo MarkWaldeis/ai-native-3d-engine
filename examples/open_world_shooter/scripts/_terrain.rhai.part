@@ -51,14 +51,7 @@ fn ground_height(ctx, x, z) {
 }
 
 fn player_position(ctx) {
-    let p = ();
-    try { p = ctx.player_pos(); } catch { p = (); }
-    if p == () {
-        let id = ctx.find_by_name("player");
-        if id < 0 { return (); }
-        p = ctx.entity_position(id);
-    }
-    p
+    ctx.player_pos()
 }
 
 fn rnd(seed) {
@@ -68,24 +61,9 @@ fn rnd(seed) {
 }
 
 fn fx(ctx, kind, pos, dir) {
-    try { ctx.emit_fx(kind, pos, dir); } catch { }
+    ctx.emit_fx(kind, pos, dir);
 }
 
-// True when nothing blocks the segment a->b (raycast if available, else terrain samples).
 fn line_of_sight(ctx, a, b, target_id) {
-    let dx = b[0] - a[0]; let dy = b[1] - a[1]; let dz = b[2] - a[2];
-    let dist = sqrt(dx * dx + dy * dy + dz * dz);
-    if dist < 0.01 { return true; }
-    let dir = [dx / dist, dy / dist, dz / dist];
-    let hit = ();
-    try { hit = ctx.raycast(a, dir, dist + 1.0); } catch { hit = (); }
-    if hit != () {
-        if !hit.hit { return true; }
-        return hit.id == target_id || hit.distance > dist - 0.8;
-    }
-    for i in 1..6 {
-        let t = i.to_float() / 6.0;
-        if analytic_height(a[0] + dx * t, a[2] + dz * t) > a[1] + dy * t - 0.3 { return false; }
-    }
-    true
+    ctx.line_of_sight(a, b, target_id)
 }

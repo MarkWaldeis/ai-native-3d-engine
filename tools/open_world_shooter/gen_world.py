@@ -238,9 +238,10 @@ def build(scene, rng, density, with_terrain_entity):
     E.add("player", "cylinder", [sx, height(sx, sz) + 0.9, sz], radius=0.4, height=1.8, segments=12,
           color=[0.2, 0.3, 0.2, 1], tags=["player", "always_active"],
           collider={"shape": "capsule", "radius": 0.4, "half_height": 0.5},
-          rigidbody={"type": "kinematic", "mass": 80}, script=f"{GAME}/scripts/player.rhai",
+          rigidbody={"type": "dynamic", "mass": 80}, script=f"{GAME}/scripts/player.rhai",
           props={
-              "ai_fps": {"eye_height": 1.65, "move_speed": 5.5, "sprint_speed": 9.0, "jump_speed": 5.0, "mouse_sens": 0.0022},
+              "ai_lock_rotation": True,
+              "ai_fps": {"eye_height": 0.75, "move_speed": 5.5, "sprint_speed": 9.0, "jump_speed": 5.0, "mouse_sens": 0.0022},
               "ai_viewmodel": f"{ASSETS}/rifle_viewmodel.glb",
               "ai_render": {"preset": "high", "sky": "tropical", "fog": 0.0011, "time_of_day": 16.5, "shadows": True, "foliage": True},
               "ai_graphics": {"time_of_day": 16.5, "foliage": True, "water": {"level": 0.6, "color": [0.18, 0.32, 0.28]}, "fog_density": 0.0011},
@@ -330,7 +331,7 @@ def build(scene, rng, density, with_terrain_entity):
         pickup("health", cx - 6, cz - 3)
         if tower:
             E.asset("radio-tower", "radio_tower", cx + 8, cz - 8, 30.0, collider={"shape": "mesh"},
-                    tags=["objective_target"])
+                    tags=["objective_target", "damageable"], props={"ai_health": 300})
 
     # Landing zone Echo.
     E.asset("lz-jeep", "jeep_wreck", LZ[0] - 8, LZ[1] + 4, 35.0, collider={"shape": "mesh"})

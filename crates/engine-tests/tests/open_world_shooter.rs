@@ -66,8 +66,8 @@ fn shooter_enemy_fire_damages_the_player() {
         "examples/open_world_shooter/tests/damage.json",
         "examples/open_world_shooter/tests/damage_validation.json",
     );
-    let health = state["health"].as_i64().unwrap();
-    assert!(health < 100 && health > 0, "{state}");
+    let health = state["health"].as_f64().unwrap();
+    assert!(health < 100.0 && health > 0.0, "{state}");
     println!("Shooter damage validation: health={health}");
 }
 
@@ -113,7 +113,7 @@ fn shooter_full_generated_world_runs_120_ticks_without_script_errors() {
         .unwrap();
     assert!(!simulation.failed);
     assert_eq!(simulation.tick, 120);
-    assert_eq!(simulation.state()["state"]["health"], 100);
+    assert_eq!(simulation.state()["state"]["health"].as_f64(), Some(100.0));
     println!("Shooter full world: {count} entities, 120 ticks, no script errors");
 }
 
@@ -144,6 +144,8 @@ fn on_start(ctx) {
         ctx.state_set("error_"+name, abs(actual - analytic_height(p[0], p[2])));
     }
 }
+
+
 "#),
     });
     let simulation = Simulation::new(scene, &root()).unwrap();
@@ -163,7 +165,8 @@ fn shooter_drone_can_be_shot_down_and_falls_before_removal() {
         "id": 9, "name": "test-drone", "kind": "sphere", "radius": 0.5, "segments": 8,
         "transform": {"position": [-2700,40,-2725]},
         "tags": ["enemy", "drone", "grp_alpha"],
-        "script": "examples/open_world_shooter/scripts/drone.rhai"
+        "script": "examples/open_world_shooter/scripts/drone.rhai",
+        "collider":{"shape":"sphere","radius":0.7},"rigidbody":{"type":"kinematic"}
     });
     let mut simulation = Simulation::new(serde_json::from_value(scene).unwrap(), &root()).unwrap();
     simulation
@@ -188,4 +191,40 @@ fn shooter_drone_can_be_shot_down_and_falls_before_removal() {
     assert!(simulation.scene().entities.iter().any(|e| e.id == 9));
     simulation.step(120, &[]).unwrap();
     assert!(!simulation.scene().entities.iter().any(|e| e.id == 9));
+}
+
+#[test]
+fn shooter_dynamic_player_and_hitscan_are_blocked_by_cover() {
+    let mut scene = read("examples/open_world_shooter/tests/combat.json");
+    scene["entities"].as_array_mut().unwrap().push(json!({
+        "id":100,"name":"blocking-wall","kind":"box","size":[8,4,1],
+        "transform":{"position":[-2700,32,-2704]},"collider":{"shape":"box"}
+    }));
+    let mut simulation = Simulation::new(serde_json::from_value(scene).unwrap(), &root()).unwrap();
+    simulation.step(120, &[
+        Input {tick:0,action:"move_z".into(),value:-1.0},
+        Input {tick:0,action:"fire".into(),value:1.0},
+    ]).unwrap();
+    let snapshot = simulation.scene();
+    let player = snapshot.entities.iter().find(|e| e.name == "player").unwrap();
+    assert!(player.transform.position[2] > -2703.2 && player.transform.position[2] < -2701.0, "{:?}", player.transform);
+    assert_eq!(simulation.state()["state"]["kills"], 0);
+    assert_eq!(simulation.state()["state"]["health"].as_f64(), Some(100.0));
+    assert!(!simulation.failed);
+}
+
+#[test]
+fn shooter_reload_exposes_animation_time_and_refills_from_reserve() {
+    let scene: Scene = serde_json::from_value(read("examples/open_world_shooter/tests/combat.json")).unwrap();
+    let mut simulation = Simulation::new(scene, &root()).unwrap();
+    simulation.step(1, &[Input {tick:0,action:"fire".into(),value:1.0}]).unwrap();
+    simulation.step(1, &[
+        Input {tick:1,action:"fire".into(),value:0.0},
+        Input {tick:1,action:"reload".into(),value:1.0},
+    ]).unwrap();
+    assert!(simulation.state()["state"]["_reload"].as_f64().unwrap() > 0.0);
+    simulation.step(121, &[Input {tick:2,action:"reload".into(),value:0.0}]).unwrap();
+    assert_eq!(simulation.state()["state"]["ammo"],30);
+    assert_eq!(simulation.state()["state"]["ammo_reserve"],149);
+    assert_eq!(simulation.state()["state"]["_reload"],0.0);
 }

@@ -51,14 +51,7 @@ fn ground_height(ctx, x, z) {
 }
 
 fn player_position(ctx) {
-    let p = ();
-    try { p = ctx.player_pos(); } catch { p = (); }
-    if p == () {
-        let id = ctx.find_by_name("player");
-        if id < 0 { return (); }
-        p = ctx.entity_position(id);
-    }
-    p
+    ctx.player_pos()
 }
 
 fn rnd(seed) {
@@ -68,26 +61,11 @@ fn rnd(seed) {
 }
 
 fn fx(ctx, kind, pos, dir) {
-    try { ctx.emit_fx(kind, pos, dir); } catch { }
+    ctx.emit_fx(kind, pos, dir);
 }
 
-// True when nothing blocks the segment a->b (raycast if available, else terrain samples).
 fn line_of_sight(ctx, a, b, target_id) {
-    let dx = b[0] - a[0]; let dy = b[1] - a[1]; let dz = b[2] - a[2];
-    let dist = sqrt(dx * dx + dy * dy + dz * dz);
-    if dist < 0.01 { return true; }
-    let dir = [dx / dist, dy / dist, dz / dist];
-    let hit = ();
-    try { hit = ctx.raycast(a, dir, dist + 1.0); } catch { hit = (); }
-    if hit != () {
-        if !hit.hit { return true; }
-        return hit.id == target_id || hit.distance > dist - 0.8;
-    }
-    for i in 1..6 {
-        let t = i.to_float() / 6.0;
-        if analytic_height(a[0] + dx * t, a[2] + dz * t) > a[1] + dy * t - 0.3 { return false; }
-    }
-    true
+    ctx.line_of_sight(a, b, target_id)
 }
 
 fn number(ctx, key) {
@@ -107,14 +85,16 @@ fn clamp(value, lo, hi) {
 
 fn on_start(ctx) {
     for pair in [["health",100],["ammo",30],["ammo_reserve",150],["kills",0],
-                 ["_tick",0],["_stage",0],["_tower_hp",300],["_pdmg",0]] {
+                 ["_tick",0],["_stage",0],["_tower_hp",300]] {
         ctx.state_set(pair[0],pair[1]);
     }
     ctx.state_set("won",false);
     ctx.state_set("lost",false);
     ctx.state_set("_hurt",false);
     ctx.state_set("_commander_dead",false);
-    ctx.state_set("_vy",0.0);
+    ctx.set_health(100.0);
+    let tower=ctx.find_by_name("radio-tower");
+    if tower >= 0 { ctx.set_health(tower,300.0); }
     ctx.state_set("_fire_cd",0.0);
     ctx.state_set("_reload",0.0);
     ctx.state_set("_shot",[0.0,0.0,-1000]);
@@ -132,53 +112,20 @@ fn fire(ctx, eye, dir, tick) {
     ctx.state_set("ammo",ctx.state_get("ammo")-1);
     ctx.state_set("_shot",[eye[0],eye[2],tick]);
     ctx.state_set("_fire_cd",0.1);
-    let enemies=ctx.state_get("_enemies");
-    let tower=ctx.find_by_name("radio-tower");
-    let hit=();
-    try { hit=ctx.raycast(eye,dir,400.0); } catch { }
-    let target=-1; let distance=400.0;
-    if hit != () {
-        if hit.hit {
-            distance=hit.distance;
-            if hit.id == tower || enemies.contains(hit.id) { target=hit.id; }
-        }
-    } else {
-        let candidates=enemies;
-        if tower >= 0 { candidates.push(tower); }
-        for id in candidates {
-            let m=ctx.state_get("_e"+id);
-            if m != () && m.hp <= 0 { continue; }
-            let p=();
-            try { p=ctx.entity_position(id); } catch { continue; }
-            let radius=0.6;
-            if id == tower { p[1]+=8.0; radius=3.5; }
-            else if ctx.state_get("_drones").contains(id) { radius=0.8; }
-            else { p[1]+=1.0; }
-            let dx=p[0]-eye[0]; let dy=p[1]-eye[1]; let dz=p[2]-eye[2];
-            let along=dx*dir[0]+dy*dir[1]+dz*dir[2];
-            let discriminant=radius*radius-(dx*dx+dy*dy+dz*dz-along*along);
-            if along <= 0.0 || discriminant < 0.0 { continue; }
-            let entry=max(0.0,along-sqrt(discriminant));
-            if entry < distance {
-                target=id; distance=entry;
-            }
-        }
-        if target >= 0 {
-            let end=[eye[0]+dir[0]*distance,eye[1]+dir[1]*distance,eye[2]+dir[2]*distance];
-            if !line_of_sight(ctx,eye,end,target) { target=-1; }
-        }
+    let hit=ctx.raycast(eye,dir,400.0);
+    let distance=if hit.hit { hit.distance } else { 400.0 };
+    ctx.emit_fx("muzzle",eye,dir);
+    ctx.emit_fx("tracer",eye,[dir[0]*distance,dir[1]*distance,dir[2]*distance]);
+    if hit.hit {
+        let health=ctx.damage(hit.id,34.0);
+        ctx.emit_fx(if health >= 0.0 { "blood" } else { "impact" },hit.point,hit.normal);
     }
-    let end=[eye[0]+dir[0]*distance,eye[1]+dir[1]*distance,eye[2]+dir[2]*distance];
-    fx(ctx,"muzzle",eye,dir);
-    fx(ctx,"tracer",eye,end);
-    if target == tower && tower >= 0 {
-        ctx.state_set("_tower_hp",ctx.state_get("_tower_hp")-34);
-        fx(ctx,"impact",end,dir);
-    } else if target >= 0 {
-        let key="_d"+target;
-        ctx.state_set(key,number(ctx,key)+34);
-        fx(ctx,"blood",end,dir);
-    } else if distance < 400.0 { fx(ctx,"impact",end,dir); }
+}
+
+fn setting(cfg,key,fallback) {
+    if type_of(cfg) != "map" { return fallback; }
+    let value=cfg[key];
+    if type_of(value) == "f64" || type_of(value) == "i64" { value.to_float() } else { fallback }
 }
 
 fn missions(ctx,p) {
@@ -197,8 +144,7 @@ fn missions(ctx,p) {
         let left=max(0,ctx.state_get("_tot_alpha")-ctx.state_get("_dead_alpha"));
         ctx.state_set("objective","Säubere Außenposten Alpha ("+left+" übrig)");
         for enemy in ctx.find_by_tag("grp_alpha") {
-            let m=ctx.state_get("_e"+enemy);
-            if m != () && m.hp > 0 { ctx.state_set("_wp",ctx.entity_position(enemy)); break; }
+            if ctx.health_of(enemy) > 0.0 { ctx.state_set("_wp",ctx.entity_position(enemy)); break; }
         }
         if left == 0 { stage=2; }
     } else if stage == 2 {
@@ -206,6 +152,7 @@ fn missions(ctx,p) {
         if id < 0 { stage=3; }
         else if near_xz(p,ctx.entity_position(id),3.0) { ctx.remove(id); stage=3; }
     } else if stage == 3 {
+        if id >= 0 { ctx.state_set("_tower_hp",ctx.health_of(id)); }
         ctx.state_set("objective","Zerstöre den Funkturm ("+max(0,ctx.state_get("_tower_hp"))+" LP)");
         if id < 0 { stage=4; }
         else if ctx.state_get("_tower_hp") <= 0 {
@@ -224,39 +171,27 @@ fn missions(ctx,p) {
 }
 
 fn on_tick(ctx,dt) {
-    if ctx.state_get("won") || ctx.state_get("lost") { return; }
+    if ctx.state_get("won") || ctx.state_get("lost") {
+        ctx.set_velocity([0.0,ctx.velocity()[1],0.0]);
+        return;
+    }
     let tick=ctx.state_get("_tick")+1;
     ctx.state_set("_tick",tick);
-    let damage=ctx.state_get("_pdmg");
-    ctx.state_set("_pdmg",0);
-    if damage > 0 {
-        ctx.state_set("health",max(0,ctx.state_get("health")-damage));
-        ctx.state_set("_hurt",true);
-    }
-    if ctx.state_get("health") <= 0 {
+    if ctx.hits().len > 0 { ctx.state_set("_hurt",true); }
+    if ctx.health() <= 0.0 {
         ctx.state_set("lost",true);
         ctx.state_set("objective","Gefallen – Neustart");
+        ctx.set_velocity([0.0,ctx.velocity()[1],0.0]);
         return;
     }
     let p=ctx.position();
-    let yaw=ctx.input("look_yaw"); let pitch=ctx.input("look_pitch");
-    let mx=ctx.input("move_x"); let mz=ctx.input("move_z");
-    let length=max(1.0,sqrt(mx*mx+mz*mz));
-    let speed=5.5;
-    if ctx.input("sprint") > 0.0 { speed=9.0; }
-    p[0]=clamp(p[0]+(cos(yaw)*mx+sin(yaw)*mz)*speed*dt/length,-3260.0,3260.0);
-    p[2]=clamp(p[2]+(-sin(yaw)*mx+cos(yaw)*mz)*speed*dt/length,-3260.0,3260.0);
-    let floor=ground_height(ctx,p[0],p[2])+0.9;
-    let vy=ctx.state_get("_vy");
-    if p[1] <= floor+0.03 && vy <= 0.0 {
-        p[1]=floor; vy=0.0;
-        if ctx.input("jump") > 0.0 { vy=5.0; }
-    }
-    vy-=9.81*dt; p[1]=max(floor,p[1]+vy*dt);
-    if p[1] <= floor { vy=0.0; }
-    ctx.state_set("_vy",vy);
-    ctx.set_position(p);
-    ctx.set_rotation([0.0,yaw.to_degrees(),0.0]);
+    let cfg=ctx.prop("ai_fps");
+    let velocity=ctx.velocity();
+    let vy=velocity[1];
+    if ctx.input("jump") > 0.5 && ctx.grounded() { vy=setting(cfg,"jump_speed",5.0); }
+    let speed=if ctx.input("sprint") > 0.5 { setting(cfg,"sprint_speed",9.0) } else { setting(cfg,"move_speed",5.5) };
+    let move=ctx.move_dir();
+    ctx.set_velocity([move[0]*speed,vy,move[2]*speed]);
     let reload=ctx.state_get("_reload");
     if reload > 0.0 {
         reload=max(0.0,reload-dt);
@@ -273,13 +208,13 @@ fn on_tick(ctx,dt) {
     ctx.state_set("_reload",reload);
     ctx.state_set("_fire_cd",max(0.0,ctx.state_get("_fire_cd")-dt));
     if ctx.input("fire") > 0.0 && reload == 0.0 && ctx.state_get("_fire_cd") < 0.000001 && ctx.state_get("ammo") > 0 {
-        fire(ctx,[p[0],p[1]+0.75,p[2]],[-sin(yaw)*cos(pitch),sin(pitch),-cos(yaw)*cos(pitch)],tick);
+        fire(ctx,[p[0],p[1]+setting(cfg,"eye_height",0.75),p[2]],ctx.aim_dir(),tick);
     }
     if tick % 6 == 0 {
         for tag in ["pickup_health","pickup_ammo"] {
             for id in ctx.find_by_tag(tag) {
                 if near_xz(p,ctx.entity_position(id),2.2) {
-                    if tag == "pickup_health" { ctx.state_set("health",min(100,ctx.state_get("health")+40)); }
+                    if tag == "pickup_health" { ctx.set_health(min(100.0,ctx.health()+40.0)); }
                     else { ctx.state_set("ammo_reserve",ctx.state_get("ammo_reserve")+60); }
                     ctx.remove(id);
                 }

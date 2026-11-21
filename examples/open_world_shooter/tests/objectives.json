@@ -4,8 +4,7 @@
     {
       "id": 1,
       "name": "player",
-      "kind": "sphere",
-      "radius": 0.3,
+      "kind": "cylinder",
       "segments": 8,
       "transform": {
         "position": [
@@ -17,14 +16,32 @@
       "tags": [
         "player"
       ],
-      "script": "examples/open_world_shooter/scripts/player.rhai"
+      "script": "examples/open_world_shooter/scripts/player.rhai",
+      "radius": 0.4,
+      "height": 1.8,
+      "collider": {
+        "shape": "capsule",
+        "radius": 0.4,
+        "half_height": 0.5
+      },
+      "rigidbody": {
+        "type": "dynamic",
+        "mass": 80
+      },
+      "props": {
+        "ai_lock_rotation": true,
+        "ai_fps": {
+          "eye_height": 0.75,
+          "move_speed": 5.5,
+          "sprint_speed": 9,
+          "jump_speed": 5
+        }
+      }
     },
     {
       "id": 2,
       "name": "alpha-soldier",
-      "kind": "sphere",
-      "radius": 0.3,
-      "segments": 8,
+      "kind": "gltf",
       "transform": {
         "position": [
           -2700,
@@ -37,14 +54,22 @@
         "soldier",
         "grp_alpha"
       ],
-      "script": "examples/open_world_shooter/scripts/soldier.rhai"
+      "script": "examples/open_world_shooter/scripts/soldier.rhai",
+      "path": "examples/open_world_shooter/assets/soldier.glb",
+      "collider": {
+        "shape": "capsule",
+        "radius": 0.4,
+        "half_height": 0.5
+      },
+      "rigidbody": {
+        "type": "kinematic",
+        "mass": 80
+      }
     },
     {
       "id": 3,
       "name": "commander",
-      "kind": "sphere",
-      "radius": 0.3,
-      "segments": 8,
+      "kind": "gltf",
       "transform": {
         "position": [
           -2700,
@@ -58,24 +83,44 @@
         "grp_citadel",
         "commander"
       ],
-      "script": "examples/open_world_shooter/scripts/soldier.rhai"
+      "script": "examples/open_world_shooter/scripts/soldier.rhai",
+      "path": "examples/open_world_shooter/assets/soldier.glb",
+      "collider": {
+        "shape": "capsule",
+        "radius": 0.4,
+        "half_height": 0.5
+      },
+      "rigidbody": {
+        "type": "kinematic",
+        "mass": 80
+      }
     },
     {
       "id": 4,
       "name": "radio-tower",
-      "kind": "sphere",
-      "radius": 0.3,
-      "segments": 8,
+      "kind": "box",
       "transform": {
         "position": [
           -2700,
-          23.65,
+          31,
           -2730
         ]
       },
       "tags": [
-        "objective_target"
-      ]
+        "objective_target",
+        "damageable"
+      ],
+      "size": [
+        3,
+        10,
+        3
+      ],
+      "collider": {
+        "shape": "box"
+      },
+      "props": {
+        "ai_health": 300
+      }
     },
     {
       "id": 5,
@@ -110,6 +155,29 @@
       "tags": [
         "intel",
         "trigger"
+      ]
+    },
+    {
+      "id": 99,
+      "name": "fixture-ground",
+      "kind": "box",
+      "size": [
+        120,
+        1,
+        120
+      ],
+      "transform": {
+        "position": [
+          -2700,
+          29.5,
+          -2700
+        ]
+      },
+      "collider": {
+        "shape": "box"
+      },
+      "tags": [
+        "ground"
       ]
     }
   ]

@@ -51,14 +51,7 @@ fn ground_height(ctx, x, z) {
 }
 
 fn player_position(ctx) {
-    let p = ();
-    try { p = ctx.player_pos(); } catch { p = (); }
-    if p == () {
-        let id = ctx.find_by_name("player");
-        if id < 0 { return (); }
-        p = ctx.entity_position(id);
-    }
-    p
+    ctx.player_pos()
 }
 
 fn rnd(seed) {
@@ -68,26 +61,11 @@ fn rnd(seed) {
 }
 
 fn fx(ctx, kind, pos, dir) {
-    try { ctx.emit_fx(kind, pos, dir); } catch { }
+    ctx.emit_fx(kind, pos, dir);
 }
 
-// True when nothing blocks the segment a->b (raycast if available, else terrain samples).
 fn line_of_sight(ctx, a, b, target_id) {
-    let dx = b[0] - a[0]; let dy = b[1] - a[1]; let dz = b[2] - a[2];
-    let dist = sqrt(dx * dx + dy * dy + dz * dz);
-    if dist < 0.01 { return true; }
-    let dir = [dx / dist, dy / dist, dz / dist];
-    let hit = ();
-    try { hit = ctx.raycast(a, dir, dist + 1.0); } catch { hit = (); }
-    if hit != () {
-        if !hit.hit { return true; }
-        return hit.id == target_id || hit.distance > dist - 0.8;
-    }
-    for i in 1..6 {
-        let t = i.to_float() / 6.0;
-        if analytic_height(a[0] + dx * t, a[2] + dz * t) > a[1] + dy * t - 0.3 { return false; }
-    }
-    true
+    ctx.line_of_sight(a, b, target_id)
 }
 
 fn group(ctx) {
@@ -107,14 +85,6 @@ fn record_death(ctx,m) {
     add(ctx,"kills",1);
     add(ctx,"_dead_"+m.group,1);
     if m.commander { ctx.state_set("_commander_dead",true); }
-}
-
-fn pending(ctx) {
-    let key="_d"+ctx.id();
-    let value=ctx.state_get(key);
-    if value == () { return 0; }
-    ctx.state_set(key,0);
-    value
 }
 
 fn walk(ctx,p,target,speed,dt) {
@@ -142,15 +112,16 @@ fn on_start(ctx) {
         if d < best { best=d; cover=p; }
     }
     let commander=ctx.find_by_name("commander") == ctx.id();
-    ctx.state_set("_e"+ctx.id(),#{hp:if commander {250} else {100},home:home,group:group(ctx),
+    ctx.set_health(if commander {250.0} else {100.0});
+    ctx.set_memo("ai",#{hp:if commander {250} else {100},home:home,group:group(ctx),
         commander:commander,cover:cover,mode:"patrol",sight:false,last_seen:-1000,
         waypoint:0,cooldown:0.7+rnd(ctx.id())*0.6,cover_time:0.0,cover_cd:0.0,dead_time:0.0});
 }
 
 fn on_tick(ctx,dt) {
-    let key="_e"+ctx.id(); let m=ctx.state_get(key);
-    let damage=pending(ctx);
-    m.hp-=damage;
+    let m=ctx.memo("ai");
+    let damage=ctx.hits().len;
+    m.hp=ctx.health();
     if m.hp <= 0 {
         if m.mode != "dead" {
             m.mode="dead"; record_death(ctx,m);
@@ -159,13 +130,13 @@ fn on_tick(ctx,dt) {
             fx(ctx,"blood",p,[0.0,1.0,0.0]);
         }
         m.dead_time+=dt;
-        ctx.state_set(key,m);
+        ctx.set_memo("ai",m);
         if m.dead_time >= 5.0 { ctx.remove(ctx.id()); }
         return;
     }
     if ctx.state_get("won") || ctx.state_get("lost") { return; }
     let target=player_position(ctx);
-    if target == () { ctx.state_set(key,m); return; }
+    if target == () { ctx.set_memo("ai",m); return; }
     let p=ctx.position();
     let dx=target[0]-p[0]; let dz=target[2]-p[2];
     let d=sqrt(dx*dx+dz*dz);
@@ -214,10 +185,10 @@ fn on_tick(ctx,dt) {
     m.cooldown-=dt;
     if m.mode != "patrol" && m.cooldown <= 0.0 && m.sight && d < 130.0 {
         if line_of_sight(ctx,[p[0],p[1]+1.5,p[2]],chest,ctx.find_by_name("player")) {
-            if rnd(tick*97+ctx.id()) < clamp(0.8-d/160.0,0.12,0.7) { add(ctx,"_pdmg",7); }
-            fx(ctx,"muzzle",eye,[dx,0.0,dz]); fx(ctx,"tracer",eye,chest);
+            if rnd(tick*97+ctx.id()) < clamp(0.8-d/160.0,0.12,0.7) { ctx.damage(ctx.player_id(),7.0); }
+            fx(ctx,"muzzle",eye,[dx,0.0,dz]); fx(ctx,"tracer",eye,[chest[0]-eye[0],chest[1]-eye[1],chest[2]-eye[2]]);
         }
         m.cooldown=0.7+rnd(tick+ctx.id()*31)*0.6;
     }
-    ctx.state_set(key,m);
+    ctx.set_memo("ai",m);
 }
