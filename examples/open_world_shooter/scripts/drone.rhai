@@ -68,6 +68,20 @@ fn line_of_sight(ctx, a, b, target_id) {
     ctx.line_of_sight(a, b, target_id)
 }
 
+fn blast(ctx, p) {
+    fx(ctx,"explosion",p,[0.0,1.0,0.0]);
+    for id in ctx.find_by_tag("blast_prop") {
+        if id == ctx.id() { continue; }
+        let q=ctx.entity_position(id);
+        let dx=q[0]-p[0]; let dy=q[1]-p[1]+0.75; let dz=q[2]-p[2];
+        let d=sqrt(dx*dx+dy*dy+dz*dz);
+        if d > 0.01 && d < 14.0 {
+            let strength=120.0*(1.0-d/14.0)/d;
+            ctx.apply_impulse(id,[dx*strength,dy*strength,dz*strength]);
+        }
+    }
+}
+
 fn group(ctx) {
     for g in ["alpha","bravo","charlie","town","citadel","patrol"] {
         if ctx.find_by_tag("grp_"+g).contains(ctx.id()) { return g; }
@@ -114,7 +128,7 @@ fn on_tick(ctx,dt) {
     m.hp=ctx.health();
     let p=ctx.position();
     if m.hp <= 0 {
-        if !m.dead { m.dead=true; record_death(ctx,m); fx(ctx,"explosion",p,[0.0,1.0,0.0]); }
+        if !m.dead { m.dead=true; record_death(ctx,m); blast(ctx,p); }
         p[1]-=8.0*dt;
         ctx.set_memo("ai",m);
         if p[1] <= ground_height(ctx,p[0],p[2]) { ctx.remove(ctx.id()); }

@@ -151,20 +151,27 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
         "apply_impulse",
         |ctx: &mut Context, value: Array| -> ScriptResult<()> {
             let value = vector(value)?;
-            queue_force(ctx, Force::Impulse(ctx.id, value))
+            queue_force(ctx, ctx.id, Force::Impulse(ctx.id, value))
+        },
+    );
+    engine.register_fn(
+        "apply_impulse",
+        |ctx: &mut Context, id: INT, value: Array| -> ScriptResult<()> {
+            let id = id as u64;
+            queue_force(ctx, id, Force::Impulse(id, vector(value)?))
         },
     );
     engine.register_fn(
         "apply_force",
         |ctx: &mut Context, value: Array| -> ScriptResult<()> {
-            queue_force(ctx, Force::Applied(ctx.id, vector(value)?))
+            queue_force(ctx, ctx.id, Force::Applied(ctx.id, vector(value)?))
         },
     );
     engine.register_fn(
         "set_velocity",
         |ctx: &mut Context, value: Array| -> ScriptResult<()> {
             let value = vector(value)?;
-            queue_force(ctx, Force::Velocity(ctx.id, value))
+            queue_force(ctx, ctx.id, Force::Velocity(ctx.id, value))
         },
     );
     engine.register_fn("find_by_name", |ctx: &mut Context, name: &str| -> INT {
@@ -269,13 +276,13 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
     engine
 }
 
-fn queue_force(ctx: &mut Context, force: Force) -> ScriptResult<()> {
+fn queue_force(ctx: &Context, id: u64, force: Force) -> ScriptResult<()> {
     let mut data = ctx.data.borrow_mut();
     let entity = data
         .scene
         .entities
         .iter()
-        .find(|e| e.id == ctx.id)
+        .find(|e| e.id == id)
         .ok_or("entity not found")?;
     if entity.rigidbody.is_none() && entity.collider.is_none() && entity.props.get("ai_physics").is_none() {
         return Err("impulse/velocity needs a rigidbody".into());

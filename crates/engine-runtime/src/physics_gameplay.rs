@@ -193,8 +193,9 @@ impl Physics {
         }
         let root = self.handles[&id];
         if !active {
-            let position = *self.bodies[rig.parts[0].0].translation();
             let upright = rig.upright;
+            let position = self.bodies[rig.parts[0].0].translation()
+                - upright * Vector::from(rig.config.offset);
             for (body, collider) in std::mem::take(&mut rig.parts) {
                 self.gameplay.hitboxes.remove(&collider);
                 self.remove_body(body);
@@ -218,6 +219,9 @@ impl Physics {
         let root_body = &mut self.bodies[root];
         let (position, velocity) = (*root_body.position(), *root_body.linvel());
         rig.upright = position.rotation;
+        let position = position * Isometry::translation(
+            rig.config.offset[0], rig.config.offset[1], rig.config.offset[2],
+        );
         root_body.set_enabled(false);
         for part in parts {
             let body = self.bodies.insert(
