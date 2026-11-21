@@ -35,6 +35,7 @@ export class SpatialAudio {
     this.config = audioConfig(config); this.feedback = new GameAudio(); this.entities = new Map(); this.voices = new Map();
     this.buffers = new Map(); this.pending = new Map(); this.failures = new Set(); this.reverbs = new Map(); this.layers = [];
     this.state = {}; this.zone = null; this.clock = 0; this._muted = false; this.streams = new Set();
+    this.mediaPool = []; this.mediaEntries = new Set();
   }
   get muted() { return this._muted; }
   set muted(value) { this._muted = value; if (this.master) param(this.master, 'gain', value ? 0 : this.config.master, this.context.currentTime); }
@@ -60,6 +61,13 @@ export class SpatialAudio {
         this.musicStart = c.currentTime + 0.1;
       }
       this.context.resume()?.catch(() => {});
+      const poolSize = Math.min(8, this.layers.filter(layer => layer.src).length + Math.min(4, this.config.max_voices));
+      while (this.mediaEntries.size < poolSize && globalThis.Audio) {
+        const entry = { media: new Audio() }; entry.media.playsInline = true;
+        entry.media.src = 'data:audio/wav;base64,UklGRiYAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQIAAAAAAA==';
+        this.mediaEntries.add(entry); this.mediaPool.push(entry);
+      }
+      for (const entry of this.mediaPool) { entry.media.play()?.catch(() => {}); entry.media.pause(); }
       for (const voice of this.voices.values()) voice.media?.play()?.catch(() => {});
     } catch { /* Audio is optional. */ }
   }
@@ -114,7 +122,11 @@ export class SpatialAudio {
     const v = this.voices.get(id); if (!v) return;
     this.voices.delete(id); v.cancelled = true;
     clearTimeout(v.timer);
-    if (v.media) { v.media.pause(); v.media.removeAttribute('src'); v.media.load(); }
+    if (v.media) {
+      v.media.onloadedmetadata = v.media.onerror = v.media.onended = null;
+      v.media.pause(); v.media.removeAttribute('src'); v.media.load();
+      if (this.mediaEntries.has(v.mediaEntry)) this.mediaPool.push(v.mediaEntry);
+    }
     try { v.source?.stop(); } catch { /* Already stopped. */ }
     for (const node of [v.source, v.gain, v.panner]) node?.disconnect();
     this.evict();
@@ -133,8 +145,9 @@ export class SpatialAudio {
       } else v.gain.connect(this.master);
       if (sound.synth) v.source = this.synth(sound.synth);
       else if (resource.stream) {
-        v.media = new Audio(); v.media.loop = sound.loop !== false;
-        v.source = c.createMediaElementSource(v.media);
+        v.mediaEntry = this.mediaPool.pop() || { media: new Audio() };
+        v.media = v.mediaEntry.media; v.media.loop = sound.loop !== false;
+        v.source = v.mediaEntry.source ||= c.createMediaElementSource(v.media);
       } else {
         v.source = c.createBufferSource(); v.buffer = resource.buffer; v.source.buffer = v.buffer; v.source.loop = sound.loop !== false;
         if (!this.buffers.has(sound.src)) this.buffers.set(sound.src, resource);

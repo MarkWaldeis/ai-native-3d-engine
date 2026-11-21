@@ -156,6 +156,26 @@ test('long and explicit streams bypass decode; media lifecycle suspends and dest
   audio.apply({ removed: [1] }); assert.equal(media.playing, false); assert.equal(audio.stats().audioStreams, 0);
 }));
 
+test('stream voices reuse gesture-primed elements and their single media source', () => mock(async () => {
+  let gesture = true, sources = 0;
+  globalThis.Audio = class extends Media {
+    play() { if (gesture) this.primed = true; if (!this.primed) return Promise.reject(new Error('gesture required')); return super.play(); }
+  };
+  const audio = new SpatialAudio(); audio.configure(scene([entity(1, 0, { src: 'stream', stream: true })]));
+  audio.unlock(); assert.equal(audio.mediaPool.length, 4);
+  assert.ok(audio.mediaPool.every(entry => entry.media.primed && !entry.media.playing));
+  const original = audio.context.createMediaElementSource.bind(audio.context);
+  audio.context.createMediaElementSource = media => { sources++; return original(media); };
+  gesture = false; audio.update(listen()); await settle();
+  const first = audio.voices.get(1); assert.equal(first.media.playing, true);
+  audio.stop(1); assert.equal(audio.mediaPool.length, 4);
+  assert.equal(first.media.onerror, null);
+  audio.update(listen()); await settle();
+  assert.equal(audio.voices.get(1).media, first.media); assert.equal(audio.voices.get(1).source, first.source);
+  assert.equal(sources, 1); assert.equal(audio.voices.get(1).media.playing, true);
+  audio.clear();
+}));
+
 test('load failures log once and do not crash; no AudioContext is safe', () => mock(async () => {
   const audio = new SpatialAudio(); audio.unlock(); globalThis.fetch = async () => { throw new Error('offline'); };
   const saved = console.warn; const warnings = []; console.warn = message => warnings.push(message);
