@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
-import {sunDirection,daylightDefaults,foliageSettings,foliagePlacements,adaptQuality} from '../crates/engine-web/player/nature-settings.js';
+import {sunDirection,daylightDefaults,foliageSettings,foliagePlacements,adaptQuality,waterDepth,bakeWaterDepth,replacesWater} from '../crates/engine-web/player/nature-settings.js';
 import {graphicsConfig} from '../crates/engine-web/player/graphics-settings.js';
 
 registerHooks({resolve(specifier,context,nextResolve){return nextResolve(specifier==='three'?new URL('../crates/engine-web/player/vendor/three.module.js',import.meta.url).href:specifier,context);}});
@@ -58,7 +58,35 @@ test('nature follows quality, sampler invalidation, tile lifecycle, and disposes
   const repeat=visuals.normal.repeat.x;visuals.setQuality(0);assert.equal(visuals.tiles.size,0);assert.ok(visuals.normal.repeat.x<repeat);
   assert.throws(()=>visuals.setHeightSampler(null),TypeError);
   visuals.setHeightSampler(()=>NaN);visuals.update(0.016,camera);assert.ok([...visuals.tiles.values()][0].children.every(o=>o.count===0));
-  visuals.setHeightSampler(()=>2);camera.position.set(1000,3,-1000);visuals.update(0.016,camera);assert.equal(visuals.water.position.x,1000);
+  visuals.setHeightSampler(()=>2);camera.position.set(1000,3,-1000);visuals.update(0.016,camera);assert.equal(visuals.water.position.x,992);
   visuals.dispose();assert.equal(scene.children.length,0);assert.equal(window.__aiEngineVisuals,undefined);
   const empty=new NatureVisuals(scene,graphicsConfig({water:{level:0}}),1);empty.update(0.016,camera);assert.equal(empty.tiles.size,0);empty.dispose();
+});
+
+test('graphics colors accept normalized RGB and named sky defaults preserve authored overrides',()=>{
+  const config=graphicsConfig({sky:'tropical',horizon:[1,0.5,0],water:{color:[0.18,0.32,0.28]}});
+  assert.equal(config.sky,'#246a9b');assert.equal(config.horizon,'#ff8000');assert.equal(config.water.color,'#2e5247');
+  assert.equal(graphicsConfig({sky_preset:'tropical',sky:'#123456',sun_color:'#abcdef'}).sky,'#123456');
+  assert.equal(graphicsConfig({sky_preset:'tropical',sun_color:'#abcdef'}).sunColor,'#abcdef');
+  for(const color of [[],[0,1],[0,1,2],[NaN,0,0],null,'invalid'])assert.equal(graphicsConfig({water:{color}}).water.color,'#126e61');
+  assert.equal(graphicsConfig({sky:'unknown'}).sky,'#4d88cb');
+});
+
+test('water masks dry, invalid and submerged terrain in world coordinates',()=>{
+  assert.equal(waterDepth(30,0.6),0);assert.equal(waterDepth(NaN,0.6),0);assert.equal(waterDepth(-3,0.6),3.6);assert.equal(waterDepth(-1000,0.6),64);
+  const calls=[],data=bakeWaterDepth((x,z)=>{calls.push([x,z]);return x<10?-3:30;},0.6,10,-20,8,3);
+  assert.deepEqual(calls[0],[6,-24]);assert.deepEqual(calls.at(-1),[14,-16]);
+  const depth=(i)=>(data[i*4]*256+data[i*4+1])/65535*64;
+  assert.ok(Math.abs(depth(0)-3.6)<0.001);assert.equal(depth(1),0);assert.equal(depth(2),0);
+  assert.ok(bakeWaterDepth(()=>NaN,0,0,0,8,2).every((v,i)=>v===(i%4===3?255:0)));
+  const plane={kind:'plane',tags:['water']};assert.equal(replacesWater(plane,{water:{level:0.6}}),true);
+  assert.equal(replacesWater(plane,null),false);assert.equal(replacesWater({kind:'box',tags:['water']},{water:{}}),false);
+  globalThis.window={};const scene=new T.Scene(),camera=new T.PerspectiveCamera(),visuals=new NatureVisuals(scene,graphicsConfig({water:{level:0.6}}),2);
+  visuals.setHeightSampler(()=>30);visuals.update(0.1,camera);assert.equal(visuals.depthTexture.image.data[0],0);
+  visuals.setHeightSampler(()=>-3);visuals.update(0.1,camera);assert.ok(visuals.depthTexture.image.data[0]>0);
+  const high=visuals.depthTexture.image.width;visuals.setQuality(0);visuals.update(0.1,camera);assert.ok(visuals.depthTexture.image.width<high);assert.equal(visuals.waterLayers.value,0);
+  const shader={uniforms:{},vertexShader:'#include <begin_vertex>',fragmentShader:'#include <color_fragment>\n#include <normal_fragment_maps>'};
+  visuals.water.material.onBeforeCompile(shader);assert.ok(shader.fragmentShader.includes('if (depth < 0.02) discard'));assert.ok(!shader.fragmentShader.includes('waterLayers*0.45'));assert.equal(shader.uniforms.waterDepth.value,visuals.depthTexture);
+  assert.throws(()=>bakeWaterDepth(()=>{throw new Error('sampler');},0,0,0,8,2),/sampler/);
+  visuals.dispose();
 });

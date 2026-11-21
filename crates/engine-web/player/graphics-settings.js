@@ -12,8 +12,15 @@ function bounded(value, fallback, min, max) {
 }
 
 function hex(value, fallback) {
+  if (Array.isArray(value) && value.length === 3 && value.every(v => Number.isFinite(v) && v >= 0 && v <= 1)) {
+    return '#' + value.map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+  }
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
 }
+
+const skyPresets = {
+  tropical: {sky:'#246a9b', horizon:'#d5cbb0', ground:'#586447', sun_color:'#ffe2af'},
+};
 
 const defaultSun = [-6, 16, 9];
 
@@ -29,7 +36,9 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
   if (preset === 'high' || preset === 'medium') preset = 'balanced';
   const quality = ['low', 'balanced', 'ultra'].indexOf(preset);
   if (preset === 'legacy' || (!value && quality < 0)) return null;
-  const config = {...daylightDefaults(value?.time_of_day),...value};
+  const skyDefaults = skyPresets[value?.sky_preset] || skyPresets[value?.sky];
+  const config = {...daylightDefaults(value?.time_of_day),...skyDefaults,...value};
+  if (skyPresets[value?.sky]) config.sky = skyDefaults.sky;
   const foliage = object(config.foliage), water = object(config.water);
   return {
     quality,

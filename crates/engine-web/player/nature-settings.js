@@ -37,3 +37,20 @@ export function adaptQuality(state, fps, seconds, target = 42) {
   if (state.fast >= 12 && state.level < state.startLevel) {state.level++;state.slow=state.fast=0;}
   return state.level !== before;
 }
+
+export function waterDepth(ground, level) {
+  return Number.isFinite(ground) ? Math.max(0, Math.min(64, level - ground)) : 0;
+}
+
+export function bakeWaterDepth(sample, level, x, z, span, resolution, data = new Uint8Array(resolution * resolution * 4)) {
+  for (let j = 0; j < resolution; j++) for (let i = 0; i < resolution; i++) {
+    const depth = waterDepth(sample(x + (i / (resolution - 1) - 0.5) * span, z + (j / (resolution - 1) - 0.5) * span), level);
+    const value = Math.round(depth / 64 * 65535), offset = (j * resolution + i) * 4;
+    data[offset] = value >>> 8; data[offset + 1] = value & 255; data[offset + 3] = 255;
+  }
+  return data;
+}
+
+export function replacesWater(entity, graphics) {
+  return !!graphics?.water && entity.kind === 'plane' && entity.tags?.includes('water');
+}

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { materialSettings } from './graphics-settings.js';
+import { roadSurface } from './surfaces.js';
 
 export function textureAnisotropy(level, maxAnisotropy) {
   return Math.max(1, Math.min([1, 4, 8][level] ?? 1, maxAnisotropy));
@@ -28,7 +29,9 @@ export function tuneAssetTextures(scene, anisotropy) {
 export function primitiveMaterial(entity) {
   const { clearcoat, clearcoatRoughness, ...settings } = materialSettings(entity.props?.ai_material);
   const parameters = { ...settings, color: new THREE.Color(...(entity.color || [0.8, 0.8, 0.8])) };
-  return clearcoat || settings.anisotropy || settings.sheen || settings.iridescence
+  const material = clearcoat || settings.anisotropy || settings.sheen || settings.iridescence
     ? new THREE.MeshPhysicalMaterial({ ...parameters, clearcoat, clearcoatRoughness })
     : new THREE.MeshStandardMaterial(parameters);
+  if(entity.tags?.includes('road') && entity.kind==='box')roadSurface(THREE,material);
+  return material;
 }
