@@ -140,11 +140,19 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     const {map,x,z,offset,material} = chunk, c = map.manifest.config;
     const width = c.tile_m, depth = c.tile_m;
     const step = heights ? c.tile_m/(c.samples-1)*stride : map.manifest.coarse.step;
-    const nx = Math.ceil(width/step)+1, nz = Math.ceil(depth/step)+1;
+    function axisPositions(tile, size) {
+      const start=tile*c.tile_m, values=[0], end=heights ? start+c.tile_m : Math.min(start+c.tile_m,size);
+      for(let p=heights ? start+step : (Math.floor(start/step)+1)*step;p<end;p+=step) values.push(p-start);
+      if(end<start+c.tile_m) values.push(end-start);
+      values.push(c.tile_m);
+      return values;
+    }
+    const xs=axisPositions(x,c.size_m[0]), zs=axisPositions(z,c.size_m[1]);
+    const nx = xs.length, nz = zs.length;
     const positions = [], normals = [];
     const height = (lx,lz) => heights ? sampleTile(heights,c,x,z,lx+x*c.tile_m,lz+z*c.tile_m) : coarseHeight(map,lx+x*c.tile_m,lz+z*c.tile_m);
     for (let j=0;j<nz;j++) for (let i=0;i<nx;i++) {
-      const lx=Math.min(i*step,width), lz=Math.min(j*step,depth), h=height(lx,lz);
+      const lx=xs[i], lz=zs[j], h=height(lx,lz);
       let dx, dz;
       if (heights) {
         const n=c.samples+2, ix=Math.round(lx/(c.tile_m/(c.samples-1)))+1, iz=Math.round(lz/(c.tile_m/(c.samples-1)))+1;

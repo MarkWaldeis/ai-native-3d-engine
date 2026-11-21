@@ -6,11 +6,11 @@ import {createTerrain, decodeHeights, sampleTile, terrainLOD, TileQueue} from '.
 function heightfield(magic,n,value) {
   const bytes=new Uint8Array(12+n*n*2), view=new DataView(bytes.buffer);
   bytes.set(new TextEncoder().encode(magic)); view.setUint32(4,n,true); view.setUint32(8,n,true);
-  for(let i=0;i<n*n;i++) view.setUint16(12+i*2,value,true);
+  for(let i=0;i<n*n;i++) view.setUint16(12+i*2,Array.isArray(value)?value[i]:value,true);
   return bytes;
 }
 
-async function terrainFixture(t,{size=[3,3],tile=2,entities,game={},failTile=false}={}) {
+async function terrainFixture(t,{size=[3,3],tile=2,entities,game={},failTile=false,coarseValues=16384}={}) {
   const originals=['window','location'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]);
   t.after(()=>{for(const [key,descriptor] of originals) {if(descriptor) Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}});
   globalThis.window={};globalThis.location={href:'http://localhost/demo/'};
@@ -20,7 +20,7 @@ async function terrainFixture(t,{size=[3,3],tile=2,entities,game={},failTile=fal
   t.mock.method(globalThis,'fetch',async url=>{
     requests.push(url);
     if(url.includes('/tiles/') && failTile) return new Response('',{status:404});
-    return new Response(url.endsWith('.json')?JSON.stringify(manifest):url.endsWith('coarse.bin')?heightfield('AITC',manifest.coarse.dims[0],16384):heightfield('AITT',5,49151));
+    return new Response(url.endsWith('.json')?JSON.stringify(manifest):url.endsWith('coarse.bin')?heightfield('AITC',manifest.coarse.dims[0],coarseValues):heightfield('AITT',5,49151));
   });
   const world=new THREE.Scene();world.fog=new THREE.Fog(0,1,100);
   const wasm={set_terrain(...args){registered.push(args);},add_terrain_tile(...args){inserted.push(args);},terrain_tiles_wanted(){return '[]';},...game};
@@ -57,6 +57,18 @@ test('coarse and full-resolution meshes cover padded edge tiles like Rapier', as
 test('scenes without terrain need no renderer, WASM calls or browser globals', async () => {
   assert.equal(await createTerrain(null,[],null,null,null,null),null);
   assert.equal(await createTerrain(null,[{props:{}}],null,null,null,null),null);
+});
+
+test('coarse edge meshes preserve the grid slope up to the real edge and stay clamped beyond it',async t=>{
+  const coarseValues=[0,2,3].flatMap(z=>[0,2,3].map(x=>Math.round((x+z)/6*65535)));
+  const {api,world}=await terrainFixture(t,{coarseValues});
+  world.updateMatrixWorld(true);
+  for(const [x,z] of [[2.25,.5],[2.9,2.6],[.4,2.8],[3,3],[3.5,3.5]]) {
+    const ray=new THREE.Raycaster(new THREE.Vector3(x,1000,z),new THREE.Vector3(0,-1,0));
+    const hits=ray.intersectObjects(world.children);
+    assert.ok(hits.length,`missing coarse ground at ${x},${z}`);
+    assert.ok(Math.abs(hits[0].point.y-api.heightAt(x,z))<.002,`mesh/query mismatch at ${x},${z}: ${hits[0].point.y} vs ${api.heightAt(x,z)}`);
+  }
 });
 
 test('initialization preloads player and dynamic spawn tiles before load, deduplicating terrain offsets',async t=>{
