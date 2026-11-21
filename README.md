@@ -385,8 +385,8 @@ call. A batch inherits its outer agent (subcommands cannot override it).
 the last 1024 scene mutations are retained. Each successful **partial** batch
 subcommand is journaled separately; an **atomic** batch creates one revision and
 one journal entry containing all affected IDs. Lock/task metadata does not advance the scene revision.
-If your revision predates the journal window, re-read the scene. All coordination
-state is in memory and resets on restart.
+If your revision predates the journal window, re-read the scene. Explicit project
+engines persist coordination and authoring checkpoints as described below.
 
 Tasks start `pending`, become `claimed`, then `completed` by the live owner.
 `task_create` takes `title`, optional `description` and existing `depends_on` IDs.
@@ -404,8 +404,45 @@ first-generation `task_complete` may omit its lease; no omission after takeover.
 oldest_sequence}`. It journals create/claim/renew/release/takeover/complete with
 task ID, actor, lease, TTL and previous owner (1024-event retention). This cursor
 is independent of `get_changes_since` scene revisions: task coordination does
-not bump the scene or create snapshots. All leases/journals are in memory;
-restart resets them. `task_list` filters pending/claimed/expired/completed.
+not bump the scene or create snapshots. `task_list` filters
+pending/claimed/expired/completed.
+
+### Restart-safe project coordination
+
+`ai-engine --project X --serve 127.0.0.1:8787` resumes from
+`X/.ai-engine/state.json`. Project-mode stdio uses the same storage. Successful
+coordination/authoring mutations are acknowledged only after one checkpoint is
+written to a unique temporary file, synced and atomically renamed. The checkpoint
+contains tasks, fencing counters, task journal/sequence, scene journal/revision,
+entity locks, the matching authoring scene, monotonic entity allocator and the
+64-snapshot rollback window. Journals retain 1024 entries each. Partial batches
+retain successful subcommands; an atomic batch is persisted only after its single
+commit, never during staging. Reads and simulation ticks do not rewrite state.
+
+Leases and locks store UTC expiry deadlines: time while the server is down counts
+toward TTL, not a fresh lease on restart. Keep the system clock synchronized;
+clock rollback is clamped to the last saved time and cannot grant more than the
+last saved remaining TTL. Expired tasks retain their fencing counter for takeover.
+Clients must initialize new HTTP sessions after restart and reread journals/claims.
+Play-mode physics/state and renderer state are not restored; authoring resumes
+stopped. Embedded immutable script versions remain executable after file changes.
+
+A kernel file lock permits **one writer per project** and is released on process
+death. Independent projects may run concurrently. Corrupt/unsupported checkpoints
+fail startup rather than silently resetting claims. Interrupted `.tmp` files are
+ignored. A failed checkpoint write returns an error and restores the in-memory
+authoring/coordination state; external Blender/filesystem side effects are not an
+OS transaction and may remain. The file is synced before rename; directory sync
+is attempted on Unix. This is local filesystem persistence, not distributed
+consensus or a guarantee against arbitrary filesystem/hardware corruption.
+
+`init` ignores `.ai-engine/`; the metadata directory also ignores its own contents
+for existing projects. Stop the engine before backups or intentionally discarding
+the directory. A checkpoint takes precedence over `scene.json`: to start over,
+first explicitly `save_scene` if needed, stop the engine, then move/delete
+`.ai-engine/`. Copying/moving a project requires fresh `.ai-engine` metadata; its
+identity is bound to the canonical project path. Bare `Engine::new()` without
+project mode remains an ephemeral authoring engine.
 
 Example session (one JSON object per line):
 
@@ -435,8 +472,20 @@ stops it. Interactive commands run through `bpy.app.timers` on Blender's main
 thread; headless mode pumps the same queue on the main thread and stays alive.
 
 The protocol is one newline-terminated JSON request/response per TCP connection
-at `127.0.0.1:9876`. Set `AI_ENGINE_BLENDER_PORT` in **both** the engine and Blender
-environments to choose another port. Commands are `ping`, `exec {code}`,
+on loopback. Each project stores a deterministic path-derived `blender_port`
+(20000–59999) in `.ai-engine/config.json`; edit it while stopped if a port is busy.
+`AI_ENGINE_BLENDER_PORT` overrides it for this process without rewriting config
+(valid range 1–65535). Two project engines use separate bridges. Ping reports
+`project_id` (canonical project path), and the engine refuses mismatched identities
+without stopping or editing the existing Blender. Every project command is also
+identity-checked by Python, including after a reconnect. Identity is a routing
+guard, **not authentication** for arbitrary local Python clients.
+
+For manual/add-on startup, set `AI_ENGINE_BLENDER_PORT` and
+`AI_ENGINE_PROJECT_ID` to that project's effective port and canonical path in
+Blender's environment. `blender_start` supplies both automatically. A legacy
+unidentified bridge is not accepted by project engines; save and restart it.
+Commands are `ping`, `exec {code}`,
 `scene_info`, and `export {dir, objects?, whole_scene?}`. `exec` returns captured
 stdout and a JSON-serializable `result` variable; each call has a fresh Python
 namespace (`bpy` scene state persists). This is **arbitrary local Python execution**,

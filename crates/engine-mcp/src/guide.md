@@ -47,7 +47,23 @@ a new lease. Old owners/leases cannot complete late, even on same-agent reclaim.
 Legacy lease omission is allowed only for first-generation task_complete.
 `get_task_changes_since {sequence:0}` is the separate 1024-event task journal:
 create/claim/renew/release/takeover/complete, lease, actor, previous owner. Task
-events do not advance scene revisions. Leases and journals reset on restart.
+events do not advance scene revisions. Project engines (`--project X`) checkpoint
+tasks, lease counters, locks/deadlines, both journals, authoring scene/revision,
+allocator and rollback snapshots atomically in `X/.ai-engine/state.json` before
+acknowledging mutations. Offline time consumes TTL. Restart stopped with fresh
+HTTP sessions; reread journals and expired claims before editing. Only one writer
+per project is allowed. Corrupt state fails startup, never silently resets.
+Reads/play ticks are not checkpointed. Explicit save_scene remains the portable
+scene interchange format; the checkpoint takes precedence on restart. Stop before
+backing up/resetting `.ai-engine/`; new/copied project paths need fresh metadata.
+
+Blender ports are per-project in `.ai-engine/config.json` (`blender_port`), with
+`AI_ENGINE_BLENDER_PORT` as a temporary override. `blender_start` supplies the
+project's canonical-path identity to Blender; ping and every command must match.
+A foreign/legacy bridge is refused without editing/killing it: save it, then use
+the correct port/identity or restart via blender_start. Manual Blender/add-on
+startup needs both `AI_ENGINE_BLENDER_PORT` and `AI_ENGINE_PROJECT_ID`. This is
+project routing, not an authentication/sandbox boundary.
 `task_complete` only after verification. `apply_batch` defaults to `mode:"partial"`:
 earlier successful commands remain if a later one fails. Use `mode:"atomic"` plus
 batch `expected_revision` for one scene revision/journal commit, or no changes on

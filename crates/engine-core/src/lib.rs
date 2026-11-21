@@ -84,6 +84,43 @@ impl Default for World {
 }
 
 impl World {
+    pub fn checkpoint(&self) -> Value {
+        json!({"scene":self.scene,"revision":self.revision,"next_id":self.next_id,"snapshots":self.snapshots})
+    }
+
+    pub fn from_checkpoint(value: &Value, root: &Path) -> Result<Self> {
+        let mut scene: Scene = serde_json::from_value(value["scene"].clone())?;
+        let revision = value["revision"].as_u64().context("invalid checkpoint revision")?;
+        anyhow::ensure!(revision < u64::MAX, "checkpoint revision exhausted");
+        let next_id = value["next_id"].as_u64().context("invalid checkpoint next_id")?;
+        let mut snapshots: VecDeque<(u64, Scene)> = serde_json::from_value(value["snapshots"].clone())?;
+        anyhow::ensure!(snapshots.len() <= SNAPSHOT_CAP, "checkpoint snapshot limit exceeded");
+        let mut maximum = 0;
+        let mut validate = |scene: &mut Scene| -> Result<()> {
+            validate_scene_paths(scene, root)?;
+            let mut seen = std::collections::HashSet::new();
+            for entity in &mut scene.entities {
+                anyhow::ensure!(seen.insert(entity.id), "duplicate entity id {}", entity.id);
+                maximum = maximum.max(entity.id);
+                if let Some(script) = &entity.script { entity.script = Some(freeze_script(script, root)?); }
+            }
+            Ok(())
+        };
+        validate(&mut scene)?;
+        let mut previous = 0;
+        for (version, snapshot) in &mut snapshots {
+            anyhow::ensure!(*version > previous && *version <= revision, "invalid checkpoint snapshot revision");
+            previous = *version;
+            validate(snapshot)?;
+        }
+        if revision > 0 {
+            let (version, last) = snapshots.back().context("missing checkpoint snapshot")?;
+            anyhow::ensure!(*version == revision && serde_json::to_value(last)? == serde_json::to_value(&scene)?, "checkpoint scene/snapshot mismatch");
+        }
+        anyhow::ensure!(next_id > maximum, "checkpoint would reuse entity IDs");
+        Ok(Self {scene, next_id, revision, snapshots})
+    }
+
     pub fn new() -> Self {
         Self {
             scene: Scene::default(),

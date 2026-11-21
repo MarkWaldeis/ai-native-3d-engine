@@ -120,10 +120,17 @@ gezielte QA-Sequenz erkannt, nicht nachweislich durch den Sekunden-Poller.
 Größere offene Punkte: Der Richtungspfeil kennt Luftlinie, keine begehbaren
 Maze-Wege (Wegsteine erklären den Verlauf). Unbekannte Entity-JSON-Felder können
 weiterhin still ignoriert werden; die Spawn-/Tool-Schemata sollten langfristig
-angeglichen oder strikter diagnostiziert werden. Task-/Lease-Journale sind
-speicherresident: Worker-Recovery ist hier bewiesen, Server-Crash-Recovery nicht.
-Die globale Standard-Bridge benötigt langfristig Projekt-/Sitzungsisolation;
-außerdem garantiert ein externes SIGTERM des Servers keinen Child-Drop. Das
+angeglichen oder strikter diagnostiziert werden. **Nach M10 behoben:** Explizite
+Projekt-Engines speichern inzwischen Taskboard samt Fencing-Leases, beide
+Journale, Locks mit UTC-Ablauf und den passenden Autorenszenen-/Snapshotstand
+atomar unter `.ai-engine/`. Ein Prozess-Kill/Restart-Regressionstest prüft Resume,
+Offline-Ablauf, Übernahme, späten Alt-Worker, Skriptversionen und monotone IDs.
+Blender verwendet jetzt gespeicherte Projektports mit Env-Override sowie eine
+auf beiden Seiten geprüfte Projektidentität; zwei reale Blender-Prozesse werden
+im Paralleltest getrennt gehalten. Diese späteren Ergänzungen verändern die
+ursprünglichen M10-Messzahlen oben nicht. Offen bleiben Play-State-Recovery,
+verteilte Mehrserverkoordination und die Kosten vollständiger Checkpoints bei
+sehr großen Szenen. Außerdem garantiert ein externes SIGTERM keinen Child-Drop. Das
 POSIX-Replay beendet deshalb seine eigene Prozessgruppe. Kein OS-Sandbox- oder
 ungeprüfter Windows-Prozessbaum-Nachweis wird behauptet.
 

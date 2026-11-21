@@ -108,6 +108,7 @@ pub fn initialize(dir: &Path, template: &str) -> Result<Value> {
         serde_json::to_vec_pretty(&json!({"mcpServers":{"ai-engine":server}}))?,
     );
     files.insert("scene.json".into(), serde_json::to_vec_pretty(&scene)?);
+    files.insert(".gitignore".into(), b".ai-engine/\n".to_vec());
     let recipe = if template == "sky_garden" {
         format!("For the Sky Garden recipe, read blender_scene.py and execute its contents via\nblender_exec, prefixed with `from pathlib import Path` and `PROJECT_ROOT = {:?}`.\nIt replaces Blender's active scene and saves sky_garden.blend here.\nUpdate the recipe or saved Blender source when changing models.\n\n", root.to_string_lossy())
     } else {
@@ -124,6 +125,7 @@ pub fn initialize(dir: &Path, template: &str) -> Result<Value> {
             .open(root.join(name))?
             .write_all(bytes)?;
     }
+    crate::project_state::configuration(&root)?;
     Ok(
         json!({"project":root,"template":template,"files":files.keys().collect::<Vec<_>>(),"next":"Connect your MCP client; read engine://guide"}),
     )

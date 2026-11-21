@@ -4,9 +4,9 @@ use shared::mcp_protocol::text_result;
 use std::collections::{BTreeMap, VecDeque};
 use std::time::{Duration, Instant};
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, PartialEq)]
 pub(crate) struct Swarm {
-    locks: BTreeMap<u64, (String, Instant)>,
+    pub(crate) locks: BTreeMap<u64, (String, Instant)>,
     pub(crate) journal: VecDeque<Value>,
     pub(crate) tasks: Vec<Value>,
     pub(crate) task_leases: BTreeMap<u64, Instant>,
@@ -48,6 +48,11 @@ impl Engine {
         }
         let secured = self.secure_arguments(name, args)?;
         let args = &secured;
+        if name.starts_with("blender_") && self.blender.needs_project_configuration() {
+            let root = self.assets_dir.parent().unwrap_or(std::path::Path::new(".")).canonicalize().map_err(|e|e.to_string())?;
+            let (identity,port) = crate::project_state::configuration(&root).map_err(|e|e.to_string())?;
+            self.blender = asset_pipeline::bridge::BlenderBridge::for_project(port,identity);
+        }
         if let Some(value) = args.get("expected_revision") {
             let revision = value.as_u64().ok_or("expected_revision must be a nonnegative integer")?;
             if revision != self.world.revision { return Err(format!("revision conflict: expected {revision}, world is at {}", self.world.revision)); }

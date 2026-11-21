@@ -162,8 +162,11 @@ def _export(request):
 
 def _dispatch(request):
     command = request.get("command")
+    project_id = os.environ.get("AI_ENGINE_PROJECT_ID", "")
     if command == "ping":
-        return {"version": bpy.app.version_string, "background": bpy.app.background, "bridge_protocol": 1}
+        return {"version": bpy.app.version_string, "background": bpy.app.background, "bridge_protocol": 1, "project_id": project_id}
+    if project_id and request.get("project_id") != project_id:
+        raise ValueError("Blender project identity mismatch; command refused")
     if command == "exec":
         code = request.get("code")
         if not isinstance(code, str):

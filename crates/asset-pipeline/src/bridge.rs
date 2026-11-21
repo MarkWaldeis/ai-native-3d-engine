@@ -17,25 +17,70 @@ fn compatible_ping(ping: Value) -> Result<Value> {
 pub struct BlenderBridge {
     port: u16,
     child: Option<Child>,
+    project_id: Option<String>,
+    default_project: bool,
 }
 
 impl Default for BlenderBridge {
     fn default() -> Self {
-        Self::new(
+        let mut bridge = Self::new(
             std::env::var("AI_ENGINE_BLENDER_PORT")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(9876),
-        )
+        );
+        bridge.default_project = true;
+        bridge
     }
 }
 
 impl BlenderBridge {
     pub fn new(port: u16) -> Self {
-        Self { port, child: None }
+        Self {
+            port,
+            child: None,
+            project_id: None,
+            default_project: false,
+        }
+    }
+
+    pub fn for_project(port: u16, project_id: String) -> Self {
+        Self {
+            port,
+            child: None,
+            project_id: Some(project_id),
+            default_project: false,
+        }
+    }
+
+    pub fn needs_project_configuration(&self) -> bool {
+        self.default_project
+    }
+
+    fn check_peer(&self, ping: Value) -> Result<Value> {
+        let ping = compatible_ping(ping)?;
+        if let Some(project) = &self.project_id {
+            if ping["project_id"].as_str() != Some(project.as_str()) {
+                bail!("Blender project identity mismatch at port {}; expected {project:?}, got {}. Existing Blender was not changed; configure a different project blender_port or AI_ENGINE_BLENDER_PORT.",self.port,ping["project_id"]);
+            }
+        }
+        Ok(ping)
     }
 
     pub fn request(&self, request: Value) -> Result<Value> {
+        if self.project_id.is_some() {
+            let ping = self.check_peer(self.exchange(json!({"command":"ping"}))?)?;
+            if request["command"] == "ping" {
+                return Ok(ping);
+            }
+        }
+        self.exchange(request)
+    }
+
+    fn exchange(&self, mut request: Value) -> Result<Value> {
+        if let Some(project) = &self.project_id {
+            request["project_id"] = json!(project);
+        }
         let addr = SocketAddr::from(([127, 0, 0, 1], self.port));
         let mut stream = TcpStream::connect_timeout(&addr, Duration::from_secs(2))
             .with_context(|| format!("Blender bridge unavailable at {addr}; start Blender with --background --factory-startup --python blender/ai_engine_bridge.py (AI_ENGINE_BLENDER_PORT={}) or enable the add-on", self.port))?;
@@ -57,8 +102,8 @@ impl BlenderBridge {
     }
 
     pub fn start(&mut self, blender: &Path, script: &Path) -> Result<Value> {
-        if let Ok(ping) = self.request(json!({"command":"ping"})) {
-            return compatible_ping(ping);
+        if let Ok(ping) = self.exchange(json!({"command":"ping"})) {
+            return self.check_peer(ping);
         }
         if !script.is_file() {
             bail!("bridge script not found: {}", script.display());
@@ -70,11 +115,20 @@ impl BlenderBridge {
         {
             bail!("owned Blender is running but bridge is unresponsive; inspect Blender stderr");
         }
+        let mut command = Command::new(blender);
+        command
+            .args(["--background", "--factory-startup", "--python"])
+            .arg(script)
+            .env("AI_ENGINE_BLENDER_PORT", self.port.to_string())
+            .env(
+                "AI_ENGINE_PROJECT_ID",
+                self.project_id.as_deref().unwrap_or(""),
+            );
+        if let Some(project) = &self.project_id {
+            command.current_dir(project);
+        }
         self.child = Some(
-            Command::new(blender)
-                .args(["--background", "--factory-startup", "--python"])
-                .arg(script)
-                .env("AI_ENGINE_BLENDER_PORT", self.port.to_string())
+            command
                 .stdin(Stdio::null())
                 .stdout(Stdio::null())
                 .stderr(Stdio::inherit())
@@ -86,8 +140,8 @@ impl BlenderBridge {
             if let Some(status) = self.child.as_mut().unwrap().try_wait()? {
                 bail!("Blender exited before bridge became ready: {status}");
             }
-            if let Ok(ping) = self.request(json!({"command":"ping"})) {
-                return compatible_ping(ping);
+            if let Ok(ping) = self.exchange(json!({"command":"ping"})) {
+                return self.check_peer(ping);
             }
             if start.elapsed() > Duration::from_secs(30) {
                 if let Some(mut child) = self.child.take() {

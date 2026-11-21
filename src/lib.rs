@@ -22,6 +22,7 @@ mod security;
 mod tasks;
 pub mod web;
 pub mod project;
+mod project_state;
 
 pub struct Engine {
     pub world: World,
@@ -33,13 +34,25 @@ pub struct Engine {
     simulation: Option<engine_runtime::Simulation>,
     render_revision: u64,
     privileged_tools: bool,
+    storage: Option<project_state::Storage>,
+    coordination_depth: usize,
 }
 
 impl Engine {
     pub fn from_project(path: &Path) -> anyhow::Result<Self> {
         let root = path.canonicalize()?;
+        let storage = project_state::Storage::open(&root)?;
+        let (identity, port) = project_state::configuration(&root)?;
         let mut engine = Self::with_assets(engine_core::project_path(&root, &root.join("assets"))?);
-        engine.world.load_with_root(&root.join("scene.json"), &root)?;
+        engine.blender = asset_pipeline::bridge::BlenderBridge::for_project(port, identity);
+        if let Some((world,swarm)) = storage.restore()? {
+            engine.world=world;
+            engine.swarm=swarm;
+        } else {
+            engine.world.load_with_root(&root.join("scene.json"), &root)?;
+            storage.save(&engine.world,&engine.swarm)?;
+        }
+        engine.storage=Some(storage);
         Ok(engine)
     }
 
@@ -61,6 +74,8 @@ impl Engine {
             simulation: None,
             render_revision: 0,
             privileged_tools: true,
+            storage: None,
+            coordination_depth: 0,
         }
     }
 
@@ -186,7 +201,7 @@ impl ToolHandler for Engine {
         serde_json::to_value(&self.world.scene).map_err(|error| error.to_string())
     }
     fn handle(&mut self, name: &str, args: &Value) -> Result<Value, String> {
-        self.handle_agent(name, args)
+        self.durable_handle(name, args)
     }
 }
 
