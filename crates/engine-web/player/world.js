@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
 import { isCollectible } from './presentation.js';
+import { primitiveMaterial } from './materials.js';
 
 const assets = new Map();
 export function loadAsset(path) {
@@ -39,7 +40,7 @@ export class StreamingWorld {
         case 'cylinder': geometry = new THREE.CylinderGeometry(e.radius,e.radius,e.height,segments); break;
         default: return [];
       }
-      return [{geometry,material:new THREE.MeshStandardMaterial({color:new THREE.Color(...(e.color || [0.8,0.8,0.8])),roughness:0.55,metalness:0.08}),matrix:new THREE.Matrix4()}];
+      return [{geometry,material:primitiveMaterial(e),matrix:new THREE.Matrix4()}];
     })();
     this.templates.set(key,promise); return promise;
   }
@@ -62,7 +63,7 @@ export class StreamingWorld {
     const t = e.transform || {position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]};
     const radius = entityRadius(e);
     const key = this.grid.register(e.id,t.position,radius);
-    this.entities.set(e.id,{e,object,key,level:undefined}); this.dirty.add(key);
+    this.entities.set(e.id,{e,object,key,signature:object ? null : batchKey(e),level:undefined}); this.dirty.add(key);
   }
   batched(e) { return this.config.instancing && canInstance(e); }
   remove(id) {
@@ -83,7 +84,7 @@ export class StreamingWorld {
       const item = this.entities.get(id); if (!item) continue;
       if (item.object) { objects.push(item.object); continue; }
       if (item.e.visible === false || item.level === 3) continue;
-      const batch = `${batchKey(item.e)}:${item.level || 0}:${!!item.e.collider}`;
+      const batch = `${item.signature}:${item.level || 0}:${!!item.e.collider}`;
       if (!buckets.has(batch)) buckets.set(batch,[]); buckets.get(batch).push(item);
     }
     try {

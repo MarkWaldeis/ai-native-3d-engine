@@ -4,6 +4,7 @@ import http from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {installClock, verifyLantern, verifyLanternTouch} from './lantern_maze/browser.mjs';
+import {verifyGraphics} from './verify_web_graphics.mjs';
 const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const site = path.resolve(process.argv[2] || 'target/m9-site');
@@ -36,6 +37,7 @@ let browser;
 const errors = [];
 try {
   browser = await chromium.launch({...(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {}),args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+  await verifyGraphics(browser, base, errors);
   for (const game of games) {
     const page = await browser.newPage({viewport:{width:1100,height:800}});
     page.setDefaultTimeout(120000);

@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame } from './controls.js';
 import { GameEffects } from './effects.js';
+import { graphicsConfig } from './graphics-settings.js';
+import { primitiveMaterial } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { StreamingWorld, loadAsset } from './world.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
@@ -75,12 +77,8 @@ function fail(error) {
   console.error(error);
 }
 
-function material(color) {
-  return new THREE.MeshStandardMaterial({ color: new THREE.Color(...(color || [0.8, 0.8, 0.8])), roughness: 0.55, metalness: 0.08 });
-}
-
-function mesh(geometry, color) {
-  const result = new THREE.Mesh(geometry, material(color));
+function mesh(geometry, entity) {
+  const result = new THREE.Mesh(geometry, primitiveMaterial(entity));
   result.castShadow = true; result.receiveShadow = true;
   return result;
 }
@@ -90,22 +88,22 @@ function createObject(entity) {
   const group = new THREE.Group();
   let object;
   switch (entity.kind) {
-    case 'box': object = mesh(new THREE.BoxGeometry(...entity.size), entity.color); break;
+    case 'box': object = mesh(new THREE.BoxGeometry(...entity.size), entity); break;
     case 'plane':
-      object = mesh(new THREE.PlaneGeometry(entity.size, entity.size), entity.color);
+      object = mesh(new THREE.PlaneGeometry(entity.size, entity.size), entity);
       object.rotation.x = -Math.PI / 2; break;
-    case 'sphere': object = mesh(new THREE.SphereGeometry(entity.radius, entity.segments, Math.max(8, Math.floor(entity.segments / 2))), entity.color); break;
-    case 'cylinder': object = mesh(new THREE.CylinderGeometry(entity.radius, entity.radius, entity.height, entity.segments), entity.color); break;
+    case 'sphere': object = mesh(new THREE.SphereGeometry(entity.radius, entity.segments, Math.max(8, Math.floor(entity.segments / 2))), entity); break;
+    case 'cylinder': object = mesh(new THREE.CylinderGeometry(entity.radius, entity.radius, entity.height, entity.segments), entity); break;
     case 'wall_with_door': {
       object = new THREE.Group();
       const dw = Math.min(entity.door_width, entity.width), dh = Math.min(entity.door_height, entity.height);
       const side = (entity.width - dw) / 2;
       for (const sign of [-1, 1]) if (side > 0) {
-        const piece = mesh(new THREE.BoxGeometry(side, entity.height, 0.15), entity.color);
+        const piece = mesh(new THREE.BoxGeometry(side, entity.height, 0.15), entity);
         piece.position.set(sign * (dw + side) / 2, entity.height / 2, 0); object.add(piece);
       }
       if (entity.height > dh) {
-        const lintel = mesh(new THREE.BoxGeometry(dw, entity.height - dh, 0.15), entity.color);
+        const lintel = mesh(new THREE.BoxGeometry(dw, entity.height - dh, 0.15), entity);
         lintel.position.y = (entity.height + dh) / 2; object.add(lintel);
       }
       break;
@@ -421,7 +419,7 @@ function frame(now) {
     updateCamera(false, elapsed);
     streaming?.update(camera);
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streaming && objects.get(playerId)?.position);
-    updateShadows(); updateObjective(); renderer.render(world, camera);
+    updateShadows(); updateObjective(); effects.render(camera);
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
@@ -466,9 +464,11 @@ async function boot() {
     init().then(result => { mark('wasmInitialized'); return result; }),
   ]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
-  const authoredUI = source.entities.find(e => e.tags?.includes('player'))?.props?.ai_ui;
+  const props = source.entities.find(e => e.tags?.includes('player'))?.props;
+  const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
-  effects = new GameEffects(renderer, world, ui.sky_color);
+  const preset = new URLSearchParams(location.search).get('quality');
+  effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color));
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config);

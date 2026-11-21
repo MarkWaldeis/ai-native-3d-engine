@@ -1,26 +1,34 @@
 import * as THREE from 'three';
 import { qualitySettings } from './presentation.js';
+import { HDRPipeline } from './hdr.js';
+import { applySky } from './sky.js';
 
 export class GameEffects {
-  constructor(renderer, scene, skyColor) {
+  constructor(renderer, scene, skyColor, graphics) {
     this.renderer = renderer; this.scene = scene; this.time = 0;
     renderer.shadowMap.autoUpdate = false; this.shadowFrame = 0;
     this.inverseRotation = new THREE.Quaternion();
-    this.level = matchMedia('(pointer: coarse)').matches ? 1 : 2;
+    this.graphics = graphics;
+    this.level = graphics?.quality >= 0 ? graphics.quality : matchMedia('(pointer: coarse)').matches ? 1 : 2;
+    this.sunOffset = new THREE.Vector3(...(graphics?.sunDirection || [-6, 16, 9]));
+    if (graphics) this.sunOffset.setLength(20);
     this.slow = 0; this.sampleTime = 0; this.frames = 0;
     const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 256;
     const context = canvas.getContext('2d'), gradient = context.createLinearGradient(0, 0, 0, 256);
-    gradient.addColorStop(0, '#3b7298'); gradient.addColorStop(0.5, skyColor || '#aecbd5');
-    gradient.addColorStop(1, '#f1d7b0'); context.fillStyle = gradient; context.fillRect(0, 0, 16, 256);
+    gradient.addColorStop(0, graphics?.sky || '#3b7298'); gradient.addColorStop(0.5, graphics?.horizon || skyColor || '#aecbd5');
+    gradient.addColorStop(1, graphics?.ground || '#f1d7b0'); context.fillStyle = gradient; context.fillRect(0, 0, 16, 256);
     scene.background = new THREE.CanvasTexture(canvas); scene.background.colorSpace = THREE.SRGBColorSpace;
-    scene.fog = new THREE.Fog(skyColor || '#b6ced8', 12, 55);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
-    scene.add(new THREE.HemisphereLight(0xd9f4ff, 0x546445, 2));
-    this.sun = new THREE.DirectionalLight(0xffe6b5, 3.2); this.sun.castShadow = true;
+    scene.fog = new THREE.Fog(graphics?.horizon || skyColor || '#b6ced8', 12, 55);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = graphics?.exposure ?? 1.12;
+    if (graphics) this.hdr = new HDRPipeline(renderer, graphics);
+    scene.add(new THREE.HemisphereLight(graphics?.sky || 0xd9f4ff, graphics?.ground || 0x546445, graphics ? 1.25 : 2));
+    this.sun = new THREE.DirectionalLight(graphics?.sunColor || 0xffe6b5, graphics?.sunIntensity ?? 3.2); this.sun.castShadow = this.sun.intensity > 0;
     Object.assign(this.sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 0.5, far: 55 });
     this.sun.shadow.normalBias = 0.045; this.sun.shadow.bias = -0.00015;
     scene.add(this.sun, this.sun.target);
-    const fill = new THREE.DirectionalLight(0x9fc8ff, 0.7); fill.position.set(4, 5, -8); scene.add(fill);
+    if (!graphics) {
+      const fill = new THREE.DirectionalLight(0x9fc8ff, 0.7); fill.position.set(4, 5, -8); scene.add(fill);
+    }
     const glowCanvas = document.createElement('canvas'); glowCanvas.width = glowCanvas.height = 64;
     const glowContext = glowCanvas.getContext('2d'), glow = glowContext.createRadialGradient(32,32,0,32,32,32);
     glow.addColorStop(0,'#ffffff'); glow.addColorStop(0.2,'#ffffffbb'); glow.addColorStop(1,'#ffffff00');
@@ -33,16 +41,24 @@ export class GameEffects {
     this.points = new THREE.Points(geometry, new THREE.PointsMaterial({size:0.19,map:this.glowTexture,transparent:true,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));
     this.points.frustumCulled = false; scene.add(this.points); geometry.setDrawRange(0,0);
     this.configure();
+    if (this.hdr?.supported) applySky(renderer, scene, graphics, this.sunOffset.clone().normalize());
   }
   configure() {
     const settings = qualitySettings(this.level, devicePixelRatio);
-    this.renderer.setPixelRatio(settings.pixelRatio); this.renderer.setSize(innerWidth,innerHeight,false);
-    if (this.sun.shadow.mapSize.x !== settings.shadowSize) {
+    const shadowSize = this.graphics ? Math.min(this.renderer.capabilities.maxTextureSize, 512 << this.level) : settings.shadowSize;
+    if (this.hdr) this.hdr.resize(this.level, innerWidth, innerHeight, settings.pixelRatio);
+    else { this.renderer.setPixelRatio(settings.pixelRatio); this.renderer.setSize(innerWidth,innerHeight,false); }
+    if (this.sun.shadow.mapSize.x !== shadowSize) {
       this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
-      this.sun.shadow.mapSize.setScalar(settings.shadowSize);
+      this.sun.shadow.mapSize.setScalar(shadowSize);
     }
     this.renderer.domElement.dataset.quality = String(this.level);
+    this.renderer.domElement.dataset.graphics = this.hdr?.sceneTarget ? 'hdr' : this.graphics ? 'standard' : 'legacy';
     this.renderer.shadowMap.needsUpdate = true;
+  }
+  render(camera) {
+    if (this.hdr) this.hdr.render(this.scene, camera);
+    else this.renderer.render(this.scene, camera);
   }
   decorate(group) {
     if (!group.userData.tags.some(tag => ['portal','goal'].includes(tag))) return;
@@ -69,11 +85,9 @@ export class GameEffects {
       if (group.userData.halo) group.userData.halo.material.opacity = 0.16 + Math.sin(this.time*2)*0.04;
     }
     this.sun.target.position.copy(camera.position).addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 10);
-    this.sun.target.position.y = 0; this.sun.position.copy(this.sun.target.position).add(new THREE.Vector3(-6,16,9));
-    if (shadowTarget) {
-      this.sun.target.position.copy(shadowTarget);
-      this.sun.position.copy(shadowTarget).add(new THREE.Vector3(-6,16,9));
-    }
+    this.sun.target.position.y = 0;
+    if (shadowTarget) this.sun.target.position.copy(shadowTarget);
+    this.sun.position.copy(this.sun.target.position).add(this.sunOffset);
     this.particles = this.particles.filter(p => p.age < 0.85);
     this.particles.forEach((p,i) => {
       p.age += elapsed; p.velocity.y -= elapsed*3; p.position.addScaledVector(p.velocity,elapsed);
@@ -87,7 +101,7 @@ export class GameEffects {
         const fps = this.frames/this.sampleTime;
         this.renderer.domElement.dataset.fps = fps.toFixed(1);
         this.slow = fps < 42 ? this.slow + 1 : 0;
-        if (this.slow >= 2 && this.level > 0) { this.level--; this.configure(); this.slow = 0; }
+        if (this.slow >= 2 && this.level > 0 && !(this.graphics?.quality >= 0)) { this.level--; this.configure(); this.slow = 0; }
         this.sampleTime = this.frames = 0;
       }
     }
