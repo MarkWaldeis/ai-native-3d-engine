@@ -1,5 +1,9 @@
 # ai-native-3d-engine
 
+Charakteranimation (Blender-Armature/Actions, deterministische State-Machine,
+Rhai-Parameter, MCP-Lint und sim-getriebene Web-Crossfades):
+[Pipeline und reproduzierbarer Milo-Rig](docs/CHARACTER_ANIMATION.md).
+
 44-km²-Web-Baseline (FPS, Speicher, Ladezeiten; Desktop/Mobile):
 [Benchmark-Anleitung und Referenzwerte](docs/BENCHMARK.md).
 

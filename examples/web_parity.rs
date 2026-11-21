@@ -89,7 +89,18 @@ fn main() -> anyhow::Result<()> {
                 json!({"tick":tick,"state":state})
             })
             .collect();
-        let summary = json!({"win_tick":win_tick,"checkpoints":checkpoints});
+        let mut animation = engine_runtime::Simulation::new(engine.world.scene.clone(), &project)?;
+        let inputs: Vec<engine_runtime::Input> = serde_json::from_value(trace["inputs"].clone())?;
+        let mut animation_samples = Vec::new();
+        loop {
+            if animation.tick % 30 == 0 || animation.tick == ticks {
+                animation_samples.push(json!({"tick":animation.tick,"animators":animation.animator_states()}));
+            }
+            if animation.tick == ticks { break; }
+            let events: Vec<_> = inputs.iter().filter(|i| i.tick == animation.tick).cloned().collect();
+            animation.step(1, &events)?;
+        }
+        let summary = json!({"win_tick":win_tick,"checkpoints":checkpoints,"animation_samples":animation_samples});
         eprintln!(
             "PASS native simulate {name}: win_tick={}, final={state}",
             summary["win_tick"]

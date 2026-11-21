@@ -26,6 +26,7 @@ mod project_state;
 mod prefabs;
 mod authoring_query;
 mod asset_bundle;
+mod animation;
 
 pub struct Engine {
     pub world: World,
@@ -213,6 +214,7 @@ impl Engine {
         let expected = expected_rev(args);
         let r = (|| -> anyhow::Result<Value> {
             match name {
+                "animation_clips" | "animator_validate" | "animator_set" => self.animation_tool(name,args),
                 "query_entities" | "get_scene_summary" => Ok(text_result(self.authoring_query(name,args)?.to_string())),
                 "terrain_generate" | "terrain_import" | "terrain_info" | "terrain_sample" => engine_mcp::terrain::execute(name, args, self.assets_dir.parent().unwrap_or(Path::new("."))),
                 "write_script" => self.write_script(args),

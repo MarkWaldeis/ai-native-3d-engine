@@ -114,7 +114,7 @@ impl WebGame {
         let state = simulation.state_summary();
         self.transforms.retain(|id, _| current.contains(id));
         let combat = simulation.take_events();
-        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"]});
+        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"],"animators":simulation.animator_states()});
         self.known = current;
         Ok(result.to_string())
     }

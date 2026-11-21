@@ -14,6 +14,16 @@ pub(crate) struct Context {
 }
 type ScriptResult<T> = Result<T, Box<EvalAltResult>>;
 
+fn animation_parameter(ctx: &mut Context, name: &str, value: f64) -> ScriptResult<()> {
+    if !value.is_finite() { return Err("animation parameter must be finite".into()); }
+    let mut data = ctx.data.borrow_mut();
+    let animator = data.scene.entities.iter_mut().find(|e| e.id == ctx.id)
+        .and_then(|e| e.animator.as_mut()).ok_or("entity has no animator")?;
+    if !animator.machine.parameters.contains_key(name) { return Err(format!("unknown animation parameter {name}").into()); }
+    animator.values.insert(name.into(), value);
+    Ok(())
+}
+
 pub(crate) fn vector(value: Array) -> ScriptResult<[f32; 3]> {
     if value.len() != 3 {
         return Err("expected a three-number vector".into());
@@ -67,6 +77,10 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
     engine.on_print(move |message| printed.borrow_mut().log(message.to_owned()));
     engine.on_debug(move |message, _, _| data.borrow_mut().log(message.to_owned()));
     engine.register_type_with_name::<Context>("Context");
+    engine.register_fn("has_animator", |ctx: &mut Context| ctx.data.borrow().scene.entities.iter().any(|e| e.id == ctx.id && e.animator.is_some()));
+    engine.register_fn("animator_set", |ctx: &mut Context, name: &str, value: f64| animation_parameter(ctx, name, value));
+    engine.register_fn("animator_set", |ctx: &mut Context, name: &str, value: INT| animation_parameter(ctx, name, value as f64));
+    engine.register_fn("animator_set", |ctx: &mut Context, name: &str, value: bool| animation_parameter(ctx, name, if value { 1.0 } else { 0.0 }));
     engine.register_fn("id", |ctx: &mut Context| ctx.id as INT);
     engine.register_fn("position", |ctx: &mut Context| {
         let id = ctx.id as INT;

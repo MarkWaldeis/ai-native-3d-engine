@@ -64,17 +64,18 @@ try {
         const [scene,scripts] = await Promise.all(['scene.json','scripts.json'].map(file=>fetch(file).then(r=>r.json())));
         const summaries = {};
         for (const trace of traces) {
-          const runtime = new WebGame(), inputs = {}, samples = []; let win_tick = null;
+          const runtime = new WebGame(), inputs = {}, samples = [], animation_samples=[]; let win_tick = null;
           function sample(snapshot) {
             if (snapshot.state.won && win_tick===null) win_tick=snapshot.tick;
             if (snapshot.tick%30===0 || snapshot.tick===trace.ticks) samples.push({tick:snapshot.tick,state:Object.fromEntries(trace.keys.map(key=>[key,snapshot.state[key]??null]))});
+            if (snapshot.tick%30===0 || snapshot.tick===trace.ticks) animation_samples.push({tick:snapshot.tick,animators:snapshot.animators});
           }
           sample(JSON.parse(runtime.load(JSON.stringify(scene),JSON.stringify(scripts))));
           for (let tick=0;tick<trace.ticks;tick++) {
             for (const event of trace.inputs) if(event.tick===tick) inputs[event.action]=event.value;
             sample(JSON.parse(runtime.tick(JSON.stringify(inputs))));
           }
-          runtime.free(); summaries[trace.name]={win_tick,checkpoints:samples};
+          runtime.free(); summaries[trace.name]={win_tick,checkpoints:samples,animation_samples};
         }
         const tick = WebGame.prototype.tick, load = WebGame.prototype.load;
         const transforms = new Map();
@@ -148,6 +149,31 @@ try {
       assert.equal(await page.locator('#modal').isHidden(),true,'win restart must not show a graphics error');
       console.log(`PASS player ${game}: actual exported WASM, keyboard win, off-platform rescue, pause freezes ticks, pause-Neustart and win restart`);
       console.log(`PASS ${engine}/${profile||'desktop'}/${game}: first activation, win + restart`);
+      if(game==='sky_garden') {
+        async function character(frames) {
+          return page.evaluate(n=>{
+            advanceFrames(n);
+            const system=window.__engineAnimations,id=[...system.objects.keys()][0],item=system.objects.get(id);
+            const bones=[];item.root.traverse(o=>{if(o.isBone)bones.push(o.matrixWorld.elements.slice());});
+            return {...system.inspect(id),bones,skinned:(()=>{let n=0;item.root.traverse(o=>{if(o.isSkinnedMesh)n++;});return n;})()};
+          },frames);
+        }
+        const idle=await character(24);assert.equal(idle.state.current_state,'idle');assert.ok(idle.skinned>0);
+        await page.screenshot({path:path.join(pageShots,'sky-animation-idle.png')});
+        await page.keyboard.down('KeyD');const walk=await character(5);
+        assert.equal(walk.state.current_state,'walk');
+        assert.ok(walk.actions.some(a=>a.name==='walk'&&a.weight>0&&a.weight<1),'walk must crossfade, not snap');
+        assert.notDeepEqual(walk.bones,idle.bones,'actual rendered bone transforms must change');
+        await page.screenshot({path:path.join(pageShots,'sky-animation-walk.png')});
+        await page.keyboard.down('Space');const jump=await character(6);await page.keyboard.up('Space');await page.keyboard.up('KeyD');
+        assert.equal(jump.state.current_state,'jump');assert.notDeepEqual(jump.bones,walk.bones);
+        await page.screenshot({path:path.join(pageShots,'sky-animation-jump.png')});
+        await page.getByRole('button',{name:'Spiel pausieren',exact:true}).click();
+        const paused=await character(30);assert.deepEqual(paused,jump,'pause freezes both animation state and rendered bones');
+        await page.getByRole('button',{name:'Neustart',exact:true}).click();await page.locator('#modal').waitFor({state:'hidden'});
+        const reset=await character(24);assert.equal(reset.state.current_state,'idle');assert.ok(reset.state.sequence<=2,'restart resets animation transition sequence');
+        console.log(`PASS animation ${engine}/${profile||'desktop'}: exported skin, idle/walk/jump, sim-clock crossfades, bone deformation, pause and restart`);
+      }
     } catch(error) {
       await page.screenshot({path:path.join(pageShots,`${game}-failure.png`)}).catch(()=>{}); throw error;
     } finally {await page.close();}

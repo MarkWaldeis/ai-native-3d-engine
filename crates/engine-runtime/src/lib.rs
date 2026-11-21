@@ -1,5 +1,6 @@
 //! Deterministic, isolated gameplay runtime.
 mod combat;
+pub mod animation;
 mod physics;
 mod terrain_stream;
 pub mod report;
@@ -185,6 +186,9 @@ impl Simulation {
                 }
             }
             validate_entity(entity)?;
+            if let Some(animator) = &mut entity.animator {
+                animation::reset(animator);
+            }
         }
         if scene.entities.windows(2).any(|e| e[0].id == e[1].id) {
             bail!("scene contains duplicate entity ids");
@@ -259,6 +263,13 @@ impl Simulation {
         json!({"tick":self.tick,"failed":self.failed,"state":data.state,"logs":data.logs})
     }
 
+    pub fn animator_states(&self) -> Value {
+        json!(self.data.borrow().scene.entities.iter().filter_map(|e| e.animator.as_ref().map(|a| json!({"id":e.id,"state":{
+            "current_state":a.current_state,"time":a.time,"previous_state":a.previous_state,"previous_time":a.previous_time,
+            "blend_time":a.blend_time,"blend_elapsed":a.blend_elapsed,"sequence":a.sequence,"values":a.values
+        }}))).collect::<Vec<_>>())
+    }
+
     pub fn set_active_region(&mut self, x: f32, z: f32, radius: f32, hysteresis: f32) -> Result<()> {
         if ![x,z,radius,hysteresis].iter().all(|v| v.is_finite()) || radius <= 0.0 || hysteresis < 0.0 {
             bail!("active region needs finite coordinates, positive radius and nonnegative hysteresis");
@@ -308,7 +319,7 @@ impl Simulation {
         let data = self.data.borrow();
         json!({"tick":self.tick, "failed":self.failed,
             "entities": data.scene.entities.iter().map(|e| json!({"id":e.id, "name":e.name, "tags":e.tags, "transform":e.transform})).collect::<Vec<_>>(),
-            "state":data.state, "logs":data.logs})
+            "state":data.state, "logs":data.logs, "animators":self.animator_states()})
     }
 
     fn source(&self, script: &Script, name: &str) -> Result<(String, String)> {
@@ -480,6 +491,11 @@ impl Simulation {
                 physics.step(&mut data.scene, &dirty, forces, &self.inactive)?;
                 let (velocities, grounded) = physics.motion();
                 data.velocities=velocities; data.grounded=grounded;
+                for entity in &mut data.scene.entities {
+                    if !self.inactive.contains(&entity.id) {
+                        if let Some(animator) = &mut entity.animator { animation::step(animator, DT as f64); }
+                    }
+                }
                 self.tick += 1;
             }
             Ok(())
@@ -500,6 +516,10 @@ fn script_error_line(error: &rhai::EvalAltResult) -> usize {
 
 fn validate_entity(entity: &shared::scene::Entity) -> Result<()> {
     use shared::scene::PrimitiveKind;
+    if let Some(animator) = &entity.animator {
+        anyhow::ensure!(matches!(entity.mesh, PrimitiveKind::Gltf { .. }), "animator requires a gltf entity");
+        animation::validate(animator)?;
+    }
     if entity.id > i64::MAX as u64
         || entity
             .transform

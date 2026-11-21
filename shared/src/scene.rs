@@ -96,6 +96,8 @@ pub struct Entity {
     pub rigidbody: Option<crate::components::RigidBody>,
     #[serde(default)]
     pub script: Option<crate::components::Script>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animator: Option<crate::animation::Animator>,
 }
 
 fn empty_props() -> serde_json::Value { serde_json::json!({}) }

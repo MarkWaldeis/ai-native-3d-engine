@@ -31,7 +31,7 @@ export function isStatic(e) {
 
 export function canInstance(e) {
   const scale = e.transform?.scale || [1,1,1];
-  return isStatic(e) && scale[0]*scale[1]*scale[2] > 0 && ['box','plane','sphere','cylinder','gltf'].includes(e.kind);
+  return !e.animator && isStatic(e) && scale[0]*scale[1]*scale[2] > 0 && ['box','plane','sphere','cylinder','gltf'].includes(e.kind);
 }
 
 export function selectLOD(distance, previous, config) {

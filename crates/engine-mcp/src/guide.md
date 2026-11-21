@@ -1,5 +1,17 @@
 # AI engine guide / Leitfaden für KI-Agenten
 
+Animation: `animation_clips {id}` (oder Projekt-GLB `path`) inspiziert echte
+Clipnamen/Laufzeiten. `animator_validate {id,machine?}` prüft ohne Mutation;
+`animator_set {id,machine,speed?,blend_time?,agent?,expected_revision?}` setzt
+die Komponente mit Locks/CAS/Atomic-Batch/Rollback/Persistenz. Machines enthalten
+`initial`, numerische `parameters`, benannte `states {clip,speed?,looping?}` und
+geordnete `transitions {from,to,conditions:[{parameter,op,value}]}`. Unbekannte
+Clips/Parameter und unerreichbare States sind Fehler. Rhai:
+`ctx.has_animator()`, `ctx.animator_set("speed", value)` und
+`ctx.animator_set("grounded", bool)`; bool entspricht 0/1. Erste passende
+Transition pro Tick gewinnt; native und WASM verwenden dieselbe Simulation.
+Siehe `docs/CHARACTER_ANIMATION.md` für Blender-Rezept, Semantik und Grenzen.
+
 Local stdio/loopback clients are trusted. HTTP defaults to 127.0.0.1:7777;
 non-loopback requires --allow-remote with a bearer token on every request.
 AI_ENGINE_HTTP_TOKEN sets one "remote" principal; AI_ENGINE_HTTP_TOKENS is a JSON

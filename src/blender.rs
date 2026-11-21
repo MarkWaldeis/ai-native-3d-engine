@@ -81,8 +81,23 @@ impl Engine {
                     collider: existing.first().and_then(|e|e.collider.clone()),
                     rigidbody: existing.first().and_then(|e|e.rigidbody.clone()),
                     script: existing.first().and_then(|e|e.script.clone()),
+                    animator: existing.first().and_then(|e|e.animator.clone()),
                 };
                 merge_gameplay(&mut entity, &item["props"], self.assets_dir.parent().unwrap_or(std::path::Path::new(".")))?;
+                let clips = engine_geo::animation_clips(std::path::Path::new(path))?;
+                if !clips.is_empty() {
+                    if let Some(animator) = &mut entity.animator { animator.clips = clips; }
+                    else {
+                        let first = clips[0].name.clone();
+                        entity.animator = Some(serde_json::from_value(json!({"clips":clips,"machine":{"initial":"default","states":{"default":{"clip":first}}}}))?);
+                    }
+                    if let Some(value) = item["props"].get("ai_animator") {
+                        let machine = if let Some(text) = value.as_str() { serde_json::from_str(text)? } else { value.clone() };
+                        entity.animator.as_mut().unwrap().machine = serde_json::from_value(machine)?;
+                    }
+                    engine_runtime::animation::validate(entity.animator.as_ref().unwrap())?;
+                    engine_runtime::animation::reset(entity.animator.as_mut().unwrap());
+                } else if entity.animator.is_some() { anyhow::bail!("animated asset {} lost its clips", entity.name); }
                 if let Some(lods)=item["props"].get("web_lods"){entity.props["web_lods"]=lods.clone();}else{entity.props.as_object_mut().unwrap().remove("web_lods");}
                 entities.push(entity);
             }

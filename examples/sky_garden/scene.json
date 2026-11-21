@@ -847,7 +847,23 @@
       "id": 20,
       "name": "Milo",
       "kind": "gltf",
-      "path": "examples/sky_garden/assets/20.glb",
+      "path": "examples/sky_garden/assets/milo_rig.glb",
+      "animator": {
+        "clips": [{"name":"idle","duration":2.0},{"name":"jump","duration":0.8333333134651184},{"name":"walk","duration":1.0}],
+        "speed":1.0,"blend_time":0.15,
+        "machine": {
+          "initial":"idle","parameters":{"speed":0.0,"grounded":1.0},
+          "states":{"idle":{"clip":"idle"},"walk":{"clip":"walk"},"jump":{"clip":"jump","looping":false}},
+          "transitions":[
+            {"from":"idle","to":"jump","conditions":[{"parameter":"grounded","op":"eq","value":0}]},
+            {"from":"walk","to":"jump","conditions":[{"parameter":"grounded","op":"eq","value":0}]},
+            {"from":"idle","to":"walk","conditions":[{"parameter":"speed","op":"gt","value":0.1}]},
+            {"from":"walk","to":"idle","conditions":[{"parameter":"speed","op":"le","value":0.1}]},
+            {"from":"jump","to":"walk","conditions":[{"parameter":"grounded","op":"eq","value":1},{"parameter":"speed","op":"gt","value":0.1}]},
+            {"from":"jump","to":"idle","conditions":[{"parameter":"grounded","op":"eq","value":1},{"parameter":"speed","op":"le","value":0.1}]}
+          ]
+        }
+      },
       "transform": {
         "position": [
           0.0,

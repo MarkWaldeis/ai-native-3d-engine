@@ -29,7 +29,7 @@ pub fn mock_scene() -> Scene {
             visible: true,
             source_uid: None,
             props: serde_json::json!({}),
-            tags: vec![], collider: None, rigidbody: None, script: None,
+            tags: vec![], collider: None, rigidbody: None, script: None, animator: None,
         },
         Entity {
             id: 2,
@@ -40,7 +40,7 @@ pub fn mock_scene() -> Scene {
             visible: true,
             source_uid: None,
             props: serde_json::json!({}),
-            tags: vec![], collider: None, rigidbody: None, script: None,
+            tags: vec![], collider: None, rigidbody: None, script: None, animator: None,
         },
         Entity {
             id: 3,
@@ -54,7 +54,7 @@ pub fn mock_scene() -> Scene {
             visible: true,
             source_uid: None,
             props: serde_json::json!({}),
-            tags: vec![], collider: None, rigidbody: None, script: None,
+            tags: vec![], collider: None, rigidbody: None, script: None, animator: None,
         },
     ];
     scene

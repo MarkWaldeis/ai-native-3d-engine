@@ -9,6 +9,7 @@ import { StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { createTerrain } from './terrain.js';
+import { Animations, cloneSkinned } from './animation.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -20,6 +21,8 @@ let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
 let effects, assets, lastFeedback, lastHUD = '';
 const audio = new GameAudio();
+const animations = new Animations();
+window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
@@ -116,9 +119,10 @@ function createObject(entity) {
     case 'gltf': {
       object = new THREE.Group();
       const task = assets.load(entity.path).then(gltf => {
-        const model = gltf.scene.clone(true), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
+        const model = cloneSkinned(gltf.scene), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
         model.traverse(child => { if (child.isMesh) Object.assign(child, flags); });
         object.add(model);
+        animations.add(entity,model,gltf.animations);
       });
       loading.add(task); task.finally(() => loading.delete(task)).catch(fail);
       break;
@@ -162,11 +166,13 @@ function apply(result) {
     if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
+  for(const id of result.removed){animations.remove(id);animations.states.delete(id);}
   for (const id of result.removed) { enemies.delete(id); effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) {
     effects.localLights?.register(entity);
     createObject(entity);
   }
+  animations.apply(result.animators);
   for (const entity of result.transforms) {
     transforms.set(entity.id,entity); streaming?.move(entity.id,entity.transform);
     effects.localLights?.move(entity.id, entity.transform);
@@ -307,6 +313,7 @@ async function restart() {
   stopPreview();
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
+  animations.clear();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
