@@ -64,8 +64,9 @@ An object can set `density` (0–0.2 m⁻¹, default 0.018), `base_height`
 and decays exponentially above it.
 Balanced and Ultra use height fog instead of distance fog, in the existing HDR
 resolve pass. Sky pixels are unchanged; transparent surfaces that do not write
-depth inherit the fog at the background depth. Low and unsupported GPUs keep
-the existing distance fog.
+depth inherit the fog at the background depth. Auto exposure meters the fogged
+scene when both options are on. Low and unsupported GPUs keep the existing
+distance fog.
 
 Use `ai_graphics.color_grade: {"saturation":0.8,"contrast":1.25}` for a muted,
 higher-contrast look. Both controls range from 0 to 2; 1 is neutral and

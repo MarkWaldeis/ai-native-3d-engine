@@ -24,7 +24,7 @@ export async function verifyMobileGraphics(browser, base, profile, device, error
         const response = await route.fetch(), scene = await response.json();
         const player = scene.entities.find(entity => entity.tags?.includes('player'));
         Object.assign(player.props.ai_graphics, {
-          bloom_strength:0, height_fog:{density:0.04, falloff:8},
+          bloom_strength:0, height_fog:{density:0.04, falloff:8}, auto_exposure:true,
           color_grade:{saturation:0.7, contrast:1.25},
         });
         await route.fulfill({response,json:scene});
@@ -47,7 +47,7 @@ export async function verifyMobileGraphics(browser, base, profile, device, error
         await page.screenshot({path:`${shots}/material-studio-${profile.replaceAll(' ','-')}.png`});
         console.log(`PASS webkit/${profile}/graphics: playable material studio, Ultra ${actual.mode}, no WebGL errors`);
       } else if (preset === 'balanced') {
-        console.log(`PASS webkit/${profile}/graphics: authored height fog and grading on Balanced (${actual.mode}), no WebGL errors`);
+        console.log(`PASS webkit/${profile}/graphics: height fog, exposure and grading on Balanced (${actual.mode}), no WebGL errors`);
       }
     }
   } finally { await page.close(); }
@@ -501,6 +501,9 @@ export async function verifyGraphics(browser, base, errors, shots) {
         const gl = renderer.getContext();
         const pipeline = new HDRPipeline(renderer, config);
         const contact = new HDRPipeline(renderer, {...config, contactStrength:0.8});
+        const metered = new HDRPipeline(renderer, {...config, contactStrength:0.8,
+          autoExposure:graphicsConfig({auto_exposure:true}, 'balanced').autoExposure,
+        });
         const noDepth = new HDRPipeline(renderer, {...config, bloomStrength:0.2, contactStrength:0.8});
         const pixels = new Uint8Array(4);
         const read = (x,y) => {
@@ -525,6 +528,12 @@ export async function verifyGraphics(browser, base, errors, shots) {
           const fogOnly = !!pipeline.sceneTarget && !pipeline.bright && !pipeline.contact;
           contact.resize(2,96,96,1);
           const combined = sample(-1,45,-1,contact);
+          mesh.scale.setScalar(20);
+          metered.resize(2,96,96,1);
+          const meteredGround = sample(-1,45,-1,metered);
+          metered.resetExposure();
+          const meteredElevated = sample(45,45,45,metered);
+          mesh.scale.setScalar(1);
           pipeline.resize(0,96,96,1);
           const low = sample(-1,45);
           const check = gl.checkFramebufferStatus;
@@ -536,26 +545,27 @@ export async function verifyGraphics(browser, base, errors, shots) {
           try { noDepth.resize(2,96,96,1); }
           finally { gl.checkFramebufferStatus = check; }
           const bloomFallback = !!noDepth.bright && !noDepth.sceneTarget.depthTexture && !noDepth.fogEnabled;
-          result.push({near,ground,sky,elevated,through,fogOnly,combined,low,bloomFallback,
+          result.push({near,ground,sky,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,
             restored:scene.fog === fallback,error:gl.getError()});
-        } finally { noDepth.release(); contact.release(); pipeline.release(); renderer.dispose(); renderer.forceContextLoss(); }
+        } finally { noDepth.release(); metered.release(); contact.release(); pipeline.release(); renderer.dispose(); renderer.forceContextLoss(); }
       }
       geometry.dispose(); material.dispose();
       return result;
     });
     for (const result of fog) {
-      const {near,ground,sky,elevated,through,fogOnly,combined,low,bloomFallback,restored,error} = result;
+      const {near,ground,sky,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,restored,error} = result;
       assert.ok(ground[2] > near[2] + 40 && near[2] > elevated[2] + 35, JSON.stringify(result));
       assert.ok(through[2] > elevated[2] + 30 && through[2] < ground[2] - 15, JSON.stringify(result));
       assert.deepEqual(sky,[64,48,32]);
       assert.ok(combined.every((value,index) => Math.abs(value-ground[index]) <= 2), JSON.stringify(result));
+      assert.ok(meteredGround[2] < ground[2] - 20 && meteredElevated[2] > elevated[2] + 20, JSON.stringify(result));
       assert.deepEqual(low,[204,68,16]);
       assert.ok(fogOnly && bloomFallback && restored && error === 0, JSON.stringify(result));
     }
     for (const key of ['near','ground','elevated','through']) {
       assert.ok(fog[0][key].every((value,index) => Math.abs(value-fog[1][key][index]) <= 3), JSON.stringify(fog));
     }
-    console.log('PASS height fog: low layers, clear sky, log-depth and contact compatibility, and Low fallback');
+    console.log('PASS height fog: low layers, clear sky, log-depth, contact and exposure compatibility, and Low fallback');
 
     const grades = await page.evaluate(async () => {
       const THREE = await import('three');
