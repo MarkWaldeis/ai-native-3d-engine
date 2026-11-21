@@ -57,6 +57,22 @@ prefiltered reflections are baked once at load, with no per-frame pass.
 The authored horizon fog and direct lighting are unchanged. An authored
 HDRI still takes precedence for reflections and, if enabled, the background.
 
+Set `ai_graphics.height_fog: true` for ground mist that thins with altitude.
+An object can set `density` (0–0.2 m⁻¹, default 0.018), `base_height`
+(world Y in metres, default 0), `falloff` (1–1000 m, default 18), and
+`color` (defaults to the horizon color). Density is constant below the base
+and decays exponentially above it.
+Balanced and Ultra use height fog instead of distance fog, in the existing HDR
+resolve pass. Sky pixels are unchanged; transparent surfaces that do not write
+depth inherit the fog at the background depth. Low and unsupported GPUs keep
+the existing distance fog.
+
+Use `ai_graphics.color_grade: {"saturation":0.8,"contrast":1.25}` for a muted,
+higher-contrast look. Both controls range from 0 to 2; 1 is neutral and
+saturation 0 is monochrome. Grading runs after tone mapping in Balanced and
+Ultra, without an extra pass when HDR is already active. It does not change
+the HDR bloom or exposure meter, the HTML HUD, or the Low and legacy paths.
+
 For authored reflections, set `environment_map` in `ai_graphics` to a
 project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
 panorama (64–4096 pixels wide, up to 32 MiB, standard `-Y +X` orientation).

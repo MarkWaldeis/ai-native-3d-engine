@@ -464,6 +464,140 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(depth.standard.some(sample => sample.correct < 12), JSON.stringify(depth));
     console.log('PASS logarithmic depth: near surface wins at 2 km in direct and HDR rendering');
 
+    const fog = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { HDRPipeline } = await import('./hdr.js');
+      const { graphicsConfig } = await import('./graphics-settings.js');
+      const geometry = new THREE.PlaneGeometry(10, 10);
+      const material = new THREE.MeshBasicMaterial({color:'#202020'});
+      const mesh = new THREE.Mesh(geometry, material);
+      const scene = new THREE.Scene();
+      const fallback = new THREE.Fog('#cc4410', 4, 10);
+      scene.fog = fallback;
+      scene.background = new THREE.Color('#403020');
+      scene.add(mesh);
+      const config = graphicsConfig({
+        height_fog:{density:0.04, falloff:10, color:'#94caff'}, bloom_strength:0,
+        hdr_antialias:false,
+      }, 'balanced');
+      const result = [];
+      for (const [logarithmicDepthBuffer, orthographic] of [[false,false],[true,false],[true,true]]) {
+        const camera = orthographic
+          ? new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 200)
+          : new THREE.PerspectiveCamera(70, 1, 0.1, 200);
+        const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas'), logarithmicDepthBuffer});
+        renderer.debug.onShaderError = () => { throw new Error('height fog shader did not compile'); };
+        const gl = renderer.getContext();
+        const pipeline = new HDRPipeline(renderer, config);
+        const contact = new HDRPipeline(renderer, {...config, contactStrength:0.8});
+        const noDepth = new HDRPipeline(renderer, {...config, bloomStrength:0.2, contactStrength:0.8});
+        const pixels = new Uint8Array(4);
+        const read = (x,y) => {
+          gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+          return Array.from(pixels.slice(0,3));
+        };
+        const sample = (height, distance, fromHeight = height, source = pipeline) => {
+          camera.position.set(0,fromHeight,0);
+          camera.lookAt(0,height,-distance);
+          mesh.position.set(0,height,-distance);
+          mesh.quaternion.copy(camera.quaternion);
+          source.render(scene,camera);
+          return read(48,48);
+        };
+        try {
+          pipeline.resize(1,96,96,1);
+          const near = sample(-1,8);
+          const ground = sample(-1,45);
+          const sky = read(1,1);
+          const elevated = sample(45,45);
+          const through = sample(-1,45,45);
+          const fogOnly = !!pipeline.sceneTarget && !pipeline.bright && !pipeline.contact;
+          contact.resize(2,96,96,1);
+          const combined = sample(-1,45,-1,contact);
+          pipeline.resize(0,96,96,1);
+          const low = sample(-1,45);
+          const check = gl.checkFramebufferStatus;
+          let rejectDepth = true;
+          gl.checkFramebufferStatus = function(target) {
+            if (rejectDepth) { rejectDepth = false; return gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT; }
+            return check.call(this,target);
+          };
+          try { noDepth.resize(2,96,96,1); }
+          finally { gl.checkFramebufferStatus = check; }
+          const bloomFallback = !!noDepth.bright && !noDepth.sceneTarget.depthTexture && !noDepth.fogEnabled;
+          result.push({near,ground,sky,elevated,through,fogOnly,combined,low,bloomFallback,
+            restored:scene.fog === fallback,error:gl.getError()});
+        } finally { noDepth.release(); contact.release(); pipeline.release(); renderer.dispose(); renderer.forceContextLoss(); }
+      }
+      geometry.dispose(); material.dispose();
+      return result;
+    });
+    for (const result of fog) {
+      const {near,ground,sky,elevated,through,fogOnly,combined,low,bloomFallback,restored,error} = result;
+      assert.ok(ground[2] > near[2] + 40 && near[2] > elevated[2] + 35, JSON.stringify(result));
+      assert.ok(through[2] > elevated[2] + 30 && through[2] < ground[2] - 15, JSON.stringify(result));
+      assert.deepEqual(sky,[64,48,32]);
+      assert.ok(combined.every((value,index) => Math.abs(value-ground[index]) <= 2), JSON.stringify(result));
+      assert.deepEqual(low,[204,68,16]);
+      assert.ok(fogOnly && bloomFallback && restored && error === 0, JSON.stringify(result));
+    }
+    for (const key of ['near','ground','elevated','through']) {
+      assert.ok(fog[0][key].every((value,index) => Math.abs(value-fog[1][key][index]) <= 3), JSON.stringify(fog));
+    }
+    console.log('PASS height fog: low layers, clear sky, log-depth and contact compatibility, and Low fallback');
+
+    const grades = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { HDRPipeline } = await import('./hdr.js');
+      const { graphicsConfig } = await import('./graphics-settings.js');
+      const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(55, 1, 0.1, 20);
+      const geometry = new THREE.PlaneGeometry(4, 4), material = new THREE.MeshBasicMaterial();
+      const patch = new THREE.Mesh(geometry, material);
+      patch.position.z = -2;
+      scene.add(patch);
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.debug.onShaderError = () => { throw new Error('color grade shader did not compile'); };
+      renderer.info.autoReset = false;
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const make = color_grade => new HDRPipeline(renderer, graphicsConfig({
+        color_grade, bloom_strength:0, hdr_antialias:false,
+      }, 'balanced'));
+      const neutral = make({saturation:1, contrast:1});
+      const grayscale = make({saturation:0});
+      const contrast = make({contrast:2});
+      const sample = (pipeline, color, tier = 1, gain = 1) => {
+        pipeline.resize(tier,64,64,1);
+        material.color.set(color).multiplyScalar(gain);
+        pipeline.render(scene, camera);
+        gl.readPixels(32,32,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+        return [...pixel.slice(0,3)];
+      };
+      try {
+        return [THREE.ACESFilmicToneMapping, THREE.AgXToneMapping].map(curve => {
+          renderer.toneMapping = curve;
+          const plain = sample(neutral, '#ef5017');
+          const mono = sample(grayscale, '#ef5017');
+          const resolvesOnly = !neutral.sceneTarget && !!grayscale.sceneTarget
+            && !grayscale.bright && !grayscale.contact && renderer.info.render.calls === 2;
+          return {plain, mono, resolvesOnly, low:sample(grayscale, '#ef5017', 0),
+            shadow:sample(neutral, '#505050')[0], gradedShadow:sample(contrast, '#505050')[0],
+            light:sample(neutral, '#ffffff', 1, 1.6)[0], gradedLight:sample(contrast, '#ffffff', 1, 1.6)[0],
+            error:gl.getError()};
+        });
+      } finally {
+        neutral.release(); grayscale.release(); contrast.release();
+        geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    for (const result of grades) {
+      const {plain, mono, resolvesOnly, low, shadow, gradedShadow, light, gradedLight, error} = result;
+      assert.ok(plain[0] - plain[2] > 30 && Math.max(...mono)-Math.min(...mono) <= 1, JSON.stringify(result));
+      assert.ok(shadow - gradedShadow > 8 && gradedLight - light > 4, JSON.stringify(result));
+      assert.deepEqual(low, plain);
+      assert.ok(resolvesOnly && error === 0, JSON.stringify(result));
+    }
+    console.log('PASS color grade: monochrome and contrast after ACES and AgX; no bloom, Low unchanged');
+
     const spot = await page.evaluate(async () => {
       const THREE = await import('three');
       const { LocalLights } = await import('./local-lights.js');

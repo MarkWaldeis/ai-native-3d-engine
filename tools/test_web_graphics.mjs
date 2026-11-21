@@ -65,6 +65,29 @@ test('logarithmic depth is explicit and never changes legacy scenes', () => {
   assert.equal(graphicsConfig({logarithmic_depth:true}, 'legacy'), null);
 });
 
+test('height fog is opt-in and can activate HDR without bloom', () => {
+  const config = height_fog => graphicsConfig({height_fog, horizon:'#aabbcc'}, 'balanced').heightFog;
+  for (const disabled of [undefined, false, 1, 'invalid', '[]']) assert.equal(config(disabled), null);
+  assert.deepEqual(config(true), {density:0.018, baseHeight:0, falloff:18, color:'#aabbcc'});
+  assert.deepEqual(config({density:1, base_height:-10001, falloff:0, color:'#123456'}),
+    {density:0.2, baseHeight:-10000, falloff:1, color:'#123456'});
+  for (const [level, supported, enabled] of [[0,true,false],[1,true,true],[2,true,true],[2,false,false]]) {
+    const hdr = hdrSettings(level, supported, 0, 500, 500, 1, false, false, true);
+    assert.equal(hdr.enabled, enabled);
+    assert.equal(hdr.bloom, false);
+  }
+});
+
+test('color grading is opt-in and leaves neutral authoring values on the same path', () => {
+  const config = color_grade => graphicsConfig({color_grade}, 'balanced').colorGrade;
+  for (const neutral of [undefined, false, true, {}, 'invalid', {saturation:'0', contrast:1}]) {
+    assert.equal(config(neutral), null);
+  }
+  assert.deepEqual(config('{"saturation":-1,"contrast":3}'), {saturation:0, contrast:2});
+  assert.deepEqual(config({saturation:1.4}), {saturation:1.4, contrast:1});
+  assert.equal(graphicsConfig({color_grade:{saturation:0}}, 'legacy'), null);
+});
+
 test('moving the sun camera does not move shadows by fractions of a texel', () => {
   for (const offset of [new THREE.Vector3(-6, 16, 9), new THREE.Vector3(0, 20, 0)]) {
     const light = new THREE.DirectionalLight();
