@@ -57,7 +57,7 @@ Floating-Origin ist eine explizite API, kein automatischer Umbau der f32-Szene.
 Blender: `blender/terrain_heightmap.py`, nach Sculpting `--bake-active`;
 PNG16 + `.import.json`, Blender XY/Z → Engine XZ/Y, R16 Little Endian.
 Tests: `cargo test -p engine-tests --test terrain`; Release-Messung:
-`cargo run --release -p engine-terrain --example generate`. Kein Web-LOD hier.
+`cargo run --release -p engine-terrain --example generate`. Web-LOD siehe unten.
 
 ### Installation
 
@@ -100,7 +100,45 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   Screenshots nach `docs/web_*.png`. Headless-Chrome in GPU-losen macOS-VMs
   benötigt ggf. `--use-angle=swiftshader --enable-unsafe-swiftshader`.
 
+## Web-Terrain (Streaming)
+
+- Export bündelt jedes `ai_terrain`-Manifest einmal: `terrain/<n>/terrain.json`,
+  `coarse.bin`, `tiles/<x>_<z>.bin`; Szenenpfade werden umgeschrieben. Proben
+  inklusive Halo sind u16 Little Endian (12-Byte-Header `AITT`/`AITC`). Web-Physik
+  nutzt quantisierte Höhen: Abweichung von nativen f32-Höhen ≤ Höhenbereich/65535;
+  ohne Vollkachel dient das grobe Raster als Näherung.
+- WASM: `set_terrain(path, manifest_json, coarse_bytes)` vor `load`, danach
+  `terrain_tiles_wanted(128)` → JSON `[{path,x,z}]`,
+  `add_terrain_tile(path,x,z,bytes)`, `terrain_height(x,z)`. Erste Physikticks
+  warten auf benötigte Kacheln; danach Polling alle 0,5 s, maximal sechs Fetches.
+  Rhai `ctx.terrain_height(x,z)` nutzt Weltkoordinaten, ohne Terrain 0.
+- `player/terrain.js`: grobe Einzelkacheln, nahe Vollkacheln mit Stride-LOD
+  1/2/4/8 + Hysterese, Halo-Normalen und vertikale Skirts gegen Risse.
+  Höhen-/Neigungs-Splat (Sand/Gras/Erde/Fels), prozedurale Welt-UV-Details,
+  Licht/Nebel. Lokale Vertexkoordinaten + Kachelursprung erhalten kamerarelative
+  Präzision auch bei 6,4 km; kein automatischer Floating-Origin-Umbau.
+- `window.__engineStats`: `terrainTilesLoaded`, `terrainTilesVisible`,
+  `terrainTriangles`, `terrainPendingFetches`, `terrainBytesFetched`;
+  `window.__aiTerrain`: `heightAt(x,z)`, `physicsHeightAt(x,z)`, `stats()`.
+  Dekodierte JS-Kacheln: LRU maximal 96; Binärcache maximal 128.
+- Optionales Visuals-API: `__aiEngineVisuals.setHeightSampler(heightAt)` wird
+  bei Initialisierung und bei später verfügbarem API im Poll verbunden;
+  Weltkoordinaten inklusive Entity-Offset, Vollkachel vor grobem Raster.
+- Demo: `cargo run -p engine-terrain --example web_demo`; danach Ursprung/Ferne
+  mit `cargo run -- --export-web target/terrain-demo-source/origin.json target/site/terrain_demo_origin`
+  bzw. `far.json` → `target/site/terrain_demo_far` exportieren (Ziele neu/leer).
+  HTTP: `python3 -m http.server 8000 --bind 127.0.0.1 --directory target/site`;
+  `node tools/bench/terrain_check.mjs terrain_demo_origin terrain_demo_far`
+  prüft Höhe, Requests, FPS, Konsole und Präzision; Bilder: `target/terrain_shots/`.
+  Checks: `node --test tools/test_web_*.mjs`,
+  `cargo test -p engine-tests --test terrain --test web_export`.
+
 ## Große Web-Welten / Streaming
+
+- `ai_graphics`: `time_of_day`, `foliage:{density,distance}`, `water:{level,color}`,
+  `fog_density`; deprecated Alias `ai_render` überschreibt gleiche Felder.
+  Vegetation/Wasser folgen der bestehenden Grafikqualität; Terrain-Sampler:
+  `window.__aiEngineVisuals.setHeightSampler((x,z)=>y)`. Siehe docs/WEB_GRAPHICS.md.
 
 - Optionales Player-Prop `ai_world` (Objekt oder JSON-String): `chunk_size` (128 m),
   `stream_radius` (512 m), `draw_distance` (480 m), `lod_distances` ([100,260] m),
@@ -239,17 +277,23 @@ und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt
 ## Large-World-Benchmark
 
 - Anleitung/Referenz: `docs/BENCHMARK.md`; Generator: `tools/bench/gen_large_world.py`.
-  Standard: 6633×6633 m, 14997 Entities, 4096 statische Boden-Collider.
+  Standard: 6633×6633 m, 14998 Entities inklusive 44-km²-Heightfield,
+  unverändert 10900 Props und 4096 statische Fundament-Collider unter dem Terrain.
   `MAX_ENTITIES` ist 32768, auch für Skript-Spawns; Dichte nicht heimlich reduzieren.
 - Setup: `rustup target add wasm32-unknown-unknown`,
   `cargo install wasm-bindgen-cli --version 0.2.100 --locked`,
   `npm ci --prefix tools/bench`, `npx --prefix tools/bench playwright install chromium`.
 - `bash tools/bench/run.sh --channel chromium --swiftshader --duration 20`:
-  generiert, leert nur `target/bench/site/large_world`, exportiert und misst beide
+  generiert Terrain unter `target/bench/terrain` neu, leert den Exportordner
+  `target/bench/site/large_world`, exportiert und misst beide
   Profile. Exportziel muss neu/leer und projekt-relativ sein, nicht `/tmp/...`.
   System-Chrome: `--channel chrome`; Mobile ist Chromium-Emulation mit 4× CPU,
   kein Safari-Test. SwiftShader setzt `--use-angle=swiftshader`,
   `--enable-unsafe-swiftshader`, `--ignore-gpu-blocklist`.
+- `BENCH_TERRAIN=0` misst die alte Boxboden-Baseline bei gleicher Prop-Dichte;
+  `BENCH_OUT=target/bench/no-terrain` trennt die Ergebnisse. Standard nutzt
+  native Höhen für Props und Rhai `ctx.terrain_height` für den Kameraflug.
+  Terrain-Kacheln/Dreiecke/Fetch-Bytes stehen in JSON und Markdown.
 - `?bench` aktiviert `window.__aiEngineBench` (`ready`, `marks`, `stats()`).
   Marks: `bootStart`, `sceneFetched`, `wasmInitialized`, `webGameLoaded`,
   `assetsReady`, `firstFrameAfterStart` (`ai-engine:`-Präfix in Performance API).

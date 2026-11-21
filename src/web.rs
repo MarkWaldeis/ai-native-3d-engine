@@ -12,6 +12,15 @@ use std::{
 };
 
 const PLAYER_FILES: &[(&str, &str)] = &[
+    ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),
+    (
+        "nature.js",
+        include_str!("../crates/engine-web/player/nature.js"),
+    ),
+    (
+        "nature-settings.js",
+        include_str!("../crates/engine-web/player/nature-settings.js"),
+    ),
     (
         "streaming.js",
         include_str!("../crates/engine-web/player/streaming.js"),
@@ -174,8 +183,18 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
     let mut assets = BTreeMap::<String, String>::new();
     let mut content = BTreeMap::<u64, Vec<String>>::new();
     let mut bounds = BTreeMap::<String, Value>::new();
+    let mut terrains = BTreeMap::<String, (String, engine_terrain::Terrain)>::new();
     for entity in &mut scene.entities {
         if let Some(props)=entity.props.as_object_mut(){props.remove("_prefab");}
+        if let Some(original) = entity.props.get("ai_terrain").and_then(Value::as_str).map(str::to_owned) {
+            if !terrains.contains_key(&original) {
+                let source = engine_core::project_path(&root, Path::new(&original))?;
+                let terrain = engine_terrain::Terrain::load(&source)?;
+                let target = format!("terrain/{}", terrains.len());
+                terrains.insert(original.clone(), (target, terrain));
+            }
+            entity.props["ai_terrain"] = json!(format!("{}/terrain.json", terrains[&original].0));
+        }
         if let Some(script) = &entity.script {
             engine_runtime::Simulation::check_script(script, &entity.name, &root)?;
             let original = match script {
@@ -275,13 +294,16 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
     for directory in ["scripts", "assets", "pkg"] {
         std::fs::create_dir_all(out.join(directory))?;
     }
+    for (target, terrain) in terrains.values() {
+        engine_terrain::web::write_web_bundle(terrain, &out.join(target), engine_terrain::web::DEFAULT_COARSE_STEP)?;
+    }
     for (path, bytes) in &files {
         let path = out.join(path);
         std::fs::create_dir_all(path.parent().context("output path has no parent")?)?;
         std::fs::write(path, bytes)?;
     }
     Ok(
-        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":content.values().map(Vec::len).sum::<usize>(),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
+        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":content.values().map(Vec::len).sum::<usize>(),"terrain":terrains.len(),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
     )
 }
 

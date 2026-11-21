@@ -32,6 +32,7 @@ dependencies = [
  "engine-mcp",
  "engine-render",
  "engine-runtime",
+ "engine-terrain",
  "getrandom",
  "serde_json",
  "shared",
@@ -467,6 +468,7 @@ name = "engine-web"
 version = "0.1.0"
 dependencies = [
  "engine-runtime",
+ "engine-terrain",
  "serde_json",
  "shared",
  "wasm-bindgen",

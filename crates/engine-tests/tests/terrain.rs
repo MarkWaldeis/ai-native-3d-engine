@@ -34,6 +34,42 @@ fn config() -> TerrainConfig {
 }
 
 #[test]
+fn streamed_tiles_enable_physics_and_rhai_height() {
+    use engine_terrain::web::{encode_tile, StreamedTerrain};
+    use std::collections::BTreeMap;
+    let mut terrain=Terrain::generate(TerrainConfig {size_m:[512.0;2],samples:33,height_scale:0.0,..Default::default()}).unwrap();
+    for t in &mut terrain.tiles {t.heights.fill(10.0);}
+    terrain.manifest.height_range=[10.0;2];
+    let mut streamed=StreamedTerrain::from_terrain(&terrain);
+    streamed.tiles.clear();
+    let scene: shared::scene::Scene=serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"terrain","kind":"box","size":[1,1,1],"transform":{"position":[0,2,0]},"props":{"ai_terrain":"map/terrain.json","ai_terrain_radius":32}},
+        {"id":2,"name":"box","kind":"box","size":[1,1,1],"transform":{"position":[128,15,128]},"collider":{"shape":"box"},"rigidbody":{"type":"dynamic"},"script":{"source":"fn on_tick(ctx,dt) {ctx.state_set(\"h\",ctx.terrain_height(128.0,128.0));}"}}
+    ]})).unwrap();
+    assert!(engine_runtime::Simulation::from_sources(scene.clone(),BTreeMap::new()).err().unwrap().to_string().contains("missing from bundled terrain"));
+    let sources=BTreeMap::from([("map/terrain.json".into(),streamed)]);
+    let mut missing=engine_runtime::Simulation::from_sources_with_terrain(scene.clone(),BTreeMap::new(),sources.clone()).unwrap();
+    missing.step(180,&[]).unwrap();
+    assert!(missing.scene().entities[1].transform.position[1]<0.0);
+    let mut sim=engine_runtime::Simulation::from_sources_with_terrain(scene,BTreeMap::new(),sources).unwrap();
+    assert_eq!(sim.terrain_height(128.0,128.0),2.0);
+    assert_eq!(sim.terrain_tiles_wanted(0.0),vec![("map/terrain.json".into(),0,0)]);
+    sim.step(10,&[]).unwrap();
+    assert!(sim.scene().entities[1].transform.position[1]<15.0);
+    assert!(sim.insert_terrain_tile("missing",0,0,&[]).is_err());
+    assert!(sim.insert_terrain_tile("map/terrain.json",0,0,&[]).is_err());
+    sim.insert_terrain_tile("map/terrain.json",0,0,&encode_tile(&terrain.tiles[0],33,[10.0;2])).unwrap();
+    assert!(sim.terrain_tiles_wanted(0.0).is_empty());
+    sim.step(180,&[]).unwrap();
+    assert!((sim.scene().entities[1].transform.position[1]-12.5).abs()<0.05);
+    assert_eq!(sim.terrain_height(128.0,128.0),12.0);
+    assert_eq!(sim.state_summary()["state"]["h"],12.0);
+    let empty=engine_runtime::Simulation::from_sources(Default::default(),BTreeMap::new()).unwrap();
+    assert_eq!(empty.terrain_height(0.0,0.0),0.0);
+    assert!(empty.terrain_tiles_wanted(32.0).is_empty());
+}
+
+#[test]
 fn deterministic_independent_edges_normals_and_roundtrip() {
     let c = config();
     let terrain = Terrain::generate(c.clone()).unwrap();
