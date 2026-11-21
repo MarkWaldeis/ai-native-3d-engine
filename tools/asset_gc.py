@@ -17,7 +17,8 @@ def strings(value):
     if isinstance(value, str):
         yield value
     elif isinstance(value, dict):
-        for child in value.values():
+        for key, child in value.items():
+            yield key
             yield from strings(child)
     elif isinstance(value, list):
         for child in value:
@@ -73,11 +74,19 @@ def inventory(root, blender=None):
             refs.extend(strings(glb_json(path.read_bytes())))
             if path.is_relative_to(root / 'assets'):
                 candidates.append(path)
-        elif suffix in ('.rhai', '.py', '.js', '.md', '.txt'):
-            text = path.read_text(encoding='utf8')
-            refs.append(text)
-            if suffix == '.rhai' and (re.search(r'\bspawn\s*\(', text) or 'gltf' in text):
+        elif suffix in ('.py', '.js'):
+            refs.append('assets/')
+        elif suffix not in ('.png', '.jpg', '.jpeg', '.webp', '.gif', '.hdr', '.exr', '.ktx2', '.dds', '.wav', '.ogg', '.mp3', '.flac', '.m4a', '.bin', '.woff', '.woff2', '.ttf', '.otf'):
+            try:
+                text = path.read_text(encoding='utf8')
+            except UnicodeDecodeError:
                 refs.append('assets/')
+            else:
+                refs.append(text)
+                try:
+                    refs.extend(strings(json.loads(text)))
+                except ValueError:
+                    pass
     if blends:
         executable = blender or os.environ.get('BLENDER_BIN') or shutil.which('blender')
         if not executable and Path('/Applications/Blender.app/Contents/MacOS/Blender').is_file():
@@ -90,16 +99,20 @@ def inventory(root, blender=None):
             raise ValueError('Blender dependency inventory missing')
         dependencies = json.loads(reports[0])
         refs.extend(dependencies['paths'])
+        if dependencies.get('scripts'):
+            refs.append('assets/')
         for ref in dependencies['libraries']:
             if not Path(ref).resolve(strict=True).is_relative_to(root):
                 raise ValueError('external linked Blender source requires a self-contained project')
+    if any(re.search(r'\b(?:spawn\w*|Fn|eval|import)\b', s) for s in refs):
+        refs.append('assets/')
     normalized = [unquote(s).replace('\\', '/').casefold() for s in refs]
     garbage = []
     for path in candidates:
         relative = path.relative_to(root).as_posix().casefold()
         if not any(path.name.casefold() in s or relative in s or s == 'assets/' for s in normalized):
             garbage.append(path)
-    return sorted(garbage), hashes, len(blends), len(candidates)
+    return sorted(garbage), hashes, len(blends), len(candidates), 'assets/' in normalized
 
 
 def collect(project, apply=False, blender=None):
@@ -107,13 +120,13 @@ def collect(project, apply=False, blender=None):
     if not (root / 'scene.json').is_file():
         raise ValueError('GC requires a project root containing scene.json')
     with writer_lock(root):
-        garbage, hashes, blends, count = inventory(root, blender)
+        garbage, hashes, blends, count, retained_all = inventory(root, blender)
         if any(hashlib.sha256(p.read_bytes()).hexdigest() != h for p, h in hashes.items()):
             raise ValueError('project changed during inventory; no removal allowed')
         current = {p for d, dirs, names in os.walk(root) for p in (Path(d) / n for n in names) if '.git' not in p.relative_to(root).parts}
         if current != set(hashes):
             raise ValueError('project files changed during inventory; no removal allowed')
-        report = {'dry_run': not apply, 'candidate_glbs': count, 'blender_sources_protected': blends, 'unreferenced': [str(p.relative_to(root)) for p in garbage], 'bytes': sum(p.stat().st_size for p in garbage), 'removed': []}
+        report = {'dry_run': not apply, 'candidate_glbs': count, 'blender_sources_protected': blends, 'retained_all_glbs': retained_all, 'unreferenced': [str(p.relative_to(root)) for p in garbage], 'bytes': sum(p.stat().st_size for p in garbage), 'removed': []}
         if apply:
             for path in garbage:
                 if path.is_symlink() or not path.resolve().is_relative_to(root / 'assets'):
