@@ -37,7 +37,7 @@ let browser;
 const errors = [];
 try {
   browser = await chromium.launch({...(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {}),args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-  await verifyGraphics(browser, base, errors);
+  await verifyGraphics(browser, base, errors, shots);
   for (const game of games) {
     const page = await browser.newPage({viewport:{width:1100,height:800}});
     page.setDefaultTimeout(120000);

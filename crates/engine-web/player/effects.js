@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { qualitySettings } from './presentation.js';
 import { HDRPipeline } from './hdr.js';
-import { applySky } from './sky.js';
+import { applySky, loadEnvironment } from './sky.js';
 import { NatureVisuals } from './nature.js';
 import { adaptQuality } from './nature-settings.js';
 
@@ -44,9 +44,18 @@ export class GameEffects {
     this.points = new THREE.Points(geometry, new THREE.PointsMaterial({size:0.19,map:this.glowTexture,transparent:true,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));
     this.points.frustumCulled = false; scene.add(this.points); geometry.setDrawRange(0,0);
     this.configure();
-    if (this.hdr?.supported) applySky(renderer, scene, graphics, this.sunOffset.clone().normalize());
     if (graphics?.fogDensity !== undefined) scene.fog = new THREE.FogExp2(graphics.horizon, graphics.fogDensity);
     if (graphics?.foliage || graphics?.water) this.nature = new NatureVisuals(scene, graphics, this.level);
+  }
+  async prepareEnvironment() {
+    if (!this.hdr?.supported) return;
+    const url = this.graphics.environmentMap;
+    let environment;
+    if (url && (this.graphics.environmentIntensity || this.graphics.environmentBackground)) {
+      try { environment = await loadEnvironment(url); }
+      catch (error) { console.warn('Environment map unavailable; using the procedural sky.', error); }
+    }
+    applySky(this.renderer, this.scene, this.graphics, this.sunOffset.clone().normalize(), environment);
   }
   configure() {
     const settings = qualitySettings(this.level, devicePixelRatio);

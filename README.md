@@ -243,7 +243,7 @@ das CLI daher im Projektverzeichnis starten. Der Export braucht weder GPU noch B
 
 Das Ergebnis enthält `index.html`, `player.js`, `style.css`, `pkg/*.wasm` und
 WASM-JS-Glue, `scene.json`, `scripts.json`, `scripts/`, `assets/` und vendortes
-**three.js 0.160.1** einschließlich GLTFLoader und MIT-Lizenz. Kein CDN, kein
+**three.js 0.160.1** einschließlich GLTFLoader, RGBELoader und MIT-Lizenz. Kein CDN, kein
 Engine-Prozess und keine externen Netzwerkanfragen zur Laufzeit. Das komplette
 Verzeichnis auf einen beliebigen statischen HTTP(S)-Host kopieren; `file://`
 funktioniert nicht. Relative URLs funktionieren auch unter Repository-Unterpfaden.

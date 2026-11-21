@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { registerHooks } from 'node:module';
 import test from 'node:test';
 
@@ -8,7 +9,8 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 const THREE = await import('three');
 const { graphicsConfig, hdrSettings } = await import('../crates/engine-web/player/graphics-settings.js');
 const { primitiveMaterial } = await import('../crates/engine-web/player/materials.js');
-const { skyTexture } = await import('../crates/engine-web/player/sky.js');
+const { environmentLighting, skyTexture } = await import('../crates/engine-web/player/sky.js');
+const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
 const { batchKey } = await import('../crates/engine-web/player/streaming.js');
 
 test('graphics is opt-in, ignores malformed props, and accepts explicit quality overrides', () => {
@@ -23,6 +25,24 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.deepEqual(config.sunDirection, [0, 0.8, 0.6]);
   assert.equal(graphicsConfig(null, 'low').quality, 0);
   assert.equal(graphicsConfig({}, 'auto').quality, -1);
+  assert.equal(graphicsConfig({environment_map:'https://example.com/photo.hdr'}, 'ultra').environmentMap, null);
+  assert.equal(graphicsConfig({environment_map:'assets/environment.hdr'}, 'ultra').environmentMap, 'assets/environment.hdr');
+  assert.equal(graphicsConfig({environment_background:false}, 'ultra').environmentBackground, false);
+});
+
+test('studio HDRI decodes HDR colors and lighting intensity does not alter the background', async () => {
+  const file = await readFile(new URL('../examples/material_studio/studio.hdr', import.meta.url));
+  const { data, width, height } = new RGBELoader().parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));
+  assert.deepEqual([width, height], [256, 128]);
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
+  const peak = data.reduce((index, value, i) => value > data[index] ? i : index, 0);
+  const { fromHalfFloat } = THREE.DataUtils;
+  const bright = fromHalfFloat(data[peak]);
+  assert.ok(bright > 10, 'studio softboxes retain unclipped HDR radiance');
+  const dimmed = environmentLighting(texture, 0.5);
+  assert.ok(Math.abs(fromHalfFloat(dimmed.image.data[peak]) - bright / 2) < 0.01);
+  assert.equal(fromHalfFloat(texture.image.data[peak]), bright);
+  assert.equal(environmentLighting(texture, 1), texture);
 });
 
 test('HDR respects fallback, render-pixel budget, and quality levels', () => {

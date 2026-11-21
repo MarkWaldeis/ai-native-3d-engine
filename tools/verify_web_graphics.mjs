@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
 import { installClock } from './lantern_maze/browser.mjs';
 
-export async function verifyGraphics(browser, base, errors) {
+export async function verifyGraphics(browser, base, errors, shots) {
   const page = await browser.newPage({ viewport: { width: 800, height: 550 } });
   page.on('pageerror', error => errors.push(`graphics: ${error.message}`));
   page.on('console', message => {
     if (message.type() === 'error' && /THREE|WebGL/.test(message.text())) errors.push(`graphics: ${message.text()}`);
   });
   await page.addInitScript(installClock);
+  const ready = async () => {
+    await page.waitForFunction(() => !document.getElementById('start').disabled || document.getElementById('modal').dataset.screen === 'error', null, { polling: 50 });
+    assert.equal(await page.locator('#start').isEnabled(), true, await page.locator('#modal-text').textContent());
+  };
   try {
     for (const [query, mode, level] of [['ultra', 'hdr', '2'], ['low', 'standard', '0'], ['legacy', 'legacy', '2']]) {
       await page.goto(`${base}/coin_game/?quality=${query}`);
-      await page.waitForFunction(() => !document.getElementById('start').disabled || document.getElementById('modal').dataset.screen === 'error', null, { polling: 50 });
-      assert.equal(await page.locator('#start').isEnabled(), true, await page.locator('#modal-text').textContent());
+      await ready();
       const actual = await page.evaluate(() => {
         advanceFrames(1);
         const canvas = document.getElementById('game');
@@ -57,6 +60,64 @@ export async function verifyGraphics(browser, base, errors) {
     assert.ok(result.dim.hdr && result.dim.red <= 1, 'dim objects should not bloom');
     assert.deepEqual(result.unsupported, result.low, 'no float attachment should fall back to direct rendering');
     console.log('PASS graphics: exported presets, linear HDR bloom threshold, resize and direct-render fallback');
+
+    const studio = `${base}/material_studio`;
+    const map = `${studio}/assets/environment.hdr`;
+    await page.setViewportSize({ width: 1100, height: 750 });
+    await page.route('**/*', route => {
+      const url = route.request().url();
+      if (new URL(url).origin === base) return route.continue();
+      errors.push(`graphics: external request ${url}`);
+      return route.abort();
+    });
+    const render = async () => {
+      await page.goto(`${studio}/?quality=ultra`);
+      await ready();
+      await page.locator('#start').click();
+      return page.evaluate(() => {
+        advanceFrames(2);
+        if (document.getElementById('modal').dataset.screen === 'error') throw new Error(document.getElementById('modal-text').textContent);
+        const game = document.getElementById('game');
+        const gl = game.getContext('webgl2');
+        const copy = document.createElement('canvas');
+        copy.width = 40; copy.height = 28;
+        const ctx = copy.getContext('2d');
+        ctx.drawImage(game, 0, 0, copy.width, copy.height);
+        return { pixels: Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data), error: gl.getError(), title: document.getElementById('title').textContent };
+      });
+    };
+    const [loaded, reflected] = await Promise.all([page.waitForResponse(map), render()]);
+    assert.equal(loaded.status(), 200, 'the exported panorama is loaded from its bundle');
+    assert.equal(reflected.title, 'Materiallabor');
+    assert.equal(reflected.error, 0);
+    const before = await page.evaluate(() => window.__engineStats.playerPosition);
+    await page.keyboard.down('KeyD');
+    await page.evaluate(() => advanceFrames(20));
+    await page.keyboard.up('KeyD');
+    const after = await page.evaluate(() => window.__engineStats.playerPosition);
+    assert.ok(after?.[0] > before?.[0] + 0.25, await page.locator('#modal-text').textContent());
+    await page.screenshot({ path: `${shots}/material-studio.png` });
+
+    const background = `${studio}/scene.json`;
+    const showMap = async route => {
+      const response = await route.fetch();
+      const scene = await response.json();
+      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.environment_background = true;
+      await route.fulfill({ response, json: scene });
+    };
+    await page.route(background, showMap);
+    const panorama = await render();
+    await page.unroute(background, showMap);
+    await page.route(map, route => route.abort());
+    const fallback = await render();
+    assert.equal(panorama.error, 0);
+    assert.equal(fallback.error, 0, 'a missing panorama falls back without WebGL errors');
+    const delta = (a, b) => a.reduce((sum, color, i) => sum + Math.abs(color - b[i]), 0);
+    const top = 40 * 2 * 4;
+    assert.ok(delta(panorama.pixels.slice(0, top), reflected.pixels.slice(0, top)) > 300, 'the panorama can be visible behind the scene');
+    assert.deepEqual(reflected.pixels.slice(0, top), fallback.pixels.slice(0, top), 'reflection-only HDRI preserves the procedural background');
+    assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
+    console.log('PASS HDRI: offline panorama, reflection-only mode, visible background, movement and missing-map fallback');
   } finally {
     await page.close();
   }

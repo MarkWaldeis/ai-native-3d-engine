@@ -1,6 +1,17 @@
 import * as THREE from 'three';
 
-export function skyTexture(config, sunDirection, intensity = 1) {
+function equirectangularTexture(data, width, height, flipY = false) {
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
+  texture.colorSpace = THREE.LinearSRGBColorSpace;
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  texture.minFilter = texture.magFilter = THREE.LinearFilter;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.flipY = flipY;
+  texture.needsUpdate = true;
+  return texture;
+}
+
+export function skyTexture(config, sunDirection) {
   const width = 512, height = 256;
   const pixels = new Uint16Array(width * height * 4);
   const sky = new THREE.Color(config.sky), ground = new THREE.Color(config.ground);
@@ -21,29 +32,66 @@ export function skyTexture(config, sunDirection, intensity = 1) {
         color.r += sun.r * sunlight; color.g += sun.g * sunlight; color.b += sun.b * sunlight;
       }
       const i = (y * width + x) * 4;
-      pixels[i] = half(color.r * intensity); pixels[i + 1] = half(color.g * intensity); pixels[i + 2] = half(color.b * intensity); pixels[i + 3] = half(1);
+      pixels[i] = half(color.r); pixels[i + 1] = half(color.g); pixels[i + 2] = half(color.b); pixels[i + 3] = half(1);
     }
   }
-  const texture = new THREE.DataTexture(pixels, width, height, THREE.RGBAFormat, THREE.HalfFloatType);
-  texture.colorSpace = THREE.LinearSRGBColorSpace;
-  texture.mapping = THREE.EquirectangularReflectionMapping;
-  texture.minFilter = texture.magFilter = THREE.LinearFilter;
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.needsUpdate = true;
-  return texture;
+  return equirectangularTexture(pixels, width, height);
 }
 
-export function applySky(renderer, scene, config, sunDirection) {
-  const texture = skyTexture(config, sunDirection);
+export function environmentLighting(texture, intensity, maxWidth = 1024) {
+  const { data, width, height } = texture.image;
+  // Keep PMREM's two floating-point convolution targets bounded even for a 4K sky.
+  const w = Math.min(maxWidth, width), h = Math.round(w * height / width);
+  if (w === width && intensity === 1) return texture;
+  const pixels = new Uint16Array(w * h * 4);
+  const { toHalfFloat, fromHalfFloat } = THREE.DataUtils, opaque = toHalfFloat(1);
+  for (let y = 0; y < h; y++) {
+    const y0 = Math.floor(y * height / h), y1 = Math.floor((y + 1) * height / h);
+    for (let x = 0; x < w; x++) {
+      const x0 = Math.floor(x * width / w), x1 = Math.floor((x + 1) * width / w);
+      let r = 0, g = 0, b = 0;
+      for (let sy = y0; sy < y1; sy++) for (let sx = x0; sx < x1; sx++) {
+        const i = (sy * width + sx) * 4;
+        r += fromHalfFloat(data[i]); g += fromHalfFloat(data[i + 1]); b += fromHalfFloat(data[i + 2]);
+      }
+      const scale = intensity / ((y1 - y0) * (x1 - x0)), i = (y * w + x) * 4;
+      pixels[i] = toHalfFloat(Math.min(65504, r * scale));
+      pixels[i + 1] = toHalfFloat(Math.min(65504, g * scale));
+      pixels[i + 2] = toHalfFloat(Math.min(65504, b * scale));
+      pixels[i + 3] = opaque;
+    }
+  }
+  return equirectangularTexture(pixels, w, h, texture.flipY);
+}
+
+export async function loadEnvironment(url) {
+  const [{ RGBELoader }, response] = await Promise.all([
+    import('./vendor/addons/loaders/RGBELoader.js'), fetch(url, { mode: 'same-origin' }),
+  ]);
+  if (!response.ok) throw new Error(`HDR map: HTTP ${response.status}`);
+  const { data, width, height } = new RGBELoader().parse(await response.arrayBuffer());
+  return equirectangularTexture(data, width, height, true);
+}
+
+export function applySky(renderer, scene, config, sunDirection, environment) {
+  let background = environment && config.environmentBackground ? environment : skyTexture(config, sunDirection);
+  if (background.image.width > renderer.capabilities.maxTextureSize) {
+    background = environmentLighting(background, 1, renderer.capabilities.maxTextureSize);
+  }
   scene.background?.dispose();
-  scene.background = texture;
-  if (!config.environmentIntensity) return;
+  scene.background = background;
+  const source = environment ?? background;
+  if (!config.environmentIntensity) {
+    if (source !== background) source.dispose();
+    return;
+  }
+  const lighting = environmentLighting(source, config.environmentIntensity);
   const generator = new THREE.PMREMGenerator(renderer);
-  const lighting = config.environmentIntensity === 1 ? texture : skyTexture(config, sunDirection, config.environmentIntensity);
   try {
     scene.environment = generator.fromEquirectangular(lighting).texture;
   } finally {
-    if (lighting !== texture) lighting.dispose();
+    if (lighting !== background) lighting.dispose();
+    if (source !== lighting && source !== background) source.dispose();
     generator.dispose();
   }
 }
