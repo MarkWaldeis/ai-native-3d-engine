@@ -1,5 +1,6 @@
 use crate::Engine;
 use anyhow::{ensure, Context, Result};
+use engine_core::query_index::components;
 use serde_json::{json, Value};
 use shared::scene::{Entity, PrimitiveKind};
 use std::collections::{BTreeMap, BTreeSet};
@@ -11,24 +12,6 @@ fn vector(value: &Value) -> Result<[f64; 3]> {
 }
 fn short(value: &str) -> String {
     value.chars().take(128).collect()
-}
-fn components(e: &Entity) -> Vec<&'static str> {
-    let mut c = vec!["mesh"];
-    if e.collider.is_some() {
-        c.push("collider");
-    }
-    if e.rigidbody.is_some() {
-        c.push("rigidbody");
-    }
-    if e.script.is_some() {
-        c.push("script");
-    }
-    if e.animator.is_some() { c.push("animator"); }
-    if e.nav_agent.is_some() { c.push("nav_agent"); }
-    if e.props.get("_prefab").is_some() {
-        c.push("prefab");
-    }
-    c
 }
 fn prefab(e: &Entity) -> Option<&str> {
     e.props["_prefab"]["name"].as_str()
@@ -192,51 +175,44 @@ impl Engine {
         } else {
             None
         };
-        let mut matches = Vec::new();
-        let mut total = 0;
-        for e in &scene.entities {
-            let p = e.transform.position.map(f64::from);
-            if args["tag"]
-                .as_str()
-                .is_some_and(|t| !e.tags.iter().any(|v| v == t))
-                || args["component"]
-                    .as_str()
-                    .is_some_and(|c| !components(e).contains(&c))
-                || args["prefab"]
-                    .as_str()
-                    .is_some_and(|n| prefab(e) != Some(n))
-            {
-                continue;
-            }
-            if bbox.is_some_and(|(min, max)| (0..3).any(|i| p[i] < min[i] || p[i] > max[i]))
-                || near.is_some_and(|(center, radius)| {
-                    (0..3).map(|i| (p[i] - center[i]).powi(2)).sum::<f64>() > radius * radius
-                })
-                || region.is_some_and(|(x, z, size)| {
-                    (p[0] / size).floor() as i64 != x || (p[2] / size).floor() as i64 != z
-                })
-            {
-                continue;
-            }
-            total += 1;
-            if after.is_none_or(|after| e.id > after) {
-                matches.push(e);
-            }
+        let index = self.world.authoring_index();
+        let mut matches = index.candidates(
+            args["tag"].as_str(),
+            args["component"].as_str(),
+            args["prefab"].as_str(),
+            region.filter(|(_,_,size)| *size == 128.0).map(|(x,z,_)| (x,z)),
+        );
+        if bbox.is_some() || near.is_some() || region.is_some_and(|(_,_,size)| size != 128.0) {
+            matches.retain(|row| {
+                let e = &scene.entities[*row];
+                let p = e.transform.position.map(f64::from);
+                !(bbox.is_some_and(|(min, max)| (0..3).any(|i| p[i] < min[i] || p[i] > max[i]))
+                    || near.is_some_and(|(center, radius)| {
+                        (0..3).map(|i| (p[i] - center[i]).powi(2)).sum::<f64>() > radius * radius
+                    })
+                    || region.is_some_and(|(x, z, size)| {
+                        (p[0] / size).floor() as i64 != x || (p[2] / size).floor() as i64 != z
+                    }))
+            });
         }
-        matches.sort_unstable_by_key(|e| e.id);
+        let total = matches.len();
+        if let Some(after) = after {
+            let first = matches.partition_point(|row| scene.entities[*row].id <= after);
+            matches.drain(..first);
+        }
         let more = matches.len() > limit;
         matches.truncate(limit);
         let cursor = if more {
             Some(format!(
                 "{}:{}:{fingerprint}",
                 self.world.revision,
-                matches.last().unwrap().id
+                scene.entities[*matches.last().unwrap()].id
             ))
         } else {
             None
         };
         Ok(
-            json!({"revision":self.world.revision,"total":total,"next_cursor":cursor,"entities":matches.iter().map(|e|json!({"id":e.id,"name":short(&e.name),"position":e.transform.position,"tags":e.tags.iter().take(8).map(|t|short(t)).collect::<Vec<_>>(),"components":components(e),"prefab":prefab(e).map(short)})).collect::<Vec<_>>()}),
+            json!({"revision":self.world.revision,"total":total,"next_cursor":cursor,"entities":matches.iter().map(|row| { let e=&scene.entities[*row]; json!({"id":e.id,"name":short(&e.name),"position":e.transform.position,"tags":e.tags.iter().take(8).map(|t|short(t)).collect::<Vec<_>>(),"components":components(e),"prefab":prefab(e).map(short)}) }).collect::<Vec<_>>()}),
         )
     }
 }

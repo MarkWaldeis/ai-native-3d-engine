@@ -7,6 +7,8 @@ use shared::scene::{Camera, Entity, EntityId, PrimitiveKind, Scene, Transform};
 use std::collections::VecDeque;
 use std::path::Path;
 
+pub mod query_index;
+
 /// Mutations the outside world (MCP) can apply. Processed via World::apply.
 #[derive(Debug)]
 pub enum Command {
@@ -72,6 +74,7 @@ pub struct World {
     /// Ring of per-revision snapshots: (revision, scene_at_that_revision).
     /// Written on every mutation — a complete deterministic history.
     snapshots: VecDeque<(u64, Scene)>,
+    query_index: query_index::IndexCache,
 }
 
 /// Max retained snapshots — older revisions fall out of the rollback window.
@@ -84,6 +87,10 @@ impl Default for World {
 }
 
 impl World {
+    pub fn authoring_index(&self) -> std::sync::Arc<query_index::EntityIndex> {
+        self.query_index.get(&self.scene)
+    }
+
     pub fn next_entity_id(&self) -> EntityId { self.next_id }
 
     pub fn replace_authoring_scene(&mut self, scene: Scene) -> Result<()> {
@@ -133,7 +140,7 @@ impl World {
             anyhow::ensure!(*version == revision && serde_json::to_value(last)? == serde_json::to_value(&scene)?, "checkpoint scene/snapshot mismatch");
         }
         anyhow::ensure!(next_id > maximum, "checkpoint would reuse entity IDs");
-        Ok(Self {scene, next_id, revision, snapshots})
+        Ok(Self {scene, next_id, revision, snapshots, query_index: Default::default()})
     }
 
     pub fn new() -> Self {
@@ -142,6 +149,7 @@ impl World {
             next_id: 1,
             revision: 0,
             snapshots: VecDeque::new(),
+            query_index: Default::default(),
         }
     }
 
@@ -367,6 +375,7 @@ impl World {
     }
 
     fn bump(&mut self) {
+        self.query_index.clear();
         self.revision += 1;
         // Every mutation records the resulting scene keyed by its new
         // revision — the snapshot ring is a complete, deterministic history.
