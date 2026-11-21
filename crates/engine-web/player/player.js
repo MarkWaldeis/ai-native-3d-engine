@@ -6,6 +6,7 @@ import { graphicsConfig } from './graphics-settings.js';
 import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { StreamingWorld, WebAssets } from './world.js';
+import { FirstPerson, fpsConfig } from './fps.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { createTerrain } from './terrain.js';
 
@@ -22,8 +23,9 @@ const audio = new GameAudio();
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
-let streaming, statsOverlay, playerId;
+let streaming, statsOverlay, playerId, fps;
 let terrain;
+const enemies = new Map();
 const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
 const loading = new Set();
 const benchMarks = {};
@@ -66,6 +68,7 @@ const shadowTexture = new THREE.CanvasTexture(shadowCanvas);
 function resetInput() {
   keys.clear(); joystick.x = 0; joystick.z = 0; joystick.pointer = null;
   actionInput.reset(); $('stick').style.transform = ''; $('action').classList.remove('pressed');
+  fps?.resetInput();
 }
 
 function fail(error) {
@@ -127,6 +130,7 @@ function createObject(entity) {
   effects.decorate(group);
   if (group.userData.tags.some(tag => ['player','portal','goal'].includes(tag)) || isCollectible(group.userData, ui.collectible_tag)) objectives.set(entity.id,group);
   streaming?.add(entity,group);
+  if (group.userData.tags.includes('enemy')) enemies.set(entity.id, group);
   group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
   if (group.userData.tags.includes('player')) {
     playerId = entity.id;
@@ -158,7 +162,7 @@ function apply(result) {
     if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
-  for (const id of result.removed) { effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
+  for (const id of result.removed) { enemies.delete(id); effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) {
     effects.localLights?.register(entity);
     createObject(entity);
@@ -171,6 +175,7 @@ function apply(result) {
     object.position.fromArray(transform.position); object.scale.fromArray(transform.scale);
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
+  fps?.apply(result, objects.get(playerId));
   if (feedback.collect) {
     audio.play('collect');
     $('state').classList.remove('collected'); void $('state').offsetWidth; $('state').classList.add('collected');
@@ -202,6 +207,7 @@ function apply(result) {
 }
 
 function showWin() {
+  fps?.stop();
   running = false; resetInput(); mode = 'restart'; modal.hidden = false;
   $('restart').hidden = true;
   $('modal-badge').textContent = ui.win_badge || 'ALLE MÜNZEN GESAMMELT';
@@ -219,7 +225,15 @@ function movement() {
   return new THREE.Vector3(move.x, 0, move.z);
 }
 
+function localMovement() {
+  return {
+    x: joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')),
+    z: joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')),
+  };
+}
+
 function controls() {
+  if (fps) return fps.inputs(localMovement(), actionInput.sample());
   const move = movement();
   const pressed = actionInput.sample();
   return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
@@ -237,6 +251,7 @@ function stopPreview() {
 function updateCamera(immediate = false, elapsed = 1 / 60) {
   const player = transforms.get(playerId);
   if (!player) return;
+  if (fps) { fps.updateCamera(player, elapsed, fps.buttons.sprint); return; }
   const direction = movement();
   if (direction.length() > 0.15) lookDirection.lerp(direction.normalize(), immediate ? 1 : 1 - Math.exp(-elapsed * 6));
   const target = new THREE.Vector3(...player.transform.position);
@@ -292,7 +307,7 @@ async function restart() {
   stopPreview();
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
-  streaming?.reset(); transforms.clear(); objectives.clear(); playerId = undefined;
+  streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
   const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
@@ -319,6 +334,7 @@ function startRunning() {
   resetInput(); modal.hidden = true; mode = 'pause'; running = true; previous = performance.now(); accumulator = 0;
   if (previewingRoute() && previewMission === null) { previewMission = $('mission').textContent; $('mission').textContent = 'Zielvorschau · Bewegen überspringt'; }
   $('pause').textContent = 'Ⅱ'; $('pause').setAttribute('aria-label', 'Spiel pausieren');
+  fps?.start();
 }
 
 $('start').addEventListener('click', async () => {
@@ -331,6 +347,7 @@ $('start').addEventListener('click', async () => {
   } catch (error) { fail(error); }
 });
 function pause() {
+  fps?.stop();
   running = false; resetInput(); accumulator = 0; audio.suspend(); mode = 'pause'; modal.hidden = false;
   modal.dataset.screen = 'pause';
   $('modal-badge').textContent = 'DURCHATMEN'; $('modal-title').textContent = 'Kurze Pause';
@@ -430,7 +447,8 @@ function frame(now) {
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
-    updateShadows(); updateObjective(); effects.render(camera);
+    if (fps) fps.frame(elapsed, fpsMarkers()); else { updateShadows(); updateObjective(); }
+    effects.render(camera); fps?.renderOverlay();
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
@@ -440,6 +458,13 @@ function frame(now) {
     if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''}`;
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
+}
+
+function fpsMarkers() {
+  const markers = [];
+  for (const object of enemies.values()) if (!streaming || object.parent) markers.push({ position: object.position.toArray(), color: '#ff5a4a' });
+  for (const [id, object] of objectives) if (id !== playerId && object.visible) markers.push({ position: object.position.toArray(), color: '#9cf07a', radius: 4.5 });
+  return markers;
 }
 
 function updateObjective() {
@@ -499,6 +524,12 @@ async function boot() {
   if (config) camera.far = config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
+  const firstPerson = fpsConfig(source.entities);
+  if (firstPerson) {
+    fps = window.__aiEngineFps = new FirstPerson({ renderer, world, camera, config: firstPerson, ui, canvas: $('game'), onUnlock: () => { if (running) pause(); } });
+    if (!config && world.fog) { world.fog.near = Number(ui.fog_near) || 45; world.fog.far = Number(ui.fog_far) || 180; }
+    if (!config) camera.far = Math.max(camera.far, 600);
+  }
   resize(); await restart(); $('pause').disabled = false;
   $('start').disabled = false; $('start').textContent = 'Spielen';
   const coinGame = source.entities.some(e => e.tags?.includes('coin'));
@@ -515,7 +546,9 @@ async function boot() {
   if (ui.badge) $('modal-badge').textContent = ui.badge;
   if (ui.action_label) $('action').lastChild.textContent = ui.action_label;
   document.title = `${$('title').textContent} · AI Engine`;
-  if (matchMedia('(pointer: coarse)').matches) $('help').textContent = 'Joystick: Bewegen · Taste: Aktion';
+  if (matchMedia('(pointer: coarse)').matches) $('help').textContent = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
+  else if (fps) $('help').textContent = 'Maus: Zielen · Klick: Feuer · R: Nachladen · Shift: Sprint · Esc: Pause';
+  if (fps && !ui.action_label) $('action').lastChild.textContent = 'SPRUNG';
   requestAnimationFrame(frame);
 }
 boot().catch(fail);
