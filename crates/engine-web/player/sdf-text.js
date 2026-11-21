@@ -58,7 +58,7 @@ export class SdfLabel extends THREE.Object3D {
     });
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.material); this.mesh.frustumCulled = false; this.add(this.mesh);
     this.position.fromArray(config.offset || [0, 0.4, 0]);
-    this.worldPosition = new THREE.Vector3(); this.cameraPosition = new THREE.Vector3(); this.worldScale = new THREE.Vector3(); this.rotationWorld = new THREE.Quaternion();
+    this.worldPosition = new THREE.Vector3(); this.cameraPosition = new THREE.Vector3(); this.worldScale = new THREE.Vector3(1, 1, 1); this.rotationWorld = new THREE.Quaternion();
     this.bounds = new THREE.Box3();
   }
   setText(text) {
@@ -77,24 +77,31 @@ export class SdfLabel extends THREE.Object3D {
     this.mesh.geometry.dispose(); this.mesh.geometry = geometry; return true;
   }
   update(camera) {
+    this.parent.updateWorldMatrix(true, false);
     if (this.boundsObject) {
       this.parent.getWorldPosition(this.worldPosition);
       this.bounds.setFromObject(this.boundsObject);
       if (!this.bounds.isEmpty()) this.worldPosition.y = this.bounds.max.y;
       this.worldPosition.y += 0.4;
-      this.position.copy(this.parent.worldToLocal(this.worldPosition));
-    }
-    this.getWorldPosition(this.worldPosition); camera.getWorldPosition(this.cameraPosition);
+    } else this.worldPosition.copy(this.position).applyMatrix4(this.parent.matrixWorld);
+    camera.getWorldPosition(this.cameraPosition);
     if (this.config.billboard) {
       const yaw = Math.atan2(this.cameraPosition.x - this.worldPosition.x, this.cameraPosition.z - this.worldPosition.z);
       this.rotationWorld.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
-      this.parent.getWorldQuaternion(this.quaternion).invert().multiply(this.rotationWorld);
-    }
-    this.parent.getWorldScale(this.worldScale);
-    this.scale.set(1 / (this.worldScale.x || 1), 1 / (this.worldScale.y || 1), 1 / (this.worldScale.z || 1));
+    } else this.parent.getWorldQuaternion(this.rotationWorld).multiply(this.quaternion);
     const distance = this.worldPosition.distanceTo(this.cameraPosition), fade = this.config.fade_distance;
     this.material.uniforms.opacity.value = fade ? Math.max(0, Math.min(1, (fade - distance) / Math.max(0.01, fade * 0.2))) : 1;
     this.visible = this.material.uniforms.opacity.value > 0;
+  }
+  updateMatrixWorld() {
+    this.matrixWorld.compose(this.worldPosition, this.rotationWorld, this.worldScale);
+    this.matrixWorldNeedsUpdate = false;
+    for (const child of this.children) child.updateMatrixWorld(true);
+  }
+  updateWorldMatrix(updateParents, updateChildren) {
+    if (updateParents) this.parent?.updateWorldMatrix(true, false);
+    this.matrixWorld.compose(this.worldPosition, this.rotationWorld, this.worldScale);
+    if (updateChildren) for (const child of this.children) child.updateWorldMatrix(false, true);
   }
   dispose() { this.mesh.geometry.dispose(); this.material.dispose(); this.removeFromParent(); }
 }

@@ -50,6 +50,26 @@ try {
     await page.addInitScript(installClock);
     await page.goto(`${base}/coin_game/`);
     await page.waitForFunction(() => document.getElementById('start')?.disabled === false, null, { polling: 50 });
+    assert.ok(await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { SdfLabel, SdfAtlas } = await import('./sdf-text.js');
+      const { parseTextConfig } = await import('./sdf-font.js');
+      const atlas = new SdfAtlas(), parent = new THREE.Group(), camera = new THREE.PerspectiveCamera();
+      parent.position.set(1, 2, 3); parent.rotation.set(0.2, 0.7, 0.1); camera.position.set(5, 6, 8);
+      let valid = true;
+      for (const billboard of [true, false]) for (const scale of [[4, 1, 0.1], [0.1, 2, 5]]) {
+        parent.scale.fromArray(scale);
+        const label = new SdfLabel(atlas, parseTextConfig({ text: 'M', offset: [0.2, 0.3, 0.4], billboard }).config);
+        parent.add(label); label.setText('M'); label.update(camera); parent.updateMatrixWorld(true);
+        const columns = [0, 1, 2].map(i => new THREE.Vector3().setFromMatrixColumn(label.mesh.matrixWorld, i));
+        valid &&= columns.every(v => Math.abs(v.length() - 1) < 1e-6) && columns.every((v, i) => columns.every((w, j) => i === j || Math.abs(v.dot(w)) < 1e-6));
+        const expected = new THREE.Vector3(0.2, 0.3, 0.4).applyMatrix4(parent.matrixWorld);
+        valid &&= label.getWorldPosition(new THREE.Vector3()).distanceTo(expected) < 1e-6;
+        if (!billboard) valid &&= label.rotationWorld.angleTo(parent.quaternion) < 1e-6;
+        label.dispose();
+      }
+      atlas.dispose(); return valid;
+    }), 'billboard and fixed labels retain unit orthogonal world axes under rotated non-uniform parent scales');
     await page.evaluate(async () => {
       const { WebGame } = await import('./pkg/engine_web.js');
       const tick = WebGame.prototype.tick;
