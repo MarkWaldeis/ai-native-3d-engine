@@ -46,6 +46,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     environmentRotation: Number.isFinite(config.environment_rotation_deg) ? config.environment_rotation_deg % 360 : 0,
     exposure: bounded(config.exposure, 1, 0.1, 4),
     toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
+    renderScale: bounded(config.render_scale, 1, 0.5, 1),
     hdrAntialias: config.hdr_antialias !== false,
     contactStrength: bounded(config.contact_occlusion, 0, 0, 1),
     contactRadius: bounded(config.contact_radius, 1.2, 0.1, 3),

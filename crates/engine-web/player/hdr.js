@@ -114,6 +114,7 @@ export class HDRPipeline {
     this.supported = renderer.extensions.has('EXT_color_buffer_float');
     this.strength = config.bloomStrength;
     this.threshold = config.bloomThreshold;
+    this.renderScale = config.renderScale ?? 1;
     this.edgeAA = config.hdrAntialias !== false;
     this.contactConfig = config;
     this.contactSupported = renderer.capabilities.isWebGL2 && !renderer.capabilities.logarithmicDepthBuffer;
@@ -129,7 +130,7 @@ export class HDRPipeline {
       return;
     }
     const renderer = this.renderer;
-    renderer.setPixelRatio(this.sceneTarget ? settings.pixelRatio : pixelRatio);
+    renderer.setPixelRatio((this.sceneTarget ? settings.pixelRatio : pixelRatio) * this.renderScale);
     renderer.setSize(width, height, false);
     if (!this.sceneTarget) return;
     renderer.getDrawingBufferSize(this.size);

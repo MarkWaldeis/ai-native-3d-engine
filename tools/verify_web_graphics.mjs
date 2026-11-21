@@ -74,6 +74,40 @@ export async function verifyGraphics(browser, base, errors, shots) {
       assert.deepEqual(actual.slice(0, 2), [mode, level]);
       assert.ok(actual[2] > 0, `the exported ${query} player renders a frame`);
     }
+
+    const scaledScene = '**/coin_game/scene.json';
+    const scale = async route => {
+      const response = await route.fetch(), scene = await response.json();
+      const player = scene.entities.find(entity => entity.tags?.includes('player'));
+      player.props ??= {};
+      player.props.ai_graphics = {render_scale:0.75};
+      await route.fulfill({response,json:scene});
+    };
+    const bufferSize = () => page.evaluate(() => {
+      advanceFrames(1);
+      const canvas = document.getElementById('game'), gl = canvas.getContext('webgl2');
+      return [canvas.dataset.graphics, canvas.dataset.quality, canvas.clientWidth, canvas.clientHeight,
+        gl.drawingBufferWidth, gl.drawingBufferHeight, gl.getError()];
+    });
+    await page.route(scaledScene, scale);
+    try {
+      for (const [quality, expected] of [['ultra',['hdr','2',800,550,600,412,0]],
+        ['low',['standard','0',800,550,480,330,0]], ['legacy',['legacy','2',800,550,800,550,0]]]) {
+        await page.goto(`${base}/coin_game/?quality=${quality}`);
+        await ready();
+        assert.deepEqual(await bufferSize(),expected);
+      }
+      await page.goto(`${base}/coin_game/?quality=ultra`);
+      await ready();
+      await page.setViewportSize({width:880,height:600});
+      await page.waitForFunction(() => document.getElementById('game').width === 660);
+      assert.deepEqual(await bufferSize(),['hdr','2',880,600,660,450,0]);
+    } finally {
+      await page.unroute(scaledScene, scale);
+      await page.setViewportSize({width:800,height:550});
+    }
+    console.log('PASS render scale: fewer pixels in HDR and direct modes without resizing the HUD or changing presets; legacy unchanged');
+
     const result = await page.evaluate(async () => {
       const THREE = await import('three');
       const { HDRPipeline } = await import('./hdr.js');

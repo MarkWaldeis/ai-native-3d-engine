@@ -62,6 +62,11 @@ Without a preset, the enhanced renderer starts at ultra on desktop or balanced
 on touch, then steps down when performance is consistently low.
 Ultra uses a 2048-pixel sun shadow map and half-resolution bloom; balanced uses
 1024 and quarter-resolution bloom. Low uses 512 and renders directly.
+Set `ai_graphics.render_scale` (0.5–1, default 1) to trade image sharpness
+for fewer pixels without reducing shadow quality or changing the HUD.
+For example, 0.75 renders each dimension at 75% of its normal size
+after the quality tier's resolution limits (about 56% of the pixels).
+It applies to both HDR and direct rendering; legacy mode ignores it.
 Ultra also smooths high-contrast edges in the final HDR pass without an
 additional full-resolution target. Set `hdr_antialias: false` in `ai_graphics`
 to disable this filter; it is not used on lower tiers or in direct rendering.

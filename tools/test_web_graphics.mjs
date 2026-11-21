@@ -27,6 +27,11 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(config.quality, 2);
   assert.equal(config.exposure, 4);
   assert.equal(config.toneMapping, 'aces');
+  assert.equal(config.renderScale, 1);
+  assert.equal(graphicsConfig({render_scale:0.75}, 'ultra').renderScale, 0.75);
+  assert.equal(graphicsConfig({render_scale:0.1}, 'low').renderScale, 0.5);
+  assert.equal(graphicsConfig({render_scale:3}, 'ultra').renderScale, 1);
+  assert.equal(graphicsConfig({render_scale:'0.75'}, 'ultra').renderScale, 1);
   assert.equal(graphicsConfig({tone_mapping:'unknown'}, 'ultra').toneMapping, 'aces');
   assert.equal(graphicsConfig('{"tone_mapping":"agx"}', 'ultra').toneMapping, 'agx');
   assert.equal(config.bloomStrength, 0);
