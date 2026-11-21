@@ -39,6 +39,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     sunColor: hex(config.sun_color, '#ffe5c1'),
     sunDirection: direction(config.sun_direction),
     sunIntensity: bounded(config.sun_intensity, 3, 0, 12),
+    shadowExtent: bounded(config.shadow_extent, 24, 8, 160),
     environmentIntensity: bounded(config.environment_intensity, 0.66, 0, 3),
     environmentMap: config.environment_map === 'assets/environment.hdr' ? config.environment_map : null,
     environmentBackground: config.environment_background !== false,
@@ -54,6 +55,11 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     water: water ? {level:bounded(water.level,0,-10000,10000),color:hex(water.color,'#126e61')} : false,
     fogDensity: Number.isFinite(config.fog_density) ? bounded(config.fog_density,0.004,0,0.2) : undefined,
   };
+}
+
+export function sunShadowSettings(authored) {
+  const value = object(authored);
+  return { castShadow: value?.cast !== false, receiveShadow: value?.receive !== false };
 }
 
 export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false) {

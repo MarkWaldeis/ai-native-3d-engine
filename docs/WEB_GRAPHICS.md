@@ -63,6 +63,12 @@ additional full-resolution target. Set `hdr_antialias: false` in `ai_graphics`
 to disable this filter; it is not used on lower tiers or in direct rendering.
 All enhanced tiers align the moving sun shadow map to its texel grid, reducing
 shadow shimmer as the camera follows the player.
+Set `ai_graphics.shadow_extent` (8–160 m, default 24 m) for a wider or tighter
+sun shadow volume. Wider coverage trades away detail at the same quality tier.
+For decorative primitives and GLBs, set `props.ai_sun_shadow` to an object or
+JSON string with `cast: false` or `receive: false` to skip the corresponding
+sun shadow work. Both default to true; this does not change contact occlusion
+or the player's ground marker.
 If HDR targets aren't supported, the player uses direct rendering and
 standard lighting without HDR bloom. ACES is the default tone mapper. Set
 `tone_mapping: "agx"` inside `ai_graphics` to apply a softer highlight rolloff

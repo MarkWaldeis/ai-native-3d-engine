@@ -205,6 +205,42 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(spot.turned[1] > spot.turned[0] + 40 && spot.error === 0, JSON.stringify(spot));
     console.log('PASS spotlights: rendered soft cone edge follows an emitter rotation');
 
+    const shadows = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {GameEffects} = await import('./effects.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      const camera = new THREE.OrthographicCamera(-6, 6, 6, -6, 0.1, 50);
+      camera.position.set(18, 20, 0.01);
+      camera.lookAt(18, 0, 0);
+      camera.updateMatrixWorld();
+      const box = new THREE.BoxGeometry(2, 5, 2), floor = new THREE.PlaneGeometry(70, 70);
+      const material = new THREE.MeshStandardMaterial({color: 0xc8c8c8});
+      const caster = new THREE.Mesh(box, material), receiver = new THREE.Mesh(floor, material);
+      caster.position.set(18, 2.5, 0);
+      caster.castShadow = receiver.receiveShadow = true;
+      receiver.rotation.x = -Math.PI / 2;
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const sample = extent => {
+        const config = graphicsConfig({shadow_extent:extent, sun_direction:[0,1,1], sun_intensity:5}, 'low');
+        const scene = new THREE.Scene(), effects = new GameEffects(renderer, scene, null, config);
+        scene.fog = null;
+        scene.add(caster, receiver);
+        effects.update(0, new Map(), camera, false, 0, new THREE.Vector3());
+        effects.render(camera);
+        const {x,y} = new THREE.Vector3(18, 0, -3).project(camera);
+        gl.readPixels(Math.floor((x + 1) * gl.drawingBufferWidth / 2), Math.floor((y + 1) * gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        effects.sun.shadow.dispose();
+        return pixel[0];
+      };
+      try { return {normal:sample(24), wide:sample(64), error:gl.getError()}; }
+      finally { box.dispose(); floor.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    assert.ok(shadows.normal > shadows.wide + 30 && shadows.error === 0, JSON.stringify(shadows));
+    console.log('PASS sun shadows: wider authored volume captures a caster outside the default volume');
+
     const finishes = await page.evaluate(async () => {
       const THREE = await import('three');
       const { primitiveMaterial } = await import('./materials.js');
