@@ -141,8 +141,14 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     const width = c.tile_m, depth = c.tile_m;
     const step = heights ? c.tile_m/(c.samples-1)*stride : map.manifest.coarse.step;
     function axisPositions(tile, size) {
-      const start=tile*c.tile_m, values=[0], end=heights ? start+c.tile_m : Math.min(start+c.tile_m,size);
-      for(let p=heights ? start+step : (Math.floor(start/step)+1)*step;p<end;p+=step) values.push(p-start);
+      if(heights) {
+        const values=[];
+        for(let i=0;i<c.samples-1;i+=stride) values.push(i*c.tile_m/(c.samples-1));
+        values.push(c.tile_m);
+        return values;
+      }
+      const start=tile*c.tile_m, values=[0], end=Math.min(start+c.tile_m,size);
+      for(let p=(Math.floor(start/step)+1)*step;p<end;p+=step) values.push(p-start);
       if(end<start+c.tile_m) values.push(end-start);
       values.push(c.tile_m);
       return values;
@@ -170,12 +176,11 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     for(let j=nz-2;j>0;j--) edge.push(j*nx);
     let error=0;
     if(heights && stride>1) {
-      const spacing=c.tile_m/(c.samples-1);
       for(let j=0;j<c.samples;j++) for(let i=0;i<c.samples;i++) {
-        const lx=i*spacing,lz=j*spacing;
-        if(lx>width || lz>depth) continue;
-        const ix=Math.min(nx-2,Math.floor(lx/step)),iz=Math.min(nz-2,Math.floor(lz/step));
-        const a=(lx-ix*step)/(Math.min((ix+1)*step,width)-ix*step),b=(lz-iz*step)/(Math.min((iz+1)*step,depth)-iz*step);
+        const lx=i*c.tile_m/(c.samples-1),lz=j*c.tile_m/(c.samples-1);
+        const ix=Math.min(nx-2,Math.floor(i/stride)),iz=Math.min(nz-2,Math.floor(j/stride));
+        const dx=xs[ix+1]-xs[ix],dz=zs[iz+1]-zs[iz];
+        const a=dx>0?(lx-xs[ix])/dx:0,b=dz>0?(lz-zs[iz])/dz:0;
         const h=(dx,dz)=>positions[((iz+dz)*nx+ix+dx)*3+1];
         const simplified=a+b<=1?h(0,0)*(1-a-b)+h(1,0)*a+h(0,1)*b:h(1,0)*(1-b)+h(0,1)*(1-a)+h(1,1)*(a+b-1);
         error=Math.max(error,Math.abs(simplified-heights[(j+1)*(c.samples+2)+i+1]));

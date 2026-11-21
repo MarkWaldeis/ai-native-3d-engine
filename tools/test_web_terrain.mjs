@@ -10,17 +10,17 @@ function heightfield(magic,n,value) {
   return bytes;
 }
 
-async function terrainFixture(t,{size=[3,3],tile=2,entities,game={},failTile=false,coarseValues=16384}={}) {
+async function terrainFixture(t,{size=[3,3],tile=2,samples=3,entities,game={},failTile=false,coarseValues=16384}={}) {
   const originals=['window','location'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]);
   t.after(()=>{for(const [key,descriptor] of originals) {if(descriptor) Object.defineProperty(globalThis,key,descriptor);else delete globalThis[key];}});
   globalThis.window={};globalThis.location={href:'http://localhost/demo/'};
   const grid=size.map(v=>Math.ceil(v/tile));
-  const manifest={config:{size_m:size,tile_m:tile,samples:3},grid,height_range:[0,100],coarse:{dims:size.map(v=>Math.ceil(v/tile)+1),step:tile,file:'coarse.bin'},tiles:'tiles/{x}_{z}.bin'};
+  const manifest={config:{size_m:size,tile_m:tile,samples},grid,height_range:[0,100],coarse:{dims:size.map(v=>Math.ceil(v/tile)+1),step:tile,file:'coarse.bin'},tiles:'tiles/{x}_{z}.bin'};
   const requests=[],registered=[],inserted=[],errors=[];
   t.mock.method(globalThis,'fetch',async url=>{
     requests.push(url);
     if(url.includes('/tiles/') && failTile) return new Response('',{status:404});
-    return new Response(url.endsWith('.json')?JSON.stringify(manifest):url.endsWith('coarse.bin')?heightfield('AITC',manifest.coarse.dims[0],coarseValues):heightfield('AITT',5,49151));
+    return new Response(url.endsWith('.json')?JSON.stringify(manifest):url.endsWith('coarse.bin')?heightfield('AITC',manifest.coarse.dims[0],coarseValues):heightfield('AITT',samples+2,49151));
   });
   const world=new THREE.Scene();world.fog=new THREE.Fog(0,1,100);
   const wasm={set_terrain(...args){registered.push(args);},add_terrain_tile(...args){inserted.push(args);},terrain_tiles_wanted(){return '[]';},...game};
@@ -57,6 +57,25 @@ test('coarse and full-resolution meshes cover padded edge tiles like Rapier', as
 test('scenes without terrain need no renderer, WASM calls or browser globals', async () => {
   assert.equal(await createTerrain(null,[],null,null,null,null),null);
   assert.equal(await createTerrain(null,[{props:{}}],null,null,null,null),null);
+});
+
+test('odd tile widths keep exact LOD edge samples and finite skirt positions',async t=>{
+  for(const samples of [129,130]) await t.test(`${samples} samples`,async t=>{
+    const {api,world,errors}=await terrainFixture(t,{size:[100.1,100.1],tile:100.1,samples});
+    const camera=new THREE.PerspectiveCamera();camera.position.set(50.05,10,50.05);
+    api.update(camera,0);await new Promise(resolve=>setImmediate(resolve));
+    for(const [index,distance] of [0,300,600,1100].entries()) {
+      camera.position.x=50.05+distance;api.update(camera,(index+1)*500);
+      const mesh=world.children.find(mesh=>mesh.visible),positions=mesh.geometry.attributes.position;
+      const stride=2**index,n=Math.ceil((samples-1)/stride)+1;
+      assert.equal(positions.count,n*n+4*(n-1));
+      assert.ok([...positions.array,...mesh.geometry.attributes.normal.array].every(Number.isFinite));
+      for(let i=1;i<n;i++) assert.ok(positions.getX(i)>positions.getX(i-1));
+      assert.ok(Math.abs(positions.getX(n-1)-100.1)<.00001);
+      assert.ok(Math.abs(positions.getY(n*n)-positions.getY(0)+5)<.00001);
+    }
+    assert.deepEqual(errors,[]);
+  });
 });
 
 test('coarse edge meshes preserve the grid slope up to the real edge and stay clamped beyond it',async t=>{
