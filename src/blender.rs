@@ -82,6 +82,7 @@ impl Engine {
                     rigidbody: existing.first().and_then(|e|e.rigidbody.clone()),
                     script: existing.first().and_then(|e|e.script.clone()),
                     animator: existing.first().and_then(|e|e.animator.clone()),
+                    nav_agent: existing.first().and_then(|e|e.nav_agent.clone()),
                 };
                 merge_gameplay(&mut entity, &item["props"], self.assets_dir.parent().unwrap_or(std::path::Path::new(".")))?;
                 let clips = engine_geo::animation_clips(std::path::Path::new(path))?;

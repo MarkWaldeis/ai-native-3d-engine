@@ -98,6 +98,8 @@ pub struct Entity {
     pub script: Option<crate::components::Script>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animator: Option<crate::animation::Animator>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_agent: Option<crate::navigation::NavAgent>,
 }
 
 fn empty_props() -> serde_json::Value { serde_json::json!({}) }
@@ -141,6 +143,8 @@ pub struct Prefab {
 /// Root scene document — the entire game state lives here as plain JSON.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Scene {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub navmesh: Option<crate::navigation::NavMesh>,
     #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
     pub prefabs: std::collections::BTreeMap<String, Prefab>,
     #[serde(default = "default_name")]
@@ -167,6 +171,7 @@ impl Default for Scene {
     fn default() -> Self {
         Self {
             prefabs: Default::default(),
+            navmesh: None,
             name: default_name(),
             entities: Vec::new(),
             camera: Camera::default(),

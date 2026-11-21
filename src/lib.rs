@@ -27,6 +27,7 @@ mod prefabs;
 mod authoring_query;
 mod asset_bundle;
 mod animation;
+mod navigation;
 
 pub struct Engine {
     pub world: World,
@@ -215,6 +216,7 @@ impl Engine {
         let r = (|| -> anyhow::Result<Value> {
             match name {
                 "animation_clips" | "animator_validate" | "animator_set" => self.animation_tool(name,args),
+                "nav_bake" | "nav_query_path" | "nav_lint" => self.navigation_tool(name,args),
                 "query_entities" | "get_scene_summary" => Ok(text_result(self.authoring_query(name,args)?.to_string())),
                 "terrain_generate" | "terrain_import" | "terrain_info" | "terrain_sample" => engine_mcp::terrain::execute(name, args, self.assets_dir.parent().unwrap_or(Path::new("."))),
                 "write_script" => self.write_script(args),
@@ -298,7 +300,7 @@ impl Engine {
                     ))
                 }
                 "get_screenshot" => {
-                    if args.get("views").is_some() || args.get("overlay_ids").is_some() { return self.qa_screenshot(args); }
+                    if args.get("views").is_some() || args.get("overlay_ids").is_some() || args.get("overlay_navigation").is_some() { return self.qa_screenshot(args); }
                     let w = args.get("width").and_then(|v| v.as_u64()).unwrap_or(960) as u32;
                     let h = args.get("height").and_then(|v| v.as_u64()).unwrap_or(540) as u32;
                     let scene = self.simulation.as_ref().map(|s| s.scene()).unwrap_or_else(|| self.world.scene.clone());

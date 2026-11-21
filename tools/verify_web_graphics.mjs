@@ -96,6 +96,12 @@ export async function verifyGraphics(browser, base, errors, shots) {
         gl.readPixels(Math.round(size * 0.574), size / 2, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
         return { red: pixels[0], hdr: !!pipeline.sceneTarget, calls: renderer.info.render.calls };
       }
+      function halo(ratio, level, intensity) {
+        pipeline.scatterRatio = ratio;
+        const center = sample(level, 192, intensity);
+        gl.readPixels(123, 96, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return { far: pixels[0], size: pipeline.wide?.width ?? 0, calls: center.calls };
+      }
       function edgeCoverage(filter, level) {
         pipeline.edgeAA = filter;
         pipeline.resize(level, 192, 192, 1);
@@ -119,6 +125,8 @@ export async function verifyGraphics(browser, base, errors, shots) {
       }
       try {
         const high = sample(2, 192, 6), low = sample(0, 192, 6), dim = sample(1, 128, 0.1);
+        const tight = halo(0, 2, 6), wide = halo(0.65, 2, 6), wideDim = halo(0.65, 2, 0.1);
+        const balancedWide = halo(0.65, 1, 6), balancedTight = halo(0, 1, 6);
         const panel = scene.children[0];
         panel.rotation.z = 0.41;
         panel.scale.setScalar(5);
@@ -133,7 +141,8 @@ export async function verifyGraphics(browser, base, errors, shots) {
         const aces = filmic(2, THREE.ACESFilmicToneMapping);
         const agx = filmic(2, THREE.AgXToneMapping);
         const directAgx = filmic(0, THREE.AgXToneMapping);
-        return { high, low, dim, sharp, smoothed, balanced, unsupported, aces, agx, directAgx, glError: gl.getError() };
+        return { high, low, dim, tight, wide, wideDim, balancedWide, balancedTight,
+          sharp, smoothed, balanced, unsupported, aces, agx, directAgx, glError: gl.getError() };
       } finally {
         noBloom.release(); pipeline.release(); geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
       }
@@ -142,6 +151,11 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.high.hdr && result.high.calls > result.low.calls && result.high.red > 15, JSON.stringify(result));
     assert.equal(result.low.red, 0, 'no halo outside the geometry when rendering directly');
     assert.ok(result.dim.hdr && result.dim.red <= 1, 'dim objects should not bloom');
+    assert.equal(result.tight.size, 0);
+    assert.equal(result.wide.size, 24, 'scatter uses one-eighth resolution per axis on Ultra');
+    assert.equal(result.wide.calls, result.tight.calls + 1, 'scatter uses one additional pass');
+    assert.ok(result.wide.far > result.tight.far + 15 && result.wideDim.far <= 1, JSON.stringify(result));
+    assert.deepEqual(result.balancedWide, result.balancedTight, 'balanced ignores scatter and frees its target');
     assert.deepEqual(result.unsupported, result.low, 'no float attachment should fall back to direct rendering');
     assert.ok(result.smoothed.intermediate > result.sharp.intermediate + 100, JSON.stringify(result));
     assert.equal(result.smoothed.center, result.sharp.center, 'edge filtering leaves the uniform interior unchanged');
@@ -149,7 +163,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.agx.hdr && !result.agx.bloom && result.agx.calls === 2, JSON.stringify(result));
     assert.ok(result.agx.rgb.some((channel, i) => Math.abs(channel - result.aces.rgb[i]) > 20), 'AgX changes the highlight response');
     assert.ok(result.agx.rgb.every((channel, i) => Math.abs(channel - result.directAgx.rgb[i]) <= 2), 'direct and HDR compositing apply AgX once');
-    console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
+    console.log('PASS graphics: exported presets, HDR bloom and wide Ultra halo, edge smoothing, resize and direct-render fallback');
 
     const contact = await page.evaluate(async () => {
       const THREE = await import('three');

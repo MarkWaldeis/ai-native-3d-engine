@@ -26,7 +26,7 @@ export function entityRadius(e) {
 }
 
 export function isStatic(e) {
-  return !e.script && !['dynamic','kinematic'].includes(e.rigidbody?.type) && !(e.tags || []).some(t => ['player','trigger','coin','crystal','portal'].includes(t));
+  return !e.nav_agent && !e.script && !['dynamic','kinematic'].includes(e.rigidbody?.type) && !(e.tags || []).some(t => ['player','trigger','coin','crystal','portal'].includes(t));
 }
 
 export function canInstance(e) {
