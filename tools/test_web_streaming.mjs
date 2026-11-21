@@ -1,0 +1,43 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {ChunkGrid,selectLOD,batchKey,isStatic,worldConfig} from '../crates/engine-web/player/streaming.js';
+const config = {chunk_size:128,stream_radius:128,draw_distance:480,lod_distances:[100,260],hysteresis:16};
+test('chunk load/unload hysteresis, movement, removal and empty grid', () => {
+  assert.equal(new ChunkGrid().config.chunk_size,128);
+  const grid = new ChunkGrid(config);
+  assert.deepEqual(grid.update([0,0,0]),{load:[],unload:[]});
+  grid.register(1,[10,0,10],2);
+  assert.deepEqual(grid.update([0,0,0]).load,['0,0']);
+  assert.deepEqual(grid.update([265,0,10]).unload,[]);
+  assert.deepEqual(grid.update([280,0,10]).unload,['0,0']);
+  grid.move(1,[300,0,10]); assert.equal(grid.items.get(1).key,'2,0');
+  assert.deepEqual(grid.update([300,0,10]).load,['2,0']);
+  grid.remove(1); grid.remove(9); assert.deepEqual(grid.update([300,0,10]).unload,['2,0']);
+});
+test('bounding radii keep large props loaded across chunk boundaries', () => {
+  const grid = new ChunkGrid(config);
+  grid.register(1,[10,0,10],200);
+  assert.deepEqual(grid.update([400,0,10]).load,['0,0']);
+  assert.deepEqual(grid.update([490,0,10]).unload,['0,0']);
+});
+test('LOD transitions retain previous level within hysteresis', () => {
+  assert.deepEqual([0,150,300,600].map(d => selectLOD(d,undefined,config)),[0,1,2,3]);
+  assert.equal(selectLOD(110,0,config),0); assert.equal(selectLOD(117,0,config),1);
+  assert.equal(selectLOD(90,1,config),1); assert.equal(selectLOD(80,1,config),0);
+  assert.equal(selectLOD(490,2,config),2); assert.equal(selectLOD(500,2,config),3);
+});
+test('batch keys include asset or primitive dimensions/material/segments', () => {
+  const a = {kind:'sphere',radius:1,color:[1,0,0],segments:24};
+  assert.equal(batchKey(a),batchKey({...a,id:55}));
+  for (const patch of [{radius:2},{segments:8},{color:[0,1,0]}]) assert.notEqual(batchKey(a),batchKey({...a,...patch}));
+  assert.notEqual(batchKey({kind:'gltf',path:'a'}),batchKey({kind:'gltf',path:'b'}));
+  assert.ok(isStatic(a)); assert.ok(!isStatic({...a,script:'x'})); assert.ok(!isStatic({...a,tags:['coin']}));
+});
+test('config opt-in, auto enable, invalid config and small scenes', () => {
+  assert.equal(worldConfig([]),null);
+  assert.equal(worldConfig([{transform:{position:[2000,0,0]}}]).chunk_size,128);
+  assert.equal(worldConfig([{tags:['player'],props:{ai_world:'{"chunk_size":64}'}}]).chunk_size,64);
+  assert.equal(worldConfig([{tags:['player'],props:{ai_world:{}}}]).sim_radius,256);
+  assert.throws(() => worldConfig([{tags:['player'],props:{ai_world:{chunk_size:0}}}]),RangeError);
+  assert.throws(() => worldConfig([{tags:['player'],props:{ai_world:'bad'}}]),SyntaxError);
+});
