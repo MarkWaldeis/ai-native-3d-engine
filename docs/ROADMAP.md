@@ -31,9 +31,11 @@ Der Windows-Flake im Mock-Blender-Socket des Projekt-Recovery-Tests ist mit [`3a
 Der nähere Follow-Ausschnitt ist ausschließlich als `ai_world.camera_distance:18`
 im Spiel, Blender-Original und Inhaltsrezept hinterlegt; Spieler-/Kameracode
 bleibt unverändert. Chromium und WebKit auf iPhone-/iPad-Profilen prüfen weiterhin
-Sieg, Neustart und native/WASM-Parität. **Bewusst verschoben:** Abstand zwischen
-„BEWEGEN“ und Footer-Hilfe bleibt bei Touch-/Layout-PR **#57** (auch #48 besitzt
-die Stylesheet-Datei); kein konkurrierender CSS-Fix. Physische Geräte bleiben offen.
+Sieg, Neustart und native/WASM-Parität. **Zuständigkeit beibehalten:** Abstand
+zwischen „BEWEGEN“ und Footer-Hilfe wurde Touch-/Layout-PR **#57** überlassen
+(auch #48 besitzt die Stylesheet-Datei), ohne konkurrierenden CSS-Fix. Der Rebase
+übernimmt jetzt #57: Footer-Hilfe bleibt im Steuerungsdialog zugänglich und wird
+bei aktiven Touch-Controls ausgeblendet. Physische Geräte bleiben offen.
 
 ## Vorschlag: nächste Meilensteine M11+
 
