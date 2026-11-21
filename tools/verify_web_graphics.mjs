@@ -362,18 +362,34 @@ export async function verifyGraphics(browser, base, errors, shots) {
     await page.route(background, showMap);
     const panorama = await render();
     await page.unroute(background, showMap);
-    const rotateMap = visible => patchScene(scene => {
+    const rotateMap = patchScene(scene => {
       const graphics = scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics;
       graphics.environment_rotation_deg = 90;
-      graphics.environment_background = visible;
     });
-    const rotated = [];
-    for (const visible of [false, true]) {
-      const applyRotation = rotateMap(visible);
-      await page.route(background, applyRotation);
-      try { rotated.push(await render()); }
-      finally { await page.unroute(background, applyRotation); }
-    }
+    await page.route(background, rotateMap);
+    const rotated = await render();
+    await page.unroute(background, rotateMap);
+    const skyRotation = await page.evaluate(async url => {
+      const THREE = await import('three');
+      const {loadEnvironment} = await import('./sky.js');
+      const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(45, 1, 0.1, 50);
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      renderer.setSize(32, 32, false);
+      const maps = await Promise.all([loadEnvironment(url), loadEnvironment(url, 90)]);
+      const red = (texture, azimuth) => {
+        scene.background = texture;
+        // Aim at the warm panel above the horizon rather than the studio camera's uniform ground.
+        camera.lookAt(Math.cos(azimuth), Math.tan(0.46), Math.sin(azimuth));
+        renderer.render(scene, camera);
+        gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        return pixel[0];
+      };
+      try {
+        const before = -1.6, after = before + Math.PI / 2;
+        return {before: maps.map(texture => red(texture, before)), after: maps.map(texture => red(texture, after)), error: gl.getError()};
+      } finally { maps.forEach(texture => texture.dispose()); renderer.dispose(); renderer.forceContextLoss(); }
+    }, map);
     await page.route(map, route => route.abort());
     const fallback = await render();
     assert.equal(panorama.error, 0);
@@ -394,10 +410,10 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(streamedUnlit.error, 0);
     assert.ok(delta(streamedLit.pixels.slice(top), streamedUnlit.pixels.slice(top)) > 100, 'short-range lights illuminate the streamed play area');
     assert.ok(delta(sky(panorama), sky(reflected)) > 300, 'the panorama can be visible behind the scene');
-    assert.deepEqual(rotated.map(image => image.error), [0, 0]);
-    assert.deepEqual(sky(rotated[0]), sky(reflected), 'rotation leaves the procedural sky alone');
-    assert.ok(delta(rotated[0].pixels.slice(top), reflected.pixels.slice(top)) > 300, 'rotation changes the reflected studio lighting');
-    assert.ok(delta(sky(rotated[1]), sky(panorama)) > 300, 'rotation also turns the visible HDR panorama');
+    assert.equal(rotated.error, 0);
+    assert.deepEqual(sky(rotated), sky(reflected), 'rotation leaves the procedural sky alone');
+    assert.ok(delta(rotated.pixels.slice(top), reflected.pixels.slice(top)) > 300, 'rotation changes the reflected studio lighting');
+    assert.ok(skyRotation.before[0] > skyRotation.before[1] + 50 && skyRotation.after[1] > skyRotation.after[0] + 50 && skyRotation.error === 0, JSON.stringify(skyRotation));
     assert.deepEqual(sky(reflected), sky(fallback), 'reflection-only HDRI preserves the procedural background');
     assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
     console.log('PASS HDRI: offline panorama, rotation, reflection-only mode, visible background, movement and missing-map fallback');
