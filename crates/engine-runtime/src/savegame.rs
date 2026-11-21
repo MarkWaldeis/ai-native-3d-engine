@@ -20,6 +20,14 @@ struct Delta {
     spawned: Vec<shared::scene::Entity>,
 }
 
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CombatState {
+    health: BTreeMap<u64, f64>,
+    vars: BTreeMap<u64, BTreeMap<String, Value>>,
+    hits: BTreeMap<u64, Vec<Value>>,
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Save {
@@ -35,6 +43,8 @@ struct Save {
     bodies: Vec<Body>,
     #[serde(default)]
     inputs: BTreeMap<String, f64>,
+    #[serde(default)]
+    combat: CombatState,
 }
 
 fn fingerprint(scene: &Scene) -> String {
@@ -113,6 +123,7 @@ impl Simulation {
         json!({"format":"ai-engine-save","version":1,"tick":self.tick,
             "base_fingerprint":fingerprint(&self.base_scene),"state":data.state,"flags":data.flags,
             "inventory":data.inventory,"next_id":data.next_id,"inputs":data.inputs,
+            "combat":{"health":data.combat.health,"vars":data.combat.vars,"hits":data.combat.hits},
             "delta":{"modified":modified,"removed":removed,"spawned":spawned},"bodies":bodies})
     }
 
@@ -136,6 +147,12 @@ impl Simulation {
         validate_map(&save.flags)?;
         if save.inventory.len() > 256 || save.inventory.iter().any(|(k,v)| k.len() > 256 || *v < 0) { bail!("invalid saved inventory"); }
         if save.inputs.len() > 256 || save.inputs.iter().any(|(k,v)| k.len()>256 || !v.is_finite()) { bail!("invalid saved inputs"); }
+        if save.combat.health.len() > MAX_ENTITIES || save.combat.vars.len() > MAX_ENTITIES || save.combat.hits.len() > MAX_ENTITIES
+            || save.combat.health.values().any(|v| !v.is_finite() || *v < 0.0)
+            || save.combat.vars.values().any(|vars| vars.len() > 32 || vars.iter().any(|(k,v)| k.len() > 64 || v.to_string().len() > 4096))
+            || save.combat.hits.values().any(|hits| hits.len() > 64) {
+            bail!("invalid saved combat state");
+        }
         if save.delta.modified.len() > MAX_ENTITIES || save.delta.spawned.len() > MAX_ENTITIES || save.delta.removed.len() > MAX_ENTITIES || save.bodies.len() > MAX_ENTITIES { bail!("save entity limit exceeded"); }
         let mut sim = Self::create_mode(base_scene, root, sources, terrains, true)?;
         sim.base_changed = fingerprint(&sim.base_scene) != save.base_fingerprint;
@@ -185,6 +202,9 @@ impl Simulation {
             data.inventory = save.inventory;
             data.inputs = save.inputs;
             data.next_id = save.next_id.max(minimum_next);
+            data.combat.health = save.combat.health;
+            data.combat.vars = save.combat.vars.into_iter().map(|(id, vars)| (id, vars.into_iter().collect())).collect();
+            data.combat.hits = save.combat.hits;
             data.dirty = data.scene.entities.iter().map(|e| e.id).collect();
             data.refresh_player();
         }

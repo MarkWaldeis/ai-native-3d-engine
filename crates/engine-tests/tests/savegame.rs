@@ -142,3 +142,22 @@ fn restored_asset_and_script_paths_are_confined() {
     save["delta"]["modified"] = json!([{"id":1,"kind":"gltf","path":"../outside.glb"}]);
     assert!(Simulation::load_game_from_sources(base, BTreeMap::new(), save).is_err());
 }
+
+#[test]
+fn damaged_enemy_health_and_local_memos_survive_loading() {
+    let base: Scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"enemy","kind":"box","size":[1,1,1],"tags":["enemy"],"script":{"source":r#"
+            fn on_start(ctx) { ctx.set_memo("route",#{point:3}); }
+            fn on_load(ctx) {ctx.state_set("memo",ctx.memo("route"));ctx.state_set("health",ctx.health());}
+        "#}},
+        {"id":2,"name":"attacker","kind":"box","size":[1,1,1],"script":{"source":"fn on_start(ctx){ctx.damage(1,25.0);}"}}
+    ]})).unwrap();
+    let sim = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap();
+    let save = sim.save_game();
+    let loaded = Simulation::load_game_from_sources(base.clone(), BTreeMap::new(), save.clone()).unwrap();
+    assert_eq!(loaded.state()["state"]["health"],75.0);
+    assert_eq!(loaded.state()["state"]["memo"],json!({"point":3}));
+    assert_eq!(loaded.save_game()["combat"],save["combat"]);
+    let mut legacy=save;legacy.as_object_mut().unwrap().remove("combat");
+    assert!(Simulation::load_game_from_sources(base,BTreeMap::new(),legacy).is_ok());
+}
