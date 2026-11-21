@@ -230,6 +230,8 @@ impl Simulation {
         sim.physics.borrow_mut().reconcile_terrain(&sim.data.borrow().scene)?;
         sim.sync_physics()?;
         {
+            let authored_transforms: BTreeMap<_, _> = sim.base_scene.entities.iter()
+                .map(|entity| (entity.id, &entity.transform)).collect();
             let mut physics = sim.physics.borrow_mut();
             let mut ids = BTreeSet::new();
             for body in save.bodies {
@@ -241,6 +243,22 @@ impl Simulation {
                     target.set_angvel(body.angvel.into(), true);
                     sim.data.borrow_mut().velocities.insert(body.id, body.linvel);
                 }
+            }
+            let mut data = sim.data.borrow_mut();
+            let Data { scene, combat, .. } = &mut *data;
+            let mut restored = BTreeSet::new();
+            for entity in &mut scene.entities {
+                let id = entity.id;
+                if combat.health.get(&id).is_some_and(|hp| *hp <= 0.0) && physics.ragdoll_activates_on_death(id) {
+                    let authored = authored_transforms.get(&id).copied();
+                    physics.restore_dead_ragdoll(id, &mut entity.transform, authored)?;
+                    restored.insert(id);
+                }
+            }
+            if !restored.is_empty() {
+                // A saved ragdoll's entity transform is already its pelvis pose.
+                physics.apply_poses(scene, &restored);
+                physics.refresh_queries();
             }
         }
         sim.tick = save.tick;

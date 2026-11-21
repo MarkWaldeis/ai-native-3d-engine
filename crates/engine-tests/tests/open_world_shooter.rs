@@ -41,13 +41,129 @@ fn shooter_scripts_compile_and_share_the_terrain_helpers() {
         root().join("examples/open_world_shooter/scripts/_terrain.rhai.part"),
     )
     .unwrap();
-    for name in ["player", "soldier", "drone"] {
+    for name in ["player", "soldier", "drone", "barrel"] {
         let path = format!("examples/open_world_shooter/scripts/{name}.rhai");
         assert!(std::fs::read_to_string(root().join(&path))
             .unwrap()
             .starts_with(&helpers));
         Simulation::check_script(&Script::Path(path), name, &root()).unwrap();
     }
+}
+
+fn physics_arena_scene(placements: &[(&str, [f32; 3])]) -> Scene {
+    let mut scene: Scene =
+        serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
+    scene.entities.retain_mut(|entity| {
+        if let Some((_, position)) = placements.iter().find(|(name, _)| *name == entity.name) {
+            entity.transform.position = *position;
+            entity.transform.rotation_deg = [0.0; 3];
+            true
+        } else {
+            entity.name == "terrain"
+        }
+    });
+    scene
+}
+
+fn physics_arena(placements: &[(&str, [f32; 3])]) -> Simulation {
+    Simulation::new(physics_arena_scene(placements), &root()).unwrap()
+}
+
+fn rifle_input(tick: u64, action: &str, value: f64) -> Input {
+    Input { entity: None, tick, action: action.into(), value }
+}
+
+#[test]
+fn shooter_headshots_double_rifle_damage_and_kill_into_a_ragdoll() {
+    let placements = [
+        ("player", [-2688.0, 30.9, -2688.0]),
+        ("alpha-soldier-0", [-2688.0, 30.0, -2698.0]),
+    ];
+    let mut body_shot = physics_arena(&placements);
+    body_shot.step(1, &[
+        rifle_input(0, "look_pitch", (-0.46_f64 / 10.0).atan()),
+        rifle_input(0, "fire", 1.0),
+    ]).unwrap();
+    assert!(body_shot.take_events()["events"].as_array().unwrap().iter().any(|e|
+        e["type"] == "damage" && e["hitbox"] == "torso" && e["amount"] == 34.0
+        && e["health"] == 66.0));
+
+    let mut headshot = physics_arena(&placements);
+    headshot.step(1, &[rifle_input(0, "fire", 1.0)]).unwrap();
+    assert!(headshot.take_events()["events"].as_array().unwrap().iter().any(|e|
+        e["type"] == "damage" && e["hitbox"] == "head" && e["amount"] == 68.0
+        && e["health"] == 32.0));
+    assert_eq!(headshot.ragdoll_states(), json!([]));
+    headshot.step(7, &[rifle_input(7, "fire", 0.0)]).unwrap();
+    let before = headshot.state()["entities"].as_array().unwrap().iter()
+        .find(|e| e["name"] == "alpha-soldier-0").unwrap()["transform"]["position"][2]
+        .as_f64().unwrap();
+    headshot.step(1, &[rifle_input(8, "fire", 1.0)]).unwrap();
+    let rigs = headshot.ragdoll_states();
+    let parts = rigs[0]["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 11);
+    let head = parts.iter().find(|p| p["name"] == "head").unwrap();
+    assert!(head["position"][1].as_f64().unwrap() > 31.5, "{head}");
+    assert!(head["position"][2].as_f64().unwrap() < before - 0.005, "{head}");
+    headshot.step(120, &[rifle_input(9, "fire", 0.0)]).unwrap();
+    assert_eq!(headshot.state()["state"]["kills"], 1);
+    assert_eq!(headshot.state()["state"]["health"].as_f64(), Some(100.0));
+    assert!(!headshot.take_events()["fx"].as_array().unwrap().iter().any(|e| e["kind"] == "muzzle"));
+}
+
+#[test]
+fn shooter_save_reload_restores_the_dead_soldier_as_a_ragdoll() {
+    let scene = physics_arena_scene(&[
+        ("player", [-2688.0, 30.9, -2688.0]),
+        ("alpha-soldier-0", [-2688.0, 30.0, -2698.0]),
+        ("alpha-soldier-1", [-2678.0, 30.0, -2698.0]),
+    ]);
+    let mut simulation = Simulation::new(scene.clone(), &root()).unwrap();
+    simulation.step(9, &[rifle_input(0, "fire", 1.0)]).unwrap();
+    simulation.step(120, &[rifle_input(9, "fire", 0.0)]).unwrap();
+    let before = simulation.ragdoll_states();
+    assert_eq!(before.as_array().unwrap().len(), 1);
+    let save = simulation.save_game().unwrap();
+    assert_eq!(save["state"]["kills"], 1);
+    let mut loaded = Simulation::load_game(scene, &root(), save).unwrap();
+    let after = loaded.ragdoll_states();
+    assert_eq!(after.as_array().unwrap().len(), 1);
+    assert_eq!(after[0]["id"], before[0]["id"]);
+    let parts = after[0]["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 11);
+    let head = parts.iter().find(|part| part["name"] == "head").unwrap();
+    let pelvis_y = parts[0]["position"][1].as_f64().unwrap();
+    assert!((head["position"][1].as_f64().unwrap() - pelvis_y).abs() < 0.001);
+    for axis in 0..3 {
+        let before = before[0]["parts"][0]["position"][axis].as_f64().unwrap();
+        let after = after[0]["parts"][0]["position"][axis].as_f64().unwrap();
+        assert!((before - after).abs() < 0.001, "pelvis moved from {before} to {after}");
+    }
+    loaded.step(1, &[]).unwrap();
+    assert_eq!(loaded.state()["state"]["kills"], 1);
+}
+
+#[test]
+fn shooter_barrel_blast_pushes_nearby_crates_but_not_distant_crates() {
+    let mut simulation = physics_arena(&[
+        ("player", [-2688.0, 30.9, -2688.0]),
+        ("lz-barrel", [-2688.0, 30.0, -2698.0]),
+        ("lz-crate-0", [-2685.0, 30.0, -2698.0]),
+        ("lz-crate-1", [-2669.0, 30.0, -2698.0]),
+    ]);
+    simulation.step(1, &[
+        rifle_input(0, "look_pitch", (-1.18_f64 / 10.0).atan()),
+        rifle_input(0, "fire", 1.0),
+    ]).unwrap();
+    assert!(simulation.take_events()["fx"].as_array().unwrap().iter().any(|e| e["kind"] == "explosion"));
+    simulation.step(12, &[rifle_input(1, "fire", 0.0)]).unwrap();
+    let state = simulation.state();
+    let entities = state["entities"].as_array().unwrap();
+    let x = |name| entities.iter().find(|e| e["name"] == name).unwrap()
+        ["transform"]["position"][0].as_f64().unwrap();
+    assert!(!entities.iter().any(|e| e["name"] == "lz-barrel"));
+    assert!(x("lz-crate-0") > -2684.0, "{state}");
+    assert!((x("lz-crate-1") + 2669.0).abs() < 0.01, "{state}");
 }
 
 #[test]

@@ -36,6 +36,39 @@ fn applied_force_is_cleared_after_one_tick() {
 }
 
 #[test]
+fn deactivating_a_reloaded_death_ragdoll_restores_the_authored_root() {
+    let scene: shared::scene::Scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"target","kind":"box","size":[1,1,1],
+         "transform":{"position":[2,3,4],"rotation_deg":[0,30,0]},
+         "rigidbody":{"type":"kinematic","mass":11},"collider":{"shape":"box"},
+         "props":{"ai_health":100,"ai_physics":{"ragdoll":{"preset":"humanoid","offset":[0,0.9,0]}}},
+         "script":{"source":r#"
+            fn on_tick(ctx,dt) {
+                if ctx.input("hit") > 0.0 && ctx.health() > 0.0 { ctx.damage(ctx.id(), 100.0); }
+                if ctx.input("reset") > 0.0 && ctx.ragdoll_active(ctx.id()) { ctx.set_ragdoll(false); }
+            }
+         "#}}
+    ]})).unwrap();
+    let authored = scene.entities[0].transform.clone();
+    let mut simulation = Simulation::from_sources(scene.clone(), BTreeMap::new()).unwrap();
+    simulation.step(60, &[input(0, "hit")]).unwrap();
+    let fallen = simulation.scene().entities[0].transform.position;
+    assert!((fallen[1] - authored.position[1]).abs() > 0.5);
+
+    let mut loaded =
+        Simulation::load_game_from_sources(scene, BTreeMap::new(), simulation.save_game().unwrap())
+            .unwrap();
+    assert_eq!(loaded.ragdoll_states()[0]["parts"].as_array().unwrap().len(), 11);
+    loaded.step(1, &[input(60, "reset")]).unwrap();
+    assert_eq!(loaded.ragdoll_states(), json!([]));
+    let reset = loaded.scene().entities[0].transform.clone();
+    assert_eq!(reset.position, authored.position);
+    for (actual, expected) in reset.rotation_deg.into_iter().zip(authored.rotation_deg) {
+        assert!((actual - expected).abs() < 0.001);
+    }
+}
+
+#[test]
 fn lab_reset_restores_the_target_to_its_authored_pose() {
     let scene: shared::scene::Scene =
         serde_json::from_str(include_str!("../../../examples/physics_lab/scene.json")).unwrap();

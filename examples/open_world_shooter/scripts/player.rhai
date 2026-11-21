@@ -68,6 +68,20 @@ fn line_of_sight(ctx, a, b, target_id) {
     ctx.line_of_sight(a, b, target_id)
 }
 
+fn blast(ctx, p) {
+    fx(ctx,"explosion",p,[0.0,1.0,0.0]);
+    for id in ctx.find_by_tag("blast_prop") {
+        if id == ctx.id() { continue; }
+        let q=ctx.entity_position(id);
+        let dx=q[0]-p[0]; let dy=q[1]-p[1]+0.75; let dz=q[2]-p[2];
+        let d=sqrt(dx*dx+dy*dy+dz*dz);
+        if d > 0.01 && d < 14.0 {
+            let strength=120.0*(1.0-d/14.0)/d;
+            ctx.apply_impulse(id,[dx*strength,dy*strength,dz*strength]);
+        }
+    }
+}
+
 fn number(ctx, key) {
     let n = ctx.state_get(key);
     if n == () { return 0; }
@@ -128,7 +142,7 @@ fn fire(ctx, eye, dir, tick) {
     ctx.emit_fx("muzzle",eye,dir);
     ctx.emit_fx("tracer",eye,[dir[0]*distance,dir[1]*distance,dir[2]*distance]);
     if hit.hit {
-        let health=ctx.damage(hit.id,34.0);
+        let health=ctx.damage(hit,34.0,[dir[0]*16.0,dir[1]*16.0,dir[2]*16.0]);
         ctx.emit_fx(if health >= 0.0 { "blood" } else { "impact" },hit.point,hit.normal);
     }
 }
@@ -167,7 +181,7 @@ fn missions(ctx,p) {
         ctx.state_set("objective","Zerstöre den Funkturm ("+max(0,ctx.state_get("_tower_hp"))+" LP)");
         if id < 0 { stage=4; }
         else if ctx.state_get("_tower_hp") <= 0 {
-            fx(ctx,"explosion",ctx.entity_position(id),[0.0,1.0,0.0]);
+            blast(ctx,ctx.entity_position(id));
             ctx.remove(id); stage=4;
         }
     } else if stage == 4 {

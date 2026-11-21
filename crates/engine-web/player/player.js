@@ -584,7 +584,7 @@ function frame(now) {
 
 function fpsMarkers() {
   const markers = [];
-  for (const object of enemies.values()) if (!streaming || object.parent) markers.push({ position: object.position.toArray(), color: '#ff5a4a' });
+  for (const [id, object] of enemies) if (!ragdolls.has(id) && (!streaming || object.parent)) markers.push({ position: object.position.toArray(), color: '#ff5a4a' });
   for (const [id, object] of objectives) if (id !== playerId && object.visible) markers.push({ position: object.position.toArray(), color: '#9cf07a', radius: 4.5 });
   return markers;
 }
