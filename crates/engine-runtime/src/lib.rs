@@ -277,7 +277,7 @@ impl Simulation {
         let query = serde_json::from_value(args.clone())?;
         scene.entities.sort_by_key(|entity| entity.id);
         let mut physics = Physics::new(root.to_path_buf());
-        physics.reconcile(&scene)?;
+        physics.reconcile_for_query(&scene, name, &query)?;
         physics.refresh_queries();
         physics.query(name, query)
     }

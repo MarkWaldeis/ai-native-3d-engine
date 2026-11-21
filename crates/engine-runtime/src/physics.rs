@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use crate::physics_config::{Config, Filter, Query};
 use rapier3d::prelude::*;
+use rapier3d::parry::bounding_volume::{Aabb, BoundingVolume};
 use rapier3d::parry::query::ShapeCastOptions;
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -63,6 +64,15 @@ fn pose(t: &Transform) -> Isometry<Real> {
     )
 }
 
+fn terrain_tile_ranges(config: &engine_terrain::TerrainConfig, min: [f64; 2], max: [f64; 2]) -> [std::ops::RangeInclusive<i64>; 2] {
+    let grid = config.grid();
+    std::array::from_fn(|i| {
+        let lower = ((min[i] / config.tile_m).ceil() - 1.0).clamp(0.0, grid[i] as f64) as i64;
+        let upper = (max[i] / config.tile_m).floor().clamp(-1.0, grid[i] as f64 - 1.0) as i64;
+        lower..=upper
+    })
+}
+
 pub(crate) fn nearby_terrain_tiles(
     config: &engine_terrain::TerrainConfig,
     offset: [f32; 3],
@@ -73,16 +83,9 @@ pub(crate) fn nearby_terrain_tiles(
     let mut tiles = BTreeSet::new();
     for center in centers {
         let local = [center[0] - offset[0] as f64, center[1] - offset[2] as f64];
-        let lower: [i64; 2] = std::array::from_fn(|i| {
-            (((local[i] - radius) / config.tile_m).ceil() - 1.0).clamp(0.0, grid[i] as f64) as i64
-        });
-        let upper: [i64; 2] = std::array::from_fn(|i| {
-            ((local[i] + radius) / config.tile_m)
-                .floor()
-                .clamp(-1.0, grid[i] as f64 - 1.0) as i64
-        });
-        for z in lower[1]..=upper[1] {
-            for x in lower[0]..=upper[0] {
+        let [xs, zs] = terrain_tile_ranges(config, local.map(|v| v - radius), local.map(|v| v + radius));
+        for z in zs {
+            for x in xs.clone() {
                 let min_x = x as f64 * config.tile_m;
                 let min_z = z as f64 * config.tile_m;
                 if (local[0] - local[0].clamp(min_x, min_x + config.tile_m)).powi(2)
@@ -312,6 +315,32 @@ impl Physics {
 
     pub(crate) fn reconcile(&mut self, scene: &Scene) -> Result<()> {
         self.reconcile_terrain(scene)?;
+        self.reconcile_bodies(scene)
+    }
+
+    pub(crate) fn reconcile_for_query(&mut self, scene: &Scene, name: &str, args: &Query) -> Result<()> {
+        if scene.entities.iter().any(|e| e.props.get("ai_terrain").and_then(Value::as_str).is_some()) {
+            let pose = args.pose()?;
+            let start = Point::from(args.origin);
+            let bounds = if name == "raycast" {
+                let (direction, distance) = args.cast()?;
+                Aabb::new(start, start).merged(&Aabb::new(start + direction * distance, start + direction * distance))
+            } else {
+                let shape = args.shape.as_ref().context("shape is required")?.build([1.0; 3], true)?;
+                let bounds = shape.compute_aabb(&pose);
+                if name == "shape_cast" {
+                    let (direction, distance) = args.cast()?;
+                    bounds.merged(&Aabb::new(bounds.mins + direction * distance, bounds.maxs + direction * distance))
+                } else {
+                    bounds
+                }
+            };
+            self.reconcile_terrain_near(scene, &[], Some(bounds))?;
+        }
+        self.reconcile_bodies(scene)
+    }
+
+    fn reconcile_bodies(&mut self, scene: &Scene) -> Result<()> {
         let live: BTreeSet<_> = scene.entities.iter().map(|e| e.id).collect();
         let removed: Vec<_> = self
             .handles
@@ -408,8 +437,6 @@ impl Physics {
     }
 
     pub(crate) fn reconcile_terrain(&mut self, scene: &Scene) -> Result<()> {
-        let mut wanted = BTreeSet::new();
-        let mut live = BTreeSet::new();
         let centers: Vec<_> = scene
             .entities
             .iter()
@@ -427,6 +454,12 @@ impl Physics {
                 ]
             })
             .collect();
+        self.reconcile_terrain_near(scene, &centers, None)
+    }
+
+    fn reconcile_terrain_near(&mut self, scene: &Scene, centers: &[[f64; 2]], query_bounds: Option<Aabb>) -> Result<()> {
+        let mut wanted = BTreeSet::new();
+        let mut live = BTreeSet::new();
         let mut entities: Vec<_> = scene.entities.iter().collect();
         entities.sort_by_key(|e| e.id);
         for entity in entities {
@@ -477,7 +510,15 @@ impl Physics {
             );
             let terrain = self.terrain[&entity.id].1.borrow();
             let config = &terrain.config;
-            for index in nearby_terrain_tiles(config, entity.transform.position, &centers, radius) {
+            let offset = entity.transform.position;
+            let indices = if let Some(bounds) = query_bounds {
+                let local = |point: Point<Real>| [f64::from(point.x) - f64::from(offset[0]), f64::from(point.z) - f64::from(offset[2])];
+                let [xs, zs] = terrain_tile_ranges(config, local(bounds.mins), local(bounds.maxs));
+                zs.flat_map(|z| xs.clone().map(move |x| z as usize * config.grid()[0] as usize + x as usize)).collect()
+            } else {
+                nearby_terrain_tiles(config, offset, centers, radius)
+            };
+            for index in indices {
                 let coord = (index as u32 % config.grid()[0], index as u32 / config.grid()[0]);
                 let Some(tile) = terrain.tiles.get(&coord) else { continue; };
                 let x = entity.transform.position[0] as f64 + tile.x as f64 * config.tile_m;
