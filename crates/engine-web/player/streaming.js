@@ -1,3 +1,5 @@
+import { materialSettings } from './graphics-settings.js';
+
 const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true};
 
 export function worldConfig(entities) {
@@ -13,7 +15,7 @@ export function worldConfig(entities) {
 
 export function batchKey(e) {
   if (e.kind === 'gltf') return JSON.stringify(['gltf',e.path]);
-  return JSON.stringify([e.kind,e.size,e.radius,e.height,e.width,e.door_width,e.door_height,e.color,e.segments]);
+  return JSON.stringify([e.kind,e.size,e.radius,e.height,e.width,e.door_width,e.door_height,e.color,e.segments,materialSettings(e.props?.ai_material)]);
 }
 
 export function entityRadius(e) {

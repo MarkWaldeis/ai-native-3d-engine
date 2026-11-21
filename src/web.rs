@@ -19,8 +19,30 @@ const PLAYER_FILES: &[(&str, &str)] = &[
         "world.js",
         include_str!("../crates/engine-web/player/world.js"),
     ),
-    ("effects.js", include_str!("../crates/engine-web/player/effects.js")),
-    ("presentation.js", include_str!("../crates/engine-web/player/presentation.js")),
+    (
+        "effects.js",
+        include_str!("../crates/engine-web/player/effects.js"),
+    ),
+    (
+        "presentation.js",
+        include_str!("../crates/engine-web/player/presentation.js"),
+    ),
+    (
+        "graphics-settings.js",
+        include_str!("../crates/engine-web/player/graphics-settings.js"),
+    ),
+    (
+        "hdr.js",
+        include_str!("../crates/engine-web/player/hdr.js"),
+    ),
+    (
+        "sky.js",
+        include_str!("../crates/engine-web/player/sky.js"),
+    ),
+    (
+        "materials.js",
+        include_str!("../crates/engine-web/player/materials.js"),
+    ),
     (
         "index.html",
         include_str!("../crates/engine-web/player/index.html"),
