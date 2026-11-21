@@ -274,7 +274,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       const centerDistance=Math.hypot(camera.position.x-chunk.offset[0]-(chunk.x+0.5)*c.tile_m,camera.position.z-chunk.offset[2]-(chunk.z+0.5)*c.tile_m);
       const stride=terrainLOD(centerDistance,chunk.stride),id=key(chunk.map,chunk.x,chunk.z),data=decoded.get(id);
       if(!chunk.mesh || (data && chunk.stride!==stride)) jobs.push({...job,data,stride});
-      if(!data && !chunk.fetching && fetches<2) {
+      if(!data && !chunk.fetching && fetches<2 && chunk.stride!==stride) {
         fetches++;chunk.fetching=true;
         queue.get(tileURL(chunk.map,chunk.x,chunk.z)).then(bytes=>tileData(chunk.map,chunk.x,chunk.z,bytes)).catch(onError).finally(()=>{chunk.fetching=false;});
       }
