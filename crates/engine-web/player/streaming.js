@@ -1,6 +1,6 @@
 import { materialSettings } from './graphics-settings.js';
 
-const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true};
+const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true, occlusion:true, occlusion_margin:2};
 
 export function worldConfig(entities) {
   const authored = entities.find(e => e.tags?.includes('player'))?.props?.ai_world;
@@ -8,6 +8,8 @@ export function worldConfig(entities) {
   const large = entities.length > 1000 || entities.some(e => Math.max(...(e.transform?.position || []).map(Math.abs)) > 1000);
   if (!value && !large) return null;
   const config = {...defaults, ...value};
+  if (typeof config.occlusion !== 'boolean') throw new RangeError('Invalid ai_world.occlusion');
+  if (!Number.isFinite(config.occlusion_margin) || config.occlusion_margin < 0) throw new RangeError('Invalid ai_world.occlusion_margin');
   if (config.camera_distance !== undefined && (!(config.camera_distance > 0) || !Number.isFinite(config.camera_distance))) throw new RangeError('Invalid ai_world.camera_distance');
   for (const key of ['chunk_size','stream_radius','draw_distance','hysteresis','sim_radius','sim_hysteresis']) if (!(config[key] > 0) || !Number.isFinite(config[key])) throw new RangeError(`Invalid ai_world.${key}`);
   if (!Array.isArray(config.lod_distances) || config.lod_distances.length !== 2 || !(config.lod_distances[0] > 0 && config.lod_distances[1] > config.lod_distances[0])) throw new RangeError('Invalid LOD distances');

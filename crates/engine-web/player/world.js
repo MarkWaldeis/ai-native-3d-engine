@@ -27,6 +27,7 @@ export class StreamingWorld {
     this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.frustum = new THREE.Frustum(); this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
+  setOcclusion(occluder) { this.occluder=occluder; }
   async template(e, level) {
     const key = `${batchKey(e)}:${level}`;
     if (this.templates.has(key)) return this.templates.get(key);
@@ -130,7 +131,7 @@ export class StreamingWorld {
     this.dummy.updateMatrix(); mesh.setMatrixAt(index,this.matrix.copy(this.dummy.matrix).multiply(local));
   }
   update(camera) {
-    const tasks = [];
+    const tasks = []; this.occludedChunks=0;
     const change = this.grid.update(camera.position.toArray());
     for (const key of change.unload) this.groups.get(key)?.removeFromParent();
     for (const key of change.load) { if (this.groups.has(key)) this.scene.add(this.groups.get(key)); else this.dirty.add(key); }
@@ -186,9 +187,10 @@ export class StreamingWorld {
       if (group) {
         for (const {id} of this.grid.chunks.get(key)?.values() || []) {
           const item = this.entities.get(id);
-          if (item?.object && group.userData.bounds) group.userData.bounds.expandByPoint(item.object.position);
+          if (item?.object && group.userData.bounds) group.userData.bounds.expandByObject(item.object);
         }
         group.visible = !group.userData.bounds || this.frustum.intersectsBox(group.userData.bounds);
+        if(group.visible && this.occluder?.occluded(`chunk:${key}`,camera.position,group.userData.bounds)) {group.visible=false;this.occludedChunks++;}
         group.traverse(o => { if (o.userData.billboard) { o.userData.items.forEach((item,i) => this.setMatrix(o,i,item,undefined,camera)); o.instanceMatrix.needsUpdate = true; } });
       }
     }

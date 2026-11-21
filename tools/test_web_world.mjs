@@ -9,6 +9,22 @@ const THREE = await import('three');
 const {StreamingWorld} = await import('../crates/engine-web/player/world.js');
 const {worldConfig} = await import('../crates/engine-web/player/streaming.js');
 const {batchKey} = await import('../crates/engine-web/player/streaming.js');
+const {TerrainOcclusion} = await import('../crates/engine-web/player/occlusion.js');
+
+test('streamed chunk visibility combines frustum with stable terrain occlusion',async()=>{
+  const scene=new THREE.Scene(), config=worldConfig([{tags:['player'],props:{ai_world:{}}}]);
+  const world=new StreamingWorld(scene,{},config);
+  const occluder=new TerrainOcclusion(x=>x>40 && x<60 ? 20 : 0);
+  world.setOcclusion(occluder);
+  world.add({id:1,kind:'box',size:[4,4,4],transform:{position:[100,2,0],scale:[1,1,1],rotation_deg:[0,0,0]}});
+  const camera=new THREE.PerspectiveCamera(60,1,0.1,500);
+  camera.position.set(0,5,0); camera.lookAt(100,2,0); camera.updateMatrixWorld();
+  await Promise.all(world.update(camera));
+  const group=[...world.groups.values()][0];
+  occluder.beginFrame();world.update(camera);assert.equal(group.visible,true);
+  occluder.beginFrame();world.update(camera);assert.equal(group.visible,false);assert.equal(world.occludedChunks,1);
+  occluder.enabled=false;occluder.beginFrame();world.update(camera);assert.equal(group.visible,true);assert.equal(world.occludedChunks,0);
+});
 
 function glb(scale) {
   const document={asset:{version:'2.0'},buffers:[{byteLength:36}],bufferViews:[{buffer:0,byteLength:36}],accessors:[{bufferView:0,componentType:5126,count:3,type:'VEC3',min:[0,0,0],max:[scale,scale,0]}],meshes:[{primitives:[{attributes:{POSITION:0}}]}],nodes:[{mesh:0}],scenes:[{nodes:[0]}],scene:0};

@@ -135,6 +135,12 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- `ai_world.occlusion` (Default true), `occlusion_margin` (Default 2 m): Terrain-
+  Strahlproben blenden verdeckte Chunks und Terrain-Kacheln konservativ aus.
+  Neun obere Boxpunkte, zwei verdeckte Ergebnisse vor Ausblenden, sofort sichtbar
+  bei freier Sicht; gemeinsames Round-Robin-Budget von 96 Tests pro Frame.
+  Stats: `occludedChunks`, `occludedTerrainTiles`, `occlusionTests` (auch Benchmark).
+
 - `ai_graphics`: `time_of_day`, `foliage:{density,distance}`, `water:{level,color}`,
   `fog_density`; deprecated Alias `ai_render` überschreibt gleiche Felder.
   Vegetation/Wasser folgen der bestehenden Grafikqualität; Terrain-Sampler:

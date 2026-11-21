@@ -59,6 +59,23 @@ test('scenes without terrain need no renderer, WASM calls or browser globals', a
   assert.equal(await createTerrain(null,[{props:{}}],null,null,null,null),null);
 });
 
+test('occlusion hides coarse and full tile meshes and restores visibility next frame',async t=>{
+  const {api,world}=await terrainFixture(t);
+  const camera=new THREE.PerspectiveCamera(90,1,0.1,6000);
+  camera.position.set(1,100,1);camera.lookAt(1,0,1);camera.updateMatrixWorld();
+  let hidden=true,tests=0;
+  api.setOcclusion({occluded(key,eye,box){tests++;assert.ok(box.max.y>0);return hidden;}});
+  api.update(camera,0);
+  assert.ok(tests>0);assert.ok(api.stats().occludedTerrainTiles>0);
+  assert.equal(world.children.filter(m=>m.visible).length,0);
+  await new Promise(resolve=>setImmediate(resolve));
+  api.update(camera,500);
+  assert.equal(world.children.filter(m=>m.visible).length,0);
+  hidden=false;api.update(camera,501);
+  assert.equal(api.stats().occludedTerrainTiles,0);
+  assert.ok(world.children.some(m=>m.visible));
+});
+
 test('odd tile widths keep exact LOD edge samples and finite skirt positions',async t=>{
   for(const samples of [129,130]) await t.test(`${samples} samples`,async t=>{
     const {api,world,errors}=await terrainFixture(t,{size:[100.1,100.1],tile:100.1,samples});
