@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { qualitySettings } from './presentation.js';
 import { HDRPipeline } from './hdr.js';
 import { applySky, loadEnvironment } from './sky.js';
+import { LocalLights } from './local-lights.js';
 
 export class ShadowGrid {
   constructor(sunOffset, up) {
@@ -26,6 +27,7 @@ export class GameEffects {
     renderer.shadowMap.autoUpdate = false; this.shadowFrame = 0;
     this.inverseRotation = new THREE.Quaternion();
     this.graphics = graphics;
+    this.localLights = graphics ? new LocalLights(scene) : null;
     this.level = graphics?.quality >= 0 ? graphics.quality : matchMedia('(pointer: coarse)').matches ? 1 : 2;
     this.sunOffset = new THREE.Vector3(...(graphics?.sunDirection || [-6, 16, 9]));
     if (graphics) this.sunOffset.setLength(20);
@@ -99,7 +101,10 @@ export class GameEffects {
     }
     this.particles = this.particles.slice(-96);
   }
-  reset() { this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = 0; }
+  reset() {
+    this.localLights?.reset();
+    this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = 0;
+  }
   update(elapsed, objects, camera, active, frameElapsed = elapsed, shadowTarget) {
     this.time += elapsed;
     if (this.level > 0 || ++this.shadowFrame % 2 === 0) this.renderer.shadowMap.needsUpdate = true;

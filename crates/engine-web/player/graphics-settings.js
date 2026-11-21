@@ -64,3 +64,19 @@ export function materialSettings(authored) {
     clearcoatRoughness: bounded(value?.clearcoat_roughness, 0.2, 0, 1),
   };
 }
+
+export function pointLightSettings(authored) {
+  const value = object(authored);
+  if (!value) return null;
+  const intensity = bounded(value.intensity, 16, 0, 1000);
+  if (intensity === 0) return null;
+  const offset = Array.isArray(value.offset) && value.offset.length === 3 && value.offset.every(Number.isFinite)
+    ? value.offset.map(component => bounded(component, 0, -32, 32))
+    : [0, 0, 0];
+  return {
+    color: hex(value.color, '#ffffff').toLowerCase(),
+    intensity,
+    range: bounded(value.range, 8, 0.25, 64),
+    offset,
+  };
+}

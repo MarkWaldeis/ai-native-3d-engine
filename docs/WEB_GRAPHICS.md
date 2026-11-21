@@ -70,5 +70,18 @@ adding a light to the scene. The existing entity `color` is the linear base colo
 Authored GLB textures and material parameters are not overridden, and streamed
 primitive instances only share a draw when their resolved materials match.
 
+To light nearby surfaces (rather than just glow), give an entity a point light
+with `props.ai_light` (object or JSON string) in an enhanced scene:
+
+```json
+{"ai_light": {"color": "#f68dcb", "intensity": 12, "range": 5, "offset": [0, 0.3, 0]}}
+```
+
+Intensity is measured in candela (0–1000); zero disables the light. Range is
+in metres (0.25–64). The optional offset is in the entity's local coordinates.
+Lights follow moving entities and illuminate PBR surfaces, but do not cast
+shadows. The web player renders the closest 2, 4 or 8 lights for low, balanced
+or ultra, so the GPU light count remains bounded in large scenes.
+
 These settings affect browser rendering only. They don't change native
 screenshots or the deterministic simulation.

@@ -155,8 +155,11 @@ function apply(result) {
     if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
-  for (const id of result.removed) { streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
-  for (const entity of result.spawned) createObject(entity);
+  for (const id of result.removed) { effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
+  for (const entity of result.spawned) {
+    effects.localLights?.register(entity);
+    createObject(entity);
+  }
   for (const entity of result.transforms) {
     transforms.set(entity.id,entity); streaming?.move(entity.id,entity.transform);
     const object = objects.get(entity.id); if (!object) continue;
@@ -419,6 +422,7 @@ function frame(now) {
     updateCamera(false, elapsed);
     streaming?.update(camera);
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streaming && objects.get(playerId)?.position);
+    effects.localLights?.update(camera.position, transforms, effects.level);
     updateShadows(); updateObjective(); effects.render(camera);
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;

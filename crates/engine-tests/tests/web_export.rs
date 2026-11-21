@@ -63,6 +63,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "hdr.js",
         "sky.js",
         "materials.js",
+        "local-lights.js",
         "style.css",
         "scene.json",
         "scripts.json",

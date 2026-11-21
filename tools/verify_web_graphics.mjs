@@ -124,12 +124,21 @@ export async function verifyGraphics(browser, base, errors, shots) {
     await page.screenshot({ path: `${shots}/material-studio.png` });
 
     const background = `${studio}/scene.json`;
-    const showMap = async route => {
+    const patchScene = callback => async route => {
       const response = await route.fetch();
       const scene = await response.json();
-      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.environment_background = true;
+      callback(scene);
       await route.fulfill({ response, json: scene });
     };
+    const noLights = patchScene(scene => {
+      for (const entity of scene.entities) delete entity.props?.ai_light;
+    });
+    await page.route(background, noLights);
+    const unlit = await render();
+    await page.unroute(background, noLights);
+    const showMap = patchScene(scene => {
+      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics.environment_background = true;
+    });
     await page.route(background, showMap);
     const panorama = await render();
     await page.unroute(background, showMap);
@@ -139,10 +148,14 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(fallback.error, 0, 'a missing panorama falls back without WebGL errors');
     const delta = (a, b) => a.reduce((sum, color, i) => sum + Math.abs(color - b[i]), 0);
     const top = 40 * 2 * 4;
+    assert.equal(unlit.error, 0);
+    assert.deepEqual(reflected.pixels.slice(0, top), unlit.pixels.slice(0, top), 'point lights leave the procedural sky unchanged');
+    assert.ok(delta(reflected.pixels.slice(top), unlit.pixels.slice(top)) > 800, 'point lights illuminate nearby surfaces in the exported studio');
     assert.ok(delta(panorama.pixels.slice(0, top), reflected.pixels.slice(0, top)) > 300, 'the panorama can be visible behind the scene');
     assert.deepEqual(reflected.pixels.slice(0, top), fallback.pixels.slice(0, top), 'reflection-only HDRI preserves the procedural background');
     assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
     console.log('PASS HDRI: offline panorama, reflection-only mode, visible background, movement and missing-map fallback');
+    console.log('PASS point lights: exported fixtures light nearby surfaces without altering the sky');
   } finally {
     await page.close();
   }

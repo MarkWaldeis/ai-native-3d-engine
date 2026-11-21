@@ -7,8 +7,9 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier === 'three' ? new URL('../crates/engine-web/player/vendor/three.module.js', import.meta.url).href : specifier, context);
 } });
 const THREE = await import('three');
-const { graphicsConfig, hdrSettings } = await import('../crates/engine-web/player/graphics-settings.js');
+const { graphicsConfig, hdrSettings, pointLightSettings } = await import('../crates/engine-web/player/graphics-settings.js');
 const { ShadowGrid } = await import('../crates/engine-web/player/effects.js');
+const { LocalLights } = await import('../crates/engine-web/player/local-lights.js');
 const { primitiveMaterial } = await import('../crates/engine-web/player/materials.js');
 const { environmentLighting, skyTexture } = await import('../crates/engine-web/player/sky.js');
 const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
@@ -72,6 +73,39 @@ test('studio HDRI decodes HDR colors and lighting intensity does not alter the b
   assert.ok(Math.abs(fromHalfFloat(dimmed.image.data[peak]) - bright / 2) < 0.01);
   assert.equal(fromHalfFloat(texture.image.data[peak]), bright);
   assert.equal(environmentLighting(texture, 1), texture);
+});
+
+test('point lights resolve flexible props and remain bounded as emitters move or disappear', () => {
+  assert.equal(pointLightSettings('invalid'), null);
+  assert.equal(pointLightSettings({intensity:0}), null);
+  assert.deepEqual(pointLightSettings('{"color":"#ffAA00","intensity":1200,"range":-2,"offset":[1,0,0]}'), {
+    color:'#ffaa00', intensity:1000, range:0.25, offset:[1,0,0],
+  });
+  const scene = new THREE.Scene(), pool = new LocalLights(scene), transforms = new Map();
+  for (let id = 9; id > 0; id--) {
+    pool.register({id, props:{ai_light:{offset:[1,0,0], intensity:id}}});
+    transforms.set(id, {transform:{position:[id,0,0], scale:[2,1,1], rotation_deg:[0,0,90]}});
+  }
+  pool.register({id:10, visible:false, props:{ai_light:{intensity:1}}});
+  const eye = new THREE.Vector3();
+  pool.update(eye, transforms, 2);
+  assert.deepEqual(scene.children.map(light => light.intensity), [1,2,3,4,5,6,7,8]);
+  assert.ok(scene.children[0].position.distanceTo(new THREE.Vector3(1,2,0)) < 1e-10);
+  assert.equal(pool.sources.has(10), false);
+  pool.update(eye, transforms, 1);
+  assert.equal(scene.children.length, 4);
+  pool.update(eye, transforms, 0);
+  const slots = [...scene.children];
+  assert.deepEqual(slots.map(light => light.intensity), [1,2]);
+  transforms.get(1).transform.position[0] += 1000;
+  pool.remove(2);
+  pool.update(eye, transforms, 0);
+  assert.deepEqual(scene.children, slots, 'view changes and removal do not rebuild the shared GPU light slots');
+  assert.deepEqual(slots.map(light => light.intensity), [3,4]);
+  pool.update(eye.set(100, 0, 0), transforms, 0);
+  assert.deepEqual(slots.map(light => light.intensity), [0,0]);
+  pool.reset();
+  assert.equal(scene.children.length, 0);
 });
 
 test('HDR respects fallback, render-pixel budget, and quality levels', () => {
