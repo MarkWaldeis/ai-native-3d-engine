@@ -75,7 +75,8 @@ impl Simulation {
     }
     pub fn terrain_tiles_wanted(&self, margin_m: f64) -> Vec<(String, u32, u32)> {
         let data = self.data.borrow();
-        let sources = self.physics.borrow().terrain_sources.clone();
+        let physics = self.physics.borrow();
+        let sources = physics.terrain_sources.clone();
         let sources = sources.borrow();
         let centers: Vec<_> = data
             .scene
@@ -83,6 +84,7 @@ impl Simulation {
             .iter()
             .filter(|e| {
                 e.tags.iter().any(|t| t == "player")
+                    || physics.has_ragdoll(e.id)
                     || e.rigidbody
                         .as_ref()
                         .is_some_and(|r| r.kind == BodyType::Dynamic)

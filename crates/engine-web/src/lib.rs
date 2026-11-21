@@ -137,7 +137,7 @@ impl WebGame {
         let state = simulation.state_summary();
         self.transforms.retain(|id, _| current.contains(id));
         let combat = simulation.take_events();
-        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"flags":state["flags"],"inventory":state["inventory"],"base_changed":state["base_changed"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"],"animators":simulation.animator_states(),"nav_agents":simulation.nav_agent_states()});
+        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"flags":state["flags"],"inventory":state["inventory"],"base_changed":state["base_changed"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"],"animators":simulation.animator_states(),"nav_agents":simulation.nav_agent_states(),"ragdolls":simulation.ragdoll_states()});
         self.known = current;
         Ok(result.to_string())
     }
@@ -147,6 +147,21 @@ impl WebGame {
 mod tests {
     use super::*;
     use serde_json::Value;
+    #[test]
+    fn bridge_reports_collision_events_and_ragdoll_poses() {
+        let mut game = WebGame::new();
+        let scene = json!({"entities":[
+            {"id":1,"name":"trigger","kind":"box","size":[5,5,5],
+                "collider":{"shape":"box"},"props":{"ai_physics":{"sensor":true}}},
+            {"id":2,"name":"ragdoll","kind":"box","size":[1,1,1],
+                "props":{"ai_physics":{"ragdoll":{"start_active":true}}}}
+        ]});
+        let initial: Value = serde_json::from_str(&game.load_inner(&scene.to_string(), "{}").unwrap()).unwrap();
+        let tick: Value = serde_json::from_str(&game.tick_inner("{}").unwrap()).unwrap();
+        assert_eq!(initial["ragdolls"][0]["parts"].as_array().unwrap().len(), 11);
+        assert_ne!(initial["ragdolls"][0]["parts"], tick["ragdolls"][0]["parts"]);
+        assert_eq!(tick["events"], json!([{"type":"sensor","phase":"started","a":1,"b":2}]));
+    }
     #[test]
     fn savegame_roundtrip_full_snapshot() {
         let scene = json!({"entities":[{"id":1,"name":"player","kind":"box","size":[1,1,1],"script":{"source":"fn on_start(ctx){ctx.inventory_add(\"key\",2);ctx.flag_set(\"quest\",true);} fn on_tick(ctx,dt){ctx.set_position([3.0,0.0,0.0]);}"}}]}).to_string();
@@ -194,6 +209,45 @@ mod tests {
         game.load_inner(&scene,"{}").unwrap();
         assert_eq!(game.terrain_tiles_wanted(0.0),"[]");
     }
+    #[test]
+    fn web_preloads_tiles_for_static_and_kinematic_ragdoll_roots() {
+        use engine_terrain::{web::*, Terrain, TerrainConfig};
+        let path = "terrain.json";
+        let terrain = Terrain::generate(TerrainConfig {
+            size_m: [512.0; 2], samples: 5, height_scale: 0.0, ..Default::default()
+        }).unwrap();
+        let coarse = CoarseGrid::from_terrain(&terrain, 256.0).unwrap();
+        let manifest = WebManifest {
+            version: 1, config: terrain.manifest.config.clone(), grid: [2; 2],
+            height_range: terrain.manifest.height_range,
+            coarse: CoarseInfo { step: 256.0, dims: coarse.dims, file: "coarse.bin".into() },
+            tiles: "tiles/{x}_{z}.bin".into(),
+        };
+        for (kind, start_active) in [("static", true), ("kinematic", false)] {
+            let mut game = WebGame::new();
+            game.set_terrain(path, &serde_json::to_string(&manifest).unwrap(),
+                &coarse.encode(manifest.height_range)).unwrap();
+            let scene = json!({"entities":[
+                {"id":1,"name":"terrain","kind":"plane","size":1.0,"props":{"ai_terrain":path,"ai_terrain_radius":8}},
+                {"id":2,"name":"target","kind":"box","size":[1,1,1],"transform":{"position":[384,3,384]},
+                 "rigidbody":{"type":kind},"props":{"ai_physics":{"ragdoll":{"preset":"humanoid","start_active":start_active}}},
+                 "script":{"source":"fn on_tick(ctx,dt) { if ctx.input(\"activate\") > 0.0 { ctx.set_ragdoll(true); } }"}}
+            ]});
+            game.load_inner(&scene.to_string(), "{}").unwrap();
+            let wanted: Value = serde_json::from_str(&game.terrain_tiles_wanted(0.0)).unwrap();
+            assert_eq!(wanted, json!([{"path":path,"x":1,"z":1}]), "{kind}");
+            let tile = terrain.tiles.iter().find(|tile| (tile.x, tile.z) == (1, 1)).unwrap();
+            game.add_terrain_tile(path, 1, 1, &encode_tile(tile, 5, manifest.height_range)).unwrap();
+            game.tick_inner(r#"{"activate":1}"#).unwrap();
+            for _ in 0..119 {
+                game.tick_inner(r#"{"activate":0}"#).unwrap();
+            }
+            let rigs = game.simulation.as_ref().unwrap().ragdoll_states();
+            let y = rigs[0]["parts"][0]["position"][1].as_f64().unwrap();
+            assert!((0.0..1.0).contains(&y), "{kind}: pelvis y={y}");
+        }
+    }
+
     #[test]
     fn preloaded_tiles_make_on_start_height_identical_on_first_load_and_restart() {
         use engine_terrain::{web::*, Terrain, TerrainConfig};

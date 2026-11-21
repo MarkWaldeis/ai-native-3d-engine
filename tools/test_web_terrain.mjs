@@ -143,6 +143,22 @@ test('initialization preloads player and dynamic spawn tiles before load, dedupl
   assert.ok(Math.abs(first-82)<.001); assert.equal(restart,first);
 });
 
+test('first-load tiles include static and kinematic ragdoll roots before scripts run',async t=>{
+  const entities=[
+    {props:{ai_terrain:'terrain.json',ai_terrain_radius:1}},
+    {rigidbody:{type:'static'},transform:{position:[128,0,128]},props:{ai_physics:{ragdoll:{preset:'humanoid'}}}},
+    {rigidbody:{type:'kinematic'},transform:{position:[896,0,896]},props:{ai_physics:'{"ragdoll":{"preset":"humanoid"}}'}},
+  ];
+  const {api,inserted}=await terrainFixture(t,{size:[1024,1024],tile:256,entities});
+  const wanted=inserted.map(([,x,z])=>[x,z]);
+  assert.ok(wanted.some(([x,z])=>x===0 && z===0));
+  assert.ok(wanted.some(([x,z])=>x===3 && z===3));
+  const first=[api.heightAt(128,128),api.heightAt(896,896)];
+  assert.ok(first.every(height=>Math.abs(height-75)<.001));
+  await api.preload();
+  assert.deepEqual([api.heightAt(128,128),api.heightAt(896,896)],first);
+});
+
 test('initial spawn preload rejects failed tiles rather than allowing a coarse-data load',async t=>{
   await assert.rejects(terrainFixture(t,{entities:[{props:{ai_terrain:'terrain.json'}},{tags:['player']}],failTile:true}),/HTTP 404/);
 });

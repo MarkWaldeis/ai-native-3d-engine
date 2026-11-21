@@ -3,6 +3,8 @@ mod combat;
 pub mod animation;
 pub mod navigation;
 mod physics;
+mod physics_config;
+mod ragdoll;
 mod netcode;
 pub use netcode::{NetEntityState, SimState};
 mod terrain_stream;
@@ -296,6 +298,24 @@ impl Simulation {
         self.data.borrow().scene.clone()
     }
 
+    pub fn physics_query(&self, name: &str, args: &Value) -> Result<Value> {
+        self.physics.borrow().query(name, serde_json::from_value(args.clone())?)
+    }
+
+    pub fn ragdoll_states(&self) -> Value {
+        self.physics.borrow().ragdoll_states()
+    }
+
+    pub fn authoring_physics_query(mut scene: Scene, root: &Path, name: &str, args: &Value) -> Result<Value> {
+        anyhow::ensure!(scene.entities.len() <= MAX_ENTITIES, "physics queries support at most {MAX_ENTITIES} entities");
+        let query = serde_json::from_value(args.clone())?;
+        scene.entities.sort_by_key(|entity| entity.id);
+        let mut physics = Physics::new(root.to_path_buf());
+        physics.reconcile_for_query(&scene, name, &query)?;
+        physics.refresh_queries();
+        physics.query(name, query)
+    }
+
     pub fn visit_entities(&self, mut visitor: impl FnMut(&shared::scene::Entity)) {
         for entity in &self.data.borrow().scene.entities {
             visitor(entity);
@@ -338,13 +358,14 @@ impl Simulation {
     fn refresh_active_region(&mut self) {
         let Some(region) = self.active_region else { return; };
         let data = self.data.borrow();
-        let candidates: Vec<_> = data.scene.entities.iter().filter(|entity| entity.script.is_some() || entity.rigidbody.as_ref().is_some_and(|body| body.kind != shared::components::BodyType::Static)).collect();
+        let physics = self.physics.borrow();
+        let moving = |e: &shared::scene::Entity| physics.ragdoll_active(e.id) || e.rigidbody.as_ref().is_some_and(|body| body.kind != shared::components::BodyType::Static);
+        let candidates: Vec<_> = data.scene.entities.iter().filter(|entity| entity.script.is_some() || moving(entity)).collect();
         let live: BTreeSet<_> = candidates.iter().map(|e| e.id).collect();
         self.inactive.retain(|id| live.contains(id));
         for entity in candidates {
             let always = entity.tags.iter().any(|t| t == "player" || t == "always_active");
-            let moving = entity.rigidbody.as_ref().is_some_and(|body| body.kind != shared::components::BodyType::Static);
-            if always || (!moving && entity.script.is_none()) {
+            if always {
                 self.inactive.remove(&entity.id);
                 continue;
             }
@@ -358,7 +379,7 @@ impl Simulation {
         }
     }
 
-    /// Drains `{fx, events}` requested by scripts since the last `step` call began.
+    /// Drains `{fx, events}` produced by physics and scripts since the last `step` call began.
     pub fn take_events(&self) -> Value {
         self.data.borrow_mut().combat.take_output()
     }
@@ -367,7 +388,7 @@ impl Simulation {
         let data = self.data.borrow();
         json!({"tick":self.tick, "failed":self.failed,
             "entities": data.scene.entities.iter().map(|e| json!({"id":e.id, "name":e.name, "tags":e.tags, "transform":e.transform})).collect::<Vec<_>>(),
-            "state":data.state, "flags":data.flags,"inventory":data.inventory,"base_changed":self.base_changed,"logs":data.logs, "animators":self.animator_states(),"nav_agents":self.nav_agent_states()})
+            "state":data.state, "flags":data.flags,"inventory":data.inventory,"base_changed":self.base_changed,"logs":data.logs, "animators":self.animator_states(),"nav_agents":self.nav_agent_states(),"ragdolls":self.ragdoll_states()})
     }
 
     fn source(&self, script: &Script, name: &str) -> Result<(String, String)> {
@@ -538,7 +559,9 @@ impl Simulation {
                 let forces = std::mem::take(&mut data.forces);
                 let dirty = std::mem::take(&mut data.dirty);
                 let mut physics = self.physics.borrow_mut();
-                physics.step(&mut data.scene, &dirty, forces, &self.inactive)?;
+                for event in physics.step(&mut data.scene, &dirty, forces, &self.inactive)? {
+                    data.combat.push_event(event);
+                }
                 let (velocities, grounded) = physics.motion();
                 data.velocities=velocities; data.grounded=grounded;
                 for entity in &mut data.scene.entities {
@@ -546,7 +569,16 @@ impl Simulation {
                         if let Some(animator) = &mut entity.animator { animation::step(animator, DT as f64); }
                     }
                 }
-                let nav_dirty=navigation::step(&mut data.scene,&self.inactive,DT)?;
+                let nav_dirty = {
+                    let mut ragdolls = physics.active_ragdoll_ids().peekable();
+                    if ragdolls.peek().is_some() {
+                        let mut nav_inactive = self.inactive.clone();
+                        nav_inactive.extend(ragdolls);
+                        navigation::step(&mut data.scene, &nav_inactive, DT)?
+                    } else {
+                        navigation::step(&mut data.scene, &self.inactive, DT)?
+                    }
+                };
                 if !nav_dirty.is_empty(){physics.apply_poses(&data.scene,&nav_dirty);physics.refresh_queries();}
                 self.tick += 1;
             }

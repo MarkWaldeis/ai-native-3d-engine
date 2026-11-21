@@ -79,8 +79,23 @@ fn exempt(entity: &Entity) -> bool {
         .any(|t| t == "floating" || t == "trigger")
         || entity.props["ai_floating"] == true
         || entity.props["ai_trigger"] == true
-        || (entity.script.is_some() && entity.collider.is_none())
+        || {
+            let physics = physics_config(entity);
+            physics["sensor"] == true
+                || (entity.script.is_some()
+                    && entity.collider.is_none()
+                    && physics.get("collider").is_none())
+        }
 }
+
+fn physics_config(entity: &Entity) -> std::borrow::Cow<'_, Value> {
+    let value = &entity.props["ai_physics"];
+    match value.as_str().and_then(|text| serde_json::from_str(text).ok()) {
+        Some(parsed) => std::borrow::Cow::Owned(parsed),
+        None => std::borrow::Cow::Borrowed(value),
+    }
+}
+
 fn solid(entity: &Entity) -> bool {
     entity.visible && !exempt(entity) && entity.transform.scale.iter().all(|v| v.is_finite() && *v>0.0)
 }
@@ -124,6 +139,7 @@ pub(crate) fn validate_scene(scene: &Scene, root: &Path) -> Value {
             .as_ref()
             .is_some_and(|b| b.kind == BodyType::Dynamic)
             && entity.collider.is_none()
+            && physics_config(entity).get("collider").is_none()
         {
             add("warning",entity.id,"dynamic_without_collider","Dynamic body has no collider; add a collider in scene JSON or Blender ai_collider.".into(),Value::Null);
         }

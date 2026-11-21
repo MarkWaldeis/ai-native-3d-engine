@@ -208,6 +208,16 @@ WASM-Tick liefert zusätzlich `fx`/`events`. JS rendert nur (fps.js, fx.js, hud.
 Doku: `docs/SHOOTER.md`; Beispiel `examples/fps_arena`; Tests
 `cargo test -p engine-tests --test shooter`, `node --test tools/test_web_fps.mjs`.
 
+## Rapier-Physik
+
+- `props.ai_physics`: Compound-/Convex-Hull-/Trimesh-Collider, Gruppenmasken,
+  Sensoren, Dämpfung/CCD, Gelenke, benannte Hitboxes und Humanoid-Ragdoll.
+  Die bestehenden `collider`/`rigidbody`-Felder bleiben kompatibel.
+- MCP und Rhai: `raycast`, `shape_cast`, `overlap`; Rhai zusätzlich
+  `ctx.collision_events()`, `ctx.set_ragdoll(...)` und `ctx.damage(hit, amount)`.
+  Native/WASM verwenden dieselbe Simulation. Siehe `docs/PHYSICS.md` und
+  `examples/physics_lab`; Tests: `cargo test -p engine-tests --test physics`.
+
 ## Swarm-Server
 
 `ai-engine --serve 127.0.0.1:7777`: JSON-RPC per `POST /mcp`, eine gemeinsame

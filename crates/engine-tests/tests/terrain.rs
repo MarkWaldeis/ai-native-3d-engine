@@ -243,6 +243,26 @@ fn terrain_mcp_tools_and_path_confinement() {
 }
 
 #[test]
+fn authoring_queries_use_terrain_along_their_swept_bounds() {
+    let p = Project::new();
+    Terrain::generate(TerrainConfig {height_scale: 0.0, ..config()})
+        .unwrap().save(&p.0.join("map")).unwrap();
+    let scene: shared::scene::Scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"terrain","kind":"plane","size":1.0,
+         "props":{"ai_terrain":"map/terrain.json","ai_terrain_radius":1}}
+    ]})).unwrap();
+    for (name, args) in [
+        ("raycast", json!({"origin":[-20,10,400],"direction":[1,-0.025,0],"distance":450})),
+        ("shape_cast", json!({"origin":[-20,10,400],"direction":[1,-0.025,0],"distance":450,
+                             "shape":{"shape":"sphere","radius":0.5}})),
+        ("overlap", json!({"origin":[400,0,400],"shape":{"shape":"sphere","radius":0.5}})),
+    ] {
+        let result = engine_runtime::Simulation::authoring_physics_query(scene.clone(), &p.0, name, &args).unwrap();
+        assert_eq!(if name == "overlap" { &result["ids"][0] } else { &result["id"] }, 1, "{name}: {result}");
+    }
+}
+
+#[test]
 fn far_tile_physics_lands_on_height_and_seam() {
     let p = Project::new();
     // Imported planar ramp catches transposition/scale errors in the heightfield.

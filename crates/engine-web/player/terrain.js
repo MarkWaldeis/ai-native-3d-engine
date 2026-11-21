@@ -225,7 +225,11 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     }));
   }
   async function initialTiles() {
-    const centers=entities.filter(e=>e.tags?.includes('player') || e.rigidbody?.type==='dynamic').map(e=>e.transform?.position || [0,0,0]);
+    const centers=entities.filter(e=>{
+      if(e.tags?.includes('player') || e.rigidbody?.type==='dynamic') return true;
+      const config=e.props?.ai_physics;
+      return !!(typeof config==='string' ? JSON.parse(config) : config)?.ragdoll;
+    }).map(e=>e.transform?.position || [0,0,0]);
     const wanted=new Map();
     for(const entity of terrainEntities) {
       const map=maps.get(entity.props.ai_terrain), c=map.manifest.config, offset=entity.transform?.position || [0,0,0];

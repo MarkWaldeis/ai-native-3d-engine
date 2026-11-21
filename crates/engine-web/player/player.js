@@ -45,6 +45,7 @@ const animations = new Animations();
 window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
+const ragdolls = new Map();
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain, occluder;
@@ -113,7 +114,9 @@ function mesh(geometry, entity) {
 function createObject(entity) {
   if (entity.props?.ai_terrain) return;
   if (replacesWater(entity, effects.graphics)) return;
-  if (streaming?.batched(entity)) { streaming.add(entity); return; }
+  const config = entity.props?.ai_physics;
+  const physics = typeof config === 'string' ? JSON.parse(config) : config;
+  if (!physics?.ragdoll && streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
   switch (entity.kind) {
@@ -151,12 +154,14 @@ function createObject(entity) {
     default: throw new Error(`Unbekannte Geometrie: ${entity.kind}`);
   }
   group.add(object); group.visible = entity.visible !== false;
+  group.userData.authoredVisible = group.visible;
+  group.userData.color = entity.color;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
   effects.decorate(group);
   if (group.userData.tags.some(tag => ['player','portal','goal'].includes(tag)) || isCollectible(group.userData, ui.collectible_tag)) objectives.set(entity.id,group);
   streaming?.add(entity,group);
   if (group.userData.tags.includes('enemy')) enemies.set(entity.id, group);
-  group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
+  group.userData.support = !!(entity.collider || physics?.collider) && !physics?.sensor && !physics?.ragdoll && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
   if (group.userData.tags.includes('player')) {
     playerId = entity.id;
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), new THREE.MeshBasicMaterial({
@@ -164,6 +169,37 @@ function createObject(entity) {
       polygonOffset: true, polygonOffsetFactor: -2,
     }));
     shadow.renderOrder = 2; shadow.visible = false; world.add(shadow); shadows.set(entity.id, shadow);
+  }
+}
+
+function applyRagdolls(states = []) {
+  const active = new Set(states.map(rig => rig.id));
+  for (const [id, group] of ragdolls) {
+    if (active.has(id)) continue;
+    disposeObject(group);
+    ragdolls.delete(id);
+    const root = objects.get(id);
+    if (root) root.visible = root.userData.authoredVisible;
+  }
+  for (const rig of states) {
+    const root = objects.get(rig.id);
+    if (!root) continue;
+    let group = ragdolls.get(rig.id);
+    if (!group) {
+      group = new THREE.Group();
+      for (const part of rig.parts) {
+        group.add(mesh(new THREE.CapsuleGeometry(part.radius, 2 * part.half_height, 5, 10), {color:root.userData.color}));
+      }
+      world.add(group);
+      ragdolls.set(rig.id, group);
+    }
+    group.visible = root.userData.authoredVisible && rig.enabled;
+    root.visible = false;
+    rig.parts.forEach((part, i) => {
+      const object = group.children[i];
+      object.position.fromArray(part.position);
+      object.rotation.set(...part.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
+    });
   }
 }
 
@@ -189,6 +225,7 @@ function apply(result) {
     object.position.fromArray(transform.position); object.scale.fromArray(transform.scale);
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
+  applyRagdolls(result.ragdolls);
   fps?.apply(result, objects.get(playerId));
   if (feedback.collect) {
     audio.play('collect');
@@ -320,6 +357,7 @@ async function restart(save = null) {
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   animations.clear();
+  applyRagdolls();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
@@ -506,6 +544,10 @@ function frame(now) {
     updateCamera(false, elapsed);
     occluder?.beginFrame();
     streaming?.update(camera);
+    for (const id of ragdolls.keys()) {
+      const root = objects.get(id);
+      if (root) root.visible = false;
+    }
     terrain?.update(camera, now);
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);

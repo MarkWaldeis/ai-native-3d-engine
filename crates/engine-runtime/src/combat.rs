@@ -100,8 +100,8 @@ mod tests {
     }
 }
 
-use crate::script::{array, vector, Context};
-use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, INT};
+use crate::{physics::Force, script::{array, vector, Context}};
+use rhai::{Array, Dynamic, Engine, EvalAltResult, ImmutableString, Map, INT};
 
 type ScriptResult<T> = Result<T, Box<EvalAltResult>>;
 
@@ -116,25 +116,42 @@ fn own_position(ctx: &Context) -> ScriptResult<[f32; 3]> {
 }
 
 fn cast(ctx: &Context, origin: [f32; 3], dir: [f32; 3], max_dist: f64) -> ScriptResult<Option<crate::physics::RayHit>> {
-    {
-        let mut data = ctx.data.borrow_mut();
-        if data.combat.raycasts >= MAX_RAYCASTS_PER_TICK {
-            return Err(format!("at most {MAX_RAYCASTS_PER_TICK} raycasts per tick").into());
-        }
-        data.combat.raycasts += 1;
-    }
+    count_query(ctx)?;
     let max_dist = if max_dist.is_finite() { max_dist.clamp(0.0, 10_000.0) as f32 } else { 0.0 };
     Ok(ctx.physics.borrow().raycast(origin, dir, max_dist, Some(ctx.id)))
+}
+
+fn count_query(ctx: &Context) -> ScriptResult<()> {
+    let mut data = ctx.data.borrow_mut();
+    if data.combat.raycasts >= MAX_RAYCASTS_PER_TICK {
+        return Err(format!("at most {MAX_RAYCASTS_PER_TICK} physics queries per tick").into());
+    }
+    data.combat.raycasts += 1;
+    Ok(())
+}
+
+fn physics_query(ctx: &Context, name: &str, options: Map) -> ScriptResult<Dynamic> {
+    count_query(ctx)?;
+    let value: Value =
+        rhai::serde::from_dynamic(&Dynamic::from(options)).map_err(|e| e.to_string())?;
+    let mut query: crate::physics_config::Query = serde_json::from_value(value).map_err(|e| e.to_string())?;
+    query.filter.exclude.get_or_insert(ctx.id);
+    let value = ctx.physics.borrow().query(name, query).map_err(|e| e.to_string())?;
+    rhai::serde::to_dynamic(value).map_err(|e| e.to_string().into())
 }
 
 fn ray_map(hit: Option<crate::physics::RayHit>) -> Map {
     let mut map = Map::new();
     map.insert("hit".into(), Dynamic::from(hit.is_some()));
-    let hit = hit.unwrap_or(crate::physics::RayHit { id: 0, point: [0.0; 3], normal: [0.0; 3], distance: 0.0 });
+    let hit = hit.unwrap_or(crate::physics::RayHit {
+        id: 0, point: [0.0; 3], normal: [0.0; 3], distance: 0.0, hitbox: None, damage_multiplier: 1.0,
+    });
     map.insert("id".into(), Dynamic::from(hit.id as INT));
     map.insert("point".into(), Dynamic::from(array(hit.point)));
     map.insert("normal".into(), Dynamic::from(array(hit.normal)));
     map.insert("distance".into(), Dynamic::from(hit.distance as f64));
+    map.insert("hitbox".into(), hit.hitbox.map_or(Dynamic::UNIT, Dynamic::from));
+    map.insert("damage_multiplier".into(), Dynamic::from(hit.damage_multiplier));
     map
 }
 
@@ -172,7 +189,106 @@ fn line_of_sight(ctx: &Context, from: [f32; 3], to: [f32; 3], target: Option<u64
     })
 }
 
+fn damage(ctx: &Context, target: u64, amount: f64, region: Option<&str>, impulse: [f32; 3]) -> ScriptResult<f64> {
+    if !amount.is_finite() {
+        return Err("damage amount must be finite".into());
+    }
+    let source = ctx.id;
+    let mut data = ctx.data.borrow_mut();
+    let Some(index) = data.entity_index(target) else { return Ok(-1.0) };
+    let entity = &data.scene.entities[index];
+    let damageable = entity.props.get("ai_health").is_some()
+        || entity.tags.iter().any(|t| matches!(t.as_str(), "enemy" | "player" | "damageable"));
+    let before = health_of(&data, target);
+    let physics = ctx.physics.borrow();
+    let multiplier = match region {
+        Some(region) => physics.hitbox_multiplier(target, region).ok_or("unknown hitbox for damage target")?,
+        None => 1.0,
+    };
+    let amount = amount * multiplier;
+    if !amount.is_finite() {
+        return Err("damage amount must be finite".into());
+    }
+    let active = physics.ragdoll_active(target);
+    let push = active && impulse != [0.0; 3] && amount > 0.0;
+    if !damageable || before <= 0.0 {
+        if push {
+            push_hit_impulse(&mut data, target, region, impulse)?;
+        }
+        return Ok(-1.0);
+    }
+    let after = (before - amount).max(0.0);
+    let killed = after <= 0.0;
+    let activate = !active && killed && physics.ragdoll_activates_on_death(target);
+    let push = push || activate && impulse != [0.0; 3] && amount > 0.0;
+    if data.forces.len() + usize::from(activate) + usize::from(push) > 4096 {
+        return Err("at most 4096 physics commands per tick".into());
+    }
+    if activate {
+        data.forces.push(Force::Ragdoll(target, true));
+    }
+    if push {
+        push_hit_impulse(&mut data, target, region, impulse)?;
+    }
+    set_health(&mut data, target, after);
+    let target_name = data.scene.entities[index].name.clone();
+    let source_name = data.entity_index(source).map(|i| data.scene.entities[i].name.clone()).unwrap_or_default();
+    let mut details = json!({"source": source, "amount": amount, "health": after, "killed": killed});
+    if let Some(region) = region {
+        details["hitbox"] = json!(region);
+        details["damage_multiplier"] = json!(multiplier);
+    }
+    data.combat.push_hit(target, details.clone());
+    let player = data.combat.player;
+    details["type"] = json!("damage");
+    details["target"] = json!(target);
+    details["by_player"] = json!(player == Some(source));
+    details["to_player"] = json!(player == Some(target));
+    data.combat.push_event(details);
+    if killed {
+        data.combat.push_event(json!({
+            "type": "kill", "source": source, "target": target,
+            "source_name": source_name, "target_name": target_name, "by_player": player == Some(source),
+        }));
+    }
+    Ok(after)
+}
+
+fn push_hit_impulse(data: &mut crate::Data, target: u64, region: Option<&str>, impulse: [f32; 3]) -> ScriptResult<()> {
+    if data.forces.len() >= 4096 {
+        return Err("at most 4096 physics commands per tick".into());
+    }
+    data.forces.push(Force::Hit(target, region.unwrap_or_default().into(), impulse));
+    Ok(())
+}
+
+fn damage_hit(ctx: &Context, hit: Map, amount: f64, impulse: Option<[f32; 3]>) -> ScriptResult<f64> {
+    if hit.get("hit").and_then(|v| v.as_bool().ok()) != Some(true) {
+        return Ok(-1.0);
+    }
+    let id = hit.get("id").and_then(|v| v.as_int().ok())
+        .ok_or("damage requires a ray hit with an entity id")?;
+    if id <= 0 { return Ok(-1.0); }
+    let region = hit.get("hitbox").and_then(|v| v.clone().try_cast::<ImmutableString>());
+    let impulse = match impulse {
+        Some(impulse) => impulse,
+        None => {
+            let normal = hit.get("normal").and_then(|v| v.clone().try_cast::<Array>())
+                .map(vector).transpose()?.unwrap_or([0.0; 3]);
+            let strength = (amount * 0.025).clamp(0.0, 20.0) as f32;
+            normal.map(|value| -value * strength)
+        }
+    };
+    if impulse.into_iter().any(|value| !value.is_finite() || value.abs() > 1.0e6) {
+        return Err("ragdoll impulse components must be in [-1000000, 1000000]".into());
+    }
+    damage(ctx, id as u64, amount, region.as_deref(), impulse)
+}
+
 pub(crate) fn register(engine: &mut Engine) {
+    for name in ["raycast", "shape_cast", "overlap"] {
+        engine.register_fn(name, move |ctx: &mut Context, options: Map| physics_query(ctx, name, options));
+    }
     engine.register_fn("raycast", |ctx: &mut Context, origin: Array, dir: Array, max_dist: f64| -> ScriptResult<Map> {
         Ok(ray_map(cast(ctx, vector(origin)?, vector(dir)?, max_dist)?))
     });
@@ -205,39 +321,9 @@ pub(crate) fn register(engine: &mut Engine) {
     engine.register_fn("set_health", |ctx: &mut Context, id: INT, health: f64| {
         set_health(&mut ctx.data.borrow_mut(), id as u64, health)
     });
-    engine.register_fn("damage", |ctx: &mut Context, id: INT, amount: f64| -> ScriptResult<f64> {
-        if !amount.is_finite() {
-            return Err("damage amount must be finite".into());
-        }
-        let (source, target) = (ctx.id, id as u64);
-        let mut data = ctx.data.borrow_mut();
-        let Some(index) = data.entity_index(target) else { return Ok(-1.0) };
-        let entity = &data.scene.entities[index];
-        let damageable = entity.props.get("ai_health").is_some()
-            || entity.tags.iter().any(|t| matches!(t.as_str(), "enemy" | "player" | "damageable"));
-        let before = health_of(&data, target);
-        if !damageable || before <= 0.0 {
-            return Ok(-1.0);
-        }
-        let after = (before - amount).max(0.0);
-        set_health(&mut data, target, after);
-        let target_name = data.scene.entities[index].name.clone();
-        let source_name = data.entity_index(source).map(|i| data.scene.entities[i].name.clone()).unwrap_or_default();
-        let killed = after <= 0.0;
-        data.combat.push_hit(target, json!({"source": source, "amount": amount, "health": after, "killed": killed}));
-        let player = data.combat.player;
-        data.combat.push_event(json!({
-            "type": "damage", "source": source, "target": target, "amount": amount,
-            "health": after, "killed": killed, "by_player": player == Some(source), "to_player": player == Some(target),
-        }));
-        if killed {
-            data.combat.push_event(json!({
-                "type": "kill", "source": source, "target": target,
-                "source_name": source_name, "target_name": target_name, "by_player": player == Some(source),
-            }));
-        }
-        Ok(after)
-    });
+    engine.register_fn("damage", |ctx: &mut Context, id: INT, amount: f64| damage(ctx, id as u64, amount, None, [0.0; 3]));
+    engine.register_fn("damage", |ctx: &mut Context, hit: Map, amount: f64| damage_hit(ctx, hit, amount, None));
+    engine.register_fn("damage", |ctx: &mut Context, hit: Map, amount: f64, impulse: Array| damage_hit(ctx, hit, amount, Some(vector(impulse)?)));
     engine.register_fn("prop", |ctx: &mut Context, key: &str| -> ScriptResult<Dynamic> {
         let data = ctx.data.borrow();
         let index = data.entity_index(ctx.id).ok_or("entity not found")?;
