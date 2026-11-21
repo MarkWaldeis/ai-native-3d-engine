@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { applyLook, combatCues, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
 import { ShooterFx, flashTexture } from './fx.js';
 import { ShooterHud } from './hud.js';
-import { loadAsset } from './world.js';
 
 export { fpsConfig } from './fps_core.js';
 
@@ -11,8 +10,8 @@ function capture(element, pointerId) { try { element.setPointerCapture(pointerId
 // First-person presentation layer: pointer lock/touch look, camera, viewmodel, FX and HUD.
 // Movement, weapons, damage and AI stay in Rust/Rhai; this module only sends the contract inputs.
 export class FirstPerson {
-  constructor({ renderer, world, camera, config, ui, canvas, onUnlock }) {
-    Object.assign(this, { renderer, world, camera, config, ui, canvas, onUnlock });
+  constructor({ renderer, world, camera, config, ui, canvas, onUnlock, assets }) {
+    Object.assign(this, { renderer, world, camera, config, ui, canvas, onUnlock, assets });
     this.coarse = matchMedia('(pointer: coarse)').matches;
     this.look = { yaw: config.yaw, pitch: 0 }; this.buttons = { fire: false, reload: false, sprint: false };
     this.firePointers = new Set(); this.lookPointer = null; this.lastLook = null;
@@ -33,7 +32,7 @@ export class FirstPerson {
     this.muzzleFlash = new THREE.Sprite(flashMaterial); this.muzzleFlash.scale.setScalar(0.07); this.muzzleFlash.renderOrder = 10; this.muzzleFlash.visible = false;
     this.muzzleLight = new THREE.PointLight(0xffb060, 0, 2); this.vmScene.add(this.muzzleLight);
     if (this.config.viewmodel) {
-      loadAsset(this.config.viewmodel).then(gltf => { const model = gltf.scene.clone(true); this.mountModel(model, true); }).catch(() => this.mountModel(this.fallbackRifle()));
+      this.assets.load(this.config.viewmodel).then(gltf => { const model = gltf.scene.clone(true); this.mountModel(model, true); }).catch(() => this.mountModel(this.fallbackRifle()));
     } else this.mountModel(this.fallbackRifle());
   }
   fallbackRifle() {

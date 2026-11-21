@@ -15,6 +15,11 @@ const { environmentLighting, skyTexture } = await import('../crates/engine-web/p
 const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
 const { batchKey } = await import('../crates/engine-web/player/streaming.js');
 
+test('the first-person renderer links against the shared web asset loader', async () => {
+  const { FirstPerson } = await import('../crates/engine-web/player/fps.js');
+  assert.equal(typeof FirstPerson, 'function');
+});
+
 test('graphics is opt-in, ignores malformed props, and accepts explicit quality overrides', () => {
   for (const props of [null, 'bad JSON', '[]', true]) assert.equal(graphicsConfig(props, 'auto'), null);
   assert.equal(graphicsConfig({}, 'legacy'), null);
