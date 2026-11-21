@@ -222,13 +222,17 @@ impl Simulation {
             failed: false,
         };
         simulation.data.borrow_mut().refresh_player();
+        simulation.sync_physics()?;
         simulation.prepare_scripts()?;
-        {
-            let mut physics = simulation.physics.borrow_mut();
-            physics.reconcile(&simulation.data.borrow().scene)?;
-            physics.refresh_queries();
-        }
+        simulation.sync_physics()?;
         Ok(simulation)
+    }
+
+    fn sync_physics(&self) -> Result<()> {
+        let mut physics = self.physics.borrow_mut();
+        physics.reconcile(&self.data.borrow().scene)?;
+        physics.refresh_queries();
+        Ok(())
     }
 
     pub fn scene(&self) -> Scene {
@@ -449,6 +453,10 @@ impl Simulation {
                 }
                 self.prepare_scripts()?;
                 self.refresh_active_region();
+                {
+                    let mut physics = self.physics.borrow_mut();
+                    if physics.apply_active(&self.inactive) { physics.refresh_queries(); }
+                }
                 let ids: Vec<_> = self.scripts.keys().copied().collect();
                 for id in ids {
                     if !self.entity_active(id) { continue; }

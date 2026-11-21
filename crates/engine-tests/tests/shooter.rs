@@ -158,3 +158,36 @@ fn fps_arena_player_shoots_reloads_and_enemies_fight_back() {
     assert!(state["health"].as_f64().unwrap() < 100.0, "nearby enemies return fire: {state}");
     assert!(simulation.scene().entities.iter().filter(|e| ids.contains(&e.id)).count() < ids.len(), "dead enemy removed itself");
 }
+
+#[test]
+fn raycasts_see_colliders_in_on_start_and_respect_region_changes_immediately() {
+    let mut simulation = sim(json!([
+        floor(),
+        {"id":2,"name":"player","kind":"box","size":[1,1,1],"transform":{"position":[0,1,0]},"tags":["player"],
+         "script":inline(r#"fn on_start(ctx) { ctx.state_set("start", ctx.raycast([0.0, 1.0, 0.0], [0.0, 0.0, -1.0], 50.0).id); }
+            fn on_tick(ctx, dt) { ctx.state_set("far", ctx.raycast([0.0, 1.0, 0.0], [0.0, 0.0, -1.0], 400.0).hit); }"#)},
+        {"id":3,"name":"wall","kind":"box","size":[4,4,1],"transform":{"position":[0,1,-8]},"collider":{"shape":"box"},"rigidbody":{"type":"static"}}
+    ]));
+    assert_eq!(simulation.state()["state"]["start"], 3, "on_start ray hits the wall");
+
+    let mut simulation = sim(json!([
+        {"id":2,"name":"player","kind":"box","size":[1,1,1],"transform":{"position":[0,1,0]},"tags":["player"],
+         "script":inline(r#"fn on_tick(ctx, dt) { ctx.state_set("far", ctx.raycast([0.0, 1.0, 0.0], [0.0, 0.0, -1.0], 400.0).hit); }"#)},
+        {"id":3,"name":"far","kind":"box","size":[4,4,1],"transform":{"position":[0,1,-300]},"collider":{"shape":"box"},"rigidbody":{"type":"dynamic"}}
+    ]));
+    simulation.set_active_region(0.0, 0.0, 50.0, 0.0).unwrap();
+    simulation.step(1, &[]).unwrap();
+    assert_eq!(simulation.state()["state"]["far"], false, "body paused this tick is not hit");
+}
+
+#[test]
+fn fps_arena_player_script_uses_defaults_for_empty_ai_fps() {
+    let mut scene: Value = serde_json::from_str(&std::fs::read_to_string(root().join("examples/fps_arena/scene.json")).unwrap()).unwrap();
+    for entity in scene["entities"].as_array_mut().unwrap() {
+        if entity["tags"].as_array().is_some_and(|t| t.iter().any(|t| t == "player")) { entity["props"]["ai_fps"] = json!({}); }
+    }
+    let mut simulation = Simulation::new(serde_json::from_value(scene).unwrap(), &root()).unwrap();
+    simulation.step(30, &[input(0, "move_z", -1.0), input(0, "fire", 1.0), input(0, "sprint", 1.0)]).unwrap();
+    assert_eq!(simulation.state()["failed"], false);
+    assert!(simulation.state()["state"]["ammo"].as_f64().unwrap() < 30.0);
+}

@@ -408,6 +408,21 @@ impl Physics {
         Ok(())
     }
 
+    /// Enables/disables non-fixed bodies for the active region; returns whether any changed.
+    pub(crate) fn apply_active(&mut self, inactive: &BTreeSet<u64>) -> bool {
+        let mut changed = false;
+        for (id, handle) in &self.handles {
+            let body = &mut self.bodies[*handle];
+            let enabled = body.is_fixed() || !inactive.contains(id);
+            if body.is_enabled() != enabled {
+                body.set_enabled(enabled);
+                if enabled { body.wake_up(true); }
+                changed = true;
+            }
+        }
+        changed
+    }
+
     pub(crate) fn step(
         &mut self,
         scene: &mut Scene,
@@ -416,14 +431,7 @@ impl Physics {
         inactive: &BTreeSet<u64>,
     ) -> Result<()> {
         self.reconcile(scene)?;
-        for (id, handle) in &self.handles {
-            let body = &mut self.bodies[*handle];
-            let enabled = body.is_fixed() || !inactive.contains(id);
-            if body.is_enabled() != enabled {
-                body.set_enabled(enabled);
-                if enabled { body.wake_up(true); }
-            }
-        }
+        self.apply_active(inactive);
         for entity in &scene.entities {
             if dirty.contains(&entity.id) {
                 if let Some(handle) = self.handles.get(&entity.id) {
