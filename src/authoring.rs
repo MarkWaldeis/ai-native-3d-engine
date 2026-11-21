@@ -12,6 +12,7 @@ impl Engine {
     pub(crate) fn script_affected_ids(&self, args: &Value) -> Result<Vec<u64>, String> {
         let mut ids: Vec<u64> = serde_json::from_value(args["ids"].clone()).map_err(|e| e.to_string())?;
         ids.extend(self.script_reference_ids(args)?);
+        ids.extend(self.prefab_member_ids(&ids));
         ids.sort_unstable(); ids.dedup(); Ok(ids)
     }
 

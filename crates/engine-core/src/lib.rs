@@ -84,6 +84,18 @@ impl Default for World {
 }
 
 impl World {
+    pub fn next_entity_id(&self) -> EntityId { self.next_id }
+
+    pub fn replace_authoring_scene(&mut self, scene: Scene) -> Result<()> {
+        let mut seen = std::collections::HashSet::new();
+        for entity in &scene.entities { anyhow::ensure!(seen.insert(entity.id), "duplicate entity id {}",entity.id); }
+        let next = scene.entities.iter().map(|e|e.id).max().unwrap_or(0).checked_add(1).context("entity ID space exhausted")?;
+        self.next_id = self.next_id.max(next);
+        self.scene = scene;
+        self.bump();
+        Ok(())
+    }
+
     pub fn checkpoint(&self) -> Value {
         json!({"scene":self.scene,"revision":self.revision,"next_id":self.next_id,"snapshots":self.snapshots})
     }
@@ -103,6 +115,9 @@ impl World {
                 anyhow::ensure!(seen.insert(entity.id), "duplicate entity id {}", entity.id);
                 maximum = maximum.max(entity.id);
                 if let Some(script) = &entity.script { entity.script = Some(freeze_script(script, root)?); }
+            }
+            for node in scene.prefabs.values_mut().flat_map(|p| &mut p.nodes) {
+                if let Some(script) = &node.entity.script {node.entity.script=Some(freeze_script(script,root)?);}
             }
             Ok(())
         };
@@ -265,6 +280,7 @@ impl World {
             Command::SetScripts { ids, script } => {
                 for id in &ids {if self.entity(*id).is_none() {bail!("no entity {id}");}}
                 for entity in &mut self.scene.entities {if ids.contains(&entity.id) {entity.script=Some(script.clone());}}
+                remember_prefab_overrides(&mut self.scene,&ids,"script",serde_json::to_value(&script)?);
                 self.bump(); Ok(json!({"ok":true,"ids":ids,"revision":self.revision}))
             }
             Command::SetTransform { id, transform } => {
@@ -334,6 +350,9 @@ impl World {
             anyhow::ensure!(seen.insert(entity.id), "duplicate entity id {}", entity.id);
             if let Some(script) = &entity.script { entity.script = Some(freeze_script(script, script_root)?); }
         }
+        for node in scene.prefabs.values_mut().flat_map(|p| &mut p.nodes) {
+            if let Some(script) = &node.entity.script {node.entity.script=Some(freeze_script(script,script_root)?);}
+        }
         let next = scene.entities.iter().map(|e| e.id).max().unwrap_or(0).checked_add(1).context("entity ID space exhausted")?;
         self.next_id = self.next_id.max(next);
         self.scene = scene;
@@ -391,7 +410,13 @@ pub fn project_path(root: &Path, path: &Path) -> Result<std::path::PathBuf> {
 pub fn validate_scene_paths(scene: &Scene, root: &Path) -> Result<()> {
     let canonical = root.canonicalize()?;
     let root = canonical.as_path();
-    for entity in &scene.entities {
+    for entity in scene.entities.iter().chain(scene.prefabs.values().flat_map(|p|p.nodes.iter().map(|n|&n.entity))) {
+        if let Some(lods) = entity.props.get("web_lods") {
+            for (level,path) in lods.as_object().context("web_lods must be an object")? {
+                anyhow::ensure!(["0","1","2"].contains(&level.as_str()),"invalid LOD level");
+                project_path(root,Path::new(path.as_str().context("LOD path must be a string")?))?;
+            }
+        }
         if let PrimitiveKind::Gltf { path } = &entity.mesh { project_path(root, Path::new(path))?; }
         if let Some(path) = entity.script.as_ref().and_then(shared::components::Script::path) {
             project_path(root, Path::new(path))?;
@@ -400,6 +425,13 @@ pub fn validate_scene_paths(scene: &Scene, root: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn remember_prefab_overrides(scene: &mut Scene, ids: &[u64], field: &str, value: Value) {
+    let bindings: Vec<_> = scene.entities.iter().filter(|e|ids.contains(&e.id)).filter_map(|e|Some((e.props["_prefab"]["instance"].as_u64()?,e.props["_prefab"]["node"].as_str()?.to_string()))).collect();
+    for (id,node) in bindings {
+        if let Some(root)=scene.entities.iter_mut().find(|e|e.id==id) {root.props["_prefab"]["overrides"][&node][field]=value.clone();}
+    }
 }
 
 #[cfg(test)]

@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use crate::asset_bundle::content_asset;
 use serde_json::{json, Value};
 use shared::{
     components::Script,
@@ -149,6 +150,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
     empty_output(out)?;
     let root = root.canonicalize()?;
     let mut scene = scene.clone();
+    scene.prefabs.clear();
     let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
     for (path, source) in PLAYER_FILES {
         files.insert(path.to_string(), source.as_bytes().to_vec());
@@ -165,8 +167,10 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
     let mut scripts = BTreeMap::<String, String>::new();
     let mut script_paths = BTreeMap::<String, String>::new();
     let mut assets = BTreeMap::<String, String>::new();
-    let has_environment = bundle_environment(&mut scene, &root, &mut files)?;
+    let mut content = BTreeMap::<u64, Vec<String>>::new();
+    let mut bounds = BTreeMap::<String, Value>::new();
     for entity in &mut scene.entities {
+        if let Some(props)=entity.props.as_object_mut(){props.remove("_prefab");}
         if let Some(script) = &entity.script {
             engine_runtime::Simulation::check_script(script, &entity.name, &root)?;
             let original = match script {
@@ -194,7 +198,9 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
             }
         }
         if let PrimitiveKind::Gltf { path } = &mut entity.mesh {
+            if !entity.props.is_object(){bail!("GLB entity props must be an object");}
             let original = path.clone();
+            if !bounds.contains_key(&original) {
             let file = Path::new(&original);
             let file = if file.is_absolute() {
                 file.to_path_buf()
@@ -224,15 +230,24 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
                     entity.name
                 );
             }
-            entity.props["web_mesh_bounds"] = json!([min, max]);
-            if !assets.contains_key(&original) {
-                let target = format!("assets/{}.glb", assets.len());
-                files.insert(target.clone(), bytes);
+            bounds.insert(original.clone(),json!([min,max]));
+            {
+                let target = content_asset(bytes,&mut files,&mut content);
                 assets.insert(original.clone(), target);
             }
+            }
+            entity.props["web_mesh_bounds"]=bounds[&original].clone();
             *path = assets[&original].clone();
         }
+        if let Some(lods)=entity.props.get_mut("web_lods") {
+            for path in lods.as_object_mut().context("web_lods must be an object")?.values_mut(){
+                let original=path.as_str().context("LOD path must be a string")?.to_string();
+                if !assets.contains_key(&original){let file=engine_core::project_path(&root,Path::new(&original))?;let bytes=std::fs::read(file)?;embedded_glb(&bytes)?;let target=content_asset(bytes,&mut files,&mut content);assets.insert(original.clone(),target);}
+                *path=json!(assets[&original]);
+            }
+        }
     }
+    let has_environment = bundle_environment(&mut scene, &root, &mut files)?;
     files.insert("scene.json".into(), serde_json::to_vec_pretty(&scene)?);
     files.insert("scripts.json".into(), serde_json::to_vec_pretty(&scripts)?);
     files.insert(".nojekyll".into(), vec![]);
@@ -245,7 +260,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
         std::fs::write(path, bytes)?;
     }
     Ok(
-        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":assets.len() + usize::from(has_environment),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
+        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":content.values().map(Vec::len).sum::<usize>() + usize::from(has_environment),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
     )
 }
 

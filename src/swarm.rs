@@ -107,7 +107,7 @@ impl Engine {
         args: &Value,
         agent: &str,
     ) -> Result<Value, String> {
-        if self.simulation.is_some() && matches!(name, "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera" | "load_scene" | "rollback" | "blender_sync" | "blender_push_props" | "write_script") {
+        if self.simulation.is_some() && (name.starts_with("prefab_") || matches!(name, "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera" | "load_scene" | "rollback" | "blender_sync" | "blender_push_props" | "write_script")) {
             return Err("authoring edits are disabled during play; call stop before editing the scene".into());
         }
         let global = matches!(name, "load_scene" | "rollback");
@@ -137,9 +137,10 @@ impl Engine {
             vec![]
         };
         if name=="write_script" { affected=self.script_affected_ids(args)?; }
-        let result = if name == "blender_sync" { self.sync_blender(args, agent)? } else if name == "blender_push_props" { self.push_blender_props(args,agent)? } else { self.handle_tool(name, args)? };
+        let prefab_edit=targeted && self.world.entity(args["id"].as_u64().unwrap_or(0)).is_some_and(|e|e.props.get("_prefab").is_some());
+        let result = if name.starts_with("prefab_") {self.prefab_tool(name,args,agent)?}else if prefab_edit {self.prefab_edit(name,args,agent)?}else if name == "blender_sync" { self.sync_blender(args, agent)? } else if name == "blender_push_props" { self.push_blender_props(args,agent)? } else { self.handle_tool(name, args)? };
         if self.world.revision > before && name != "apply_batch" {
-            if name == "blender_sync" {
+            if name == "blender_sync" || name.starts_with("prefab_") || prefab_edit {
                 let summary: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap()).map_err(|e| e.to_string())?;
                 affected = summary["ids"].as_array().unwrap().iter().filter_map(Value::as_u64).collect();
             }

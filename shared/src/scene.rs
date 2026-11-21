@@ -121,9 +121,26 @@ fn default_light_dir() -> [f32; 3] {
     [0.5, -1.0, 0.35]
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PrefabNode {
+    pub key: String,
+    #[serde(default)]
+    pub parent: Option<String>,
+    pub entity: Entity,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct Prefab {
+    pub nodes: Vec<PrefabNode>,
+}
+
 /// Root scene document — the entire game state lives here as plain JSON.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Scene {
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub prefabs: std::collections::BTreeMap<String, Prefab>,
     #[serde(default = "default_name")]
     pub name: String,
     #[serde(default)]
@@ -147,6 +164,7 @@ fn default_ambient() -> f32 {
 impl Default for Scene {
     fn default() -> Self {
         Self {
+            prefabs: Default::default(),
             name: default_name(),
             entities: Vec::new(),
             camera: Camera::default(),
