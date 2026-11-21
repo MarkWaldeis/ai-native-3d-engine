@@ -259,6 +259,15 @@ E2E: `cargo test -p engine-tests --test blender_bridge -- --nocapture` (SKIP ohn
 Demo: `blender/sync_demo.py`; Vergleichsbilder in `docs/blender_sync_demo.png`
 und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt gültig).
 
+## Persistente Spielstände
+
+`save_game {path?}` speichert die aktive Simulation; `load_game {path?|save?}`
+startet sie nach `stop` aus der Autorenszene. Pfade: projektgebundene `.json`.
+Version 1 speichert Entity-Deltas, Tick, Zustand, Flags, Inventar und Geschwindigkeiten.
+Rhai: `flag_set/flag`, `inventory_add/remove/count`; fehlende Flags liefern `()`.
+Beim Laden nur `on_load(ctx)`, nicht `on_start`; `base_changed` meldet Basisänderungen.
+Web: F5/F9 oder `window.__aiSaveGame/__aiLoadGame`, lokal pro Spielpfad.
+
 ## Gameplay / M3
 
 - `engine-runtime`: separate Rapier-0.22/Rhai-1.20.1-Simulation, 60 Hz,

@@ -8,6 +8,7 @@ pub use netcode::{NetEntityState, SimState};
 mod terrain_stream;
 pub mod report;
 mod script;
+pub mod savegame;
 
 use anyhow::{bail, Context as _, Result};
 use physics::{Force, Physics};
@@ -79,6 +80,8 @@ struct Data {
     inputs: BTreeMap<String, f64>,
     entity_inputs: BTreeMap<u64, BTreeMap<String, f64>>,
     state: BTreeMap<String, Value>,
+    flags: BTreeMap<String, Value>,
+    inventory: BTreeMap<String, i64>,
     logs: VecDeque<String>,
     forces: Vec<Force>,
     dirty: BTreeSet<u64>,
@@ -148,6 +151,9 @@ pub struct Input {
 }
 
 pub struct Simulation {
+    base_scene: Scene,
+    loading: bool,
+    pub base_changed: bool,
     data: Rc<RefCell<Data>>,
     engine: rhai::Engine,
     scripts: BTreeMap<u64, ScriptInstance>,
@@ -182,10 +188,20 @@ impl Simulation {
     }
 
     fn create(
+        scene: Scene,
+        root: PathBuf,
+        sources: Option<BTreeMap<String, String>>,
+        terrains: BTreeMap<String, engine_terrain::web::StreamedTerrain>,
+    ) -> Result<Self> {
+        Self::create_mode(scene, root, sources, terrains, false)
+    }
+
+    fn create_mode(
         mut scene: Scene,
         root: PathBuf,
         sources: Option<BTreeMap<String, String>>,
         terrains: BTreeMap<String, engine_terrain::web::StreamedTerrain>,
+        loading: bool,
     ) -> Result<Self> {
         if scene.entities.len() > MAX_ENTITIES {
             bail!("simulation supports at most {MAX_ENTITIES} entities");
@@ -222,11 +238,14 @@ impl Simulation {
             .unwrap_or(0)
             .checked_add(1)
             .context("entity id overflow")?;
+        let base_scene = scene.clone();
         let data = Rc::new(RefCell::new(Data {
             scene,
             inputs: BTreeMap::new(),
             entity_inputs: BTreeMap::new(),
             state: BTreeMap::new(),
+            flags: BTreeMap::new(),
+            inventory: BTreeMap::new(),
             logs: VecDeque::new(),
             forces: vec![],
             dirty: BTreeSet::new(),
@@ -242,6 +261,9 @@ impl Simulation {
         physics.terrain_sources = terrain_sources;
         let physics = Rc::new(RefCell::new(physics));
         let mut simulation = Self {
+            base_scene,
+            loading,
+            base_changed: false,
             data,
             engine,
             scripts: BTreeMap::new(),
@@ -282,7 +304,7 @@ impl Simulation {
 
     pub fn state_summary(&self) -> Value {
         let data = self.data.borrow();
-        json!({"tick":self.tick,"failed":self.failed,"state":data.state,"logs":data.logs})
+        json!({"tick":self.tick,"failed":self.failed,"state":data.state,"flags":data.flags,"inventory":data.inventory,"logs":data.logs,"base_changed":self.base_changed})
     }
 
     pub fn animator_states(&self) -> Value {
@@ -345,7 +367,7 @@ impl Simulation {
         let data = self.data.borrow();
         json!({"tick":self.tick, "failed":self.failed,
             "entities": data.scene.entities.iter().map(|e| json!({"id":e.id, "name":e.name, "tags":e.tags, "transform":e.transform})).collect::<Vec<_>>(),
-            "state":data.state, "logs":data.logs, "animators":self.animator_states(),"nav_agents":self.nav_agent_states()})
+            "state":data.state, "flags":data.flags,"inventory":data.inventory,"base_changed":self.base_changed,"logs":data.logs, "animators":self.animator_states(),"nav_agents":self.nav_agent_states()})
     }
 
     fn source(&self, script: &Script, name: &str) -> Result<(String, String)> {
@@ -417,7 +439,7 @@ impl Simulation {
                 ast.set_source(&label);
                 self.scripts
                     .insert(entity.id, ScriptInstance { ast, label });
-                self.hook(entity.id, "on_start")?;
+                if !self.loading { self.hook(entity.id, "on_start")?; }
             }
         }
         Ok(())
@@ -434,7 +456,7 @@ impl Simulation {
             physics: self.physics.clone(),
         };
         let options = CallFnOptions::new().eval_ast(false);
-        let result = if hook == "on_start" {
+        let result = if hook == "on_start" || hook == "on_load" {
             self.engine.call_fn_with_options::<rhai::Dynamic>(
                 options,
                 &mut Scope::new(),

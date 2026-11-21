@@ -314,7 +314,7 @@ function resize() {
   camera.aspect = width / height; camera.updateProjectionMatrix(); updateCamera(true);
 }
 
-async function restart() {
+async function restart(save = null) {
   running = false; ready = false; resetInput();
   stopPreview();
   previewRemaining = 3.5;
@@ -323,7 +323,9 @@ async function restart() {
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
-  const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
+  const initial = save === null
+    ? game.load(JSON.stringify(source), JSON.stringify(scripts))
+    : game.load_game(JSON.stringify(source), JSON.stringify(scripts), save);
   await terrain?.preload();
   mark('webGameLoaded');
   apply(JSON.parse(initial));
@@ -340,6 +342,28 @@ async function restart() {
   accumulator = 0; previous = performance.now(); ready = true;
   mark('assetsReady');
 }
+
+const saveKey = `ai-engine-save:v1:${location.pathname}`;
+window.__aiSaveGame = () => {
+  if (!ready) throw new Error('Spiel ist noch nicht bereit.');
+  const save = game.save_game();
+  localStorage.setItem(saveKey, save);
+  return save;
+};
+window.__aiLoadGame = async () => {
+  const save = localStorage.getItem(saveKey);
+  if (save === null) return false;
+  await restart(save);
+  startRunning();
+  return true;
+};
+window.addEventListener('keydown', e => {
+  if (e.code !== 'F5' && e.code !== 'F9') return;
+  e.preventDefault();
+  if (e.repeat) return;
+  Promise.resolve().then(() => e.code === 'F5' ? window.__aiSaveGame() : window.__aiLoadGame())
+    .catch(error => console.error('Spielstand:', error));
+});
 
 function startRunning() {
   if (document.activeElement?.matches('button')) document.activeElement.blur();
