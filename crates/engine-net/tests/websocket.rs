@@ -89,15 +89,15 @@ fn handshake_accepts_only_explicitly_allowed_foreign_origins() -> Result<()> {
 }
 
 fn origin_handshakes(allowed_origins: Vec<String>, cases: &[(Option<&str>, bool)]) -> Result<()> {
+    use engine_net::transport::Transport;
     use tungstenite::client::IntoClientRequest;
     let mut transport = WsServer::bind_with_origins("127.0.0.1:0", allowed_origins)?;
     let addr = transport.local_addr()?;
     let stop = Arc::new(AtomicBool::new(false));
     let signal = stop.clone();
     let handle = thread::spawn(move || -> Result<()> {
-        let mut server = NetServer::new(scene(), BTreeMap::new(), ServerConfig::default())?;
         while !signal.load(Ordering::Relaxed) {
-            transport.tick(&mut server)?;
+            transport.recv()?;
             thread::sleep(Duration::from_millis(2));
         }
         Ok(())
@@ -107,12 +107,13 @@ fn origin_handshakes(allowed_origins: Vec<String>, cases: &[(Option<&str>, bool)
         handle: Some(handle),
     };
     for &(origin, allowed) in cases {
-        let stream = TcpStream::connect(addr)?;
-        stream.set_read_timeout(Some(Duration::from_secs(2)))?;
         let mut request = format!("ws://{addr}").into_client_request()?;
         if let Some(origin) = origin {
             request.headers_mut().insert("Origin", origin.parse()?);
         }
+        let stream = TcpStream::connect(addr)?;
+        stream.set_read_timeout(Some(Duration::from_secs(10)))?;
+        stream.set_write_timeout(Some(Duration::from_secs(10)))?;
         let result = tungstenite::client(request, stream);
         assert_eq!(result.is_ok(), allowed, "origin {origin:?}");
         if !allowed {
