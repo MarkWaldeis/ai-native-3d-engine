@@ -166,3 +166,11 @@ never adapt. `fog_density` opts into exponential fog (0 disables it); choose a l
 density for saturated vegetation instead of the legacy near-distance fog.
 `?stats=1` includes the nature quality tier. No additional post stack or addons
 are introduced. Screenshot: `docs/web_visuals.png`.
+
+## Terrain surface detail
+
+Set `props.ai_terrain_detail` to a strength from 0 to 1 on a terrain entity
+(try `0.65`). The default is off. World-space triplanar bump shading uses the
+existing generated texture on slopes and flats without seams between tiles,
+extra geometry, or requests. The detail fades from 25 to 90 m so distant
+terrain keeps its existing shading. Terrain heights and colliders are unchanged.

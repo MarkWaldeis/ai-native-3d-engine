@@ -59,6 +59,59 @@ async function fetchBytes(url) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+export function terrainDetailTexture(THREE) {
+  const textureBytes = new Uint8Array(64 * 64 * 4);
+  let seed = 7331;
+  for (let i = 0; i < textureBytes.length; i += 4) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    textureBytes.fill(100 + (seed >>> 25), i, i + 3); textureBytes[i + 3] = 255;
+  }
+  const detail = new THREE.DataTexture(textureBytes, 64, 64);
+  detail.wrapS = detail.wrapT = THREE.RepeatWrapping; detail.magFilter = THREE.LinearFilter;
+  detail.minFilter = THREE.LinearMipmapLinearFilter; detail.generateMipmaps = true; detail.needsUpdate = true;
+  return detail;
+}
+
+export function terrainMaterial(THREE, detail, heightRange, strength) {
+  const relief = Number.isFinite(strength) ? THREE.MathUtils.clamp(strength, 0, 1) : 0;
+  const material = new THREE.MeshStandardMaterial({roughness: 0.96});
+  material.customProgramCacheKey = () => relief > 0 ? 'terrain-relief' : 'terrain-base';
+  material.onBeforeCompile = shader => {
+    shader.uniforms.terrainDetail = {value: detail};
+    shader.uniforms.terrainRange = {value: new THREE.Vector2(...heightRange)};
+    shader.vertexShader = 'varying vec3 vTerrainWorld; varying vec3 vTerrainNormal;\n' + shader.vertexShader;
+    shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvTerrainWorld = (modelMatrix * vec4(position, 1.0)).xyz; vTerrainNormal = normalize(mat3(modelMatrix) * normal);');
+    shader.fragmentShader = 'uniform sampler2D terrainDetail; uniform vec2 terrainRange; varying vec3 vTerrainWorld; varying vec3 vTerrainNormal;\n' + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      float elevation = (vTerrainWorld.y - terrainRange.x) / max(1.0, terrainRange.y-terrainRange.x);
+      float slope = 1.0 - abs(normalize(vTerrainNormal).y);
+      vec3 ground = mix(vec3(0.53,0.43,0.24),vec3(0.19,0.34,0.105),smoothstep(0.03,0.18,elevation));
+      ground = mix(ground,vec3(0.30,0.22,0.13),smoothstep(0.04,0.22,slope)*0.8);
+      ground = mix(ground,vec3(0.40,0.41,0.39),max(smoothstep(0.18,0.48,slope),smoothstep(0.72,0.95,elevation)));
+      float grain = texture2D(terrainDetail,vTerrainWorld.xz*0.16).r*0.55 + texture2D(terrainDetail,vTerrainWorld.xz*0.013).r*0.45;
+      diffuseColor.rgb = ground * (0.65 + grain*0.7);`);
+    if (!relief) return;
+    shader.uniforms.terrainRelief = {value: relief};
+    shader.fragmentShader = 'uniform float terrainRelief;\n' + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+      vec3 weights = pow(abs(normalize(vTerrainNormal)), vec3(4.0));
+      weights /= dot(weights, vec3(1.0));
+      vec3 p = vTerrainWorld * 0.34;
+      const mat2 turn = mat2(0.8, -0.6, 0.6, 0.8);
+      float relief = dot(weights, vec3(
+        texture2D(terrainDetail, turn * p.yz).r,
+        texture2D(terrainDetail, turn * p.xz).r,
+        texture2D(terrainDetail, turn * p.xy).r)) * 0.022;
+      float fade = 1.0 - smoothstep(25.0, 90.0, length(vViewPosition));
+      vec3 dx = dFdx(-vViewPosition), dy = dFdy(-vViewPosition);
+      vec3 r1 = cross(dy, normal), r2 = cross(normal, dx);
+      float det = dot(dx, r1);
+      vec3 gradient = sign(det) * (dFdx(relief) * r1 + dFdy(relief) * r2);
+      if (abs(det) > 1e-9) normal = normalize(abs(det) * normal - terrainRelief * fade * gradient);`);
+  };
+  return material;
+}
+
 export async function createTerrain(THREE, entities, game, world, engineStats, onError) {
   const terrainEntities = entities.filter(e => typeof e.props?.ai_terrain === 'string');
   if (!terrainEntities.length) return null;
@@ -73,15 +126,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       visualsTarget = visuals; visualsSetter = visuals.setHeightSampler;
     }
   }
-  const textureBytes = new Uint8Array(64 * 64 * 4);
-  let seed = 7331;
-  for (let i = 0; i < textureBytes.length; i += 4) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    textureBytes.fill(100 + (seed >>> 25), i, i + 3); textureBytes[i + 3] = 255;
-  }
-  const detail = new THREE.DataTexture(textureBytes, 64, 64);
-  detail.wrapS = detail.wrapT = THREE.RepeatWrapping; detail.magFilter = THREE.LinearFilter;
-  detail.minFilter = THREE.LinearMipmapLinearFilter; detail.generateMipmaps = true; detail.needsUpdate = true;
+  const detail = terrainDetailTexture(THREE);
   for (const entity of terrainEntities) {
     const path = entity.props.ai_terrain;
     if (!maps.has(path)) {
@@ -93,23 +138,8 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       maps.set(path, {path, manifest, base, coarse: decodeHeights(coarseBytes, 'AITC', manifest.coarse.dims, manifest.height_range)});
     }
     const map = maps.get(path), c = map.manifest.config;
-    const material = new THREE.MeshStandardMaterial({roughness: 0.96});
-    material.onBeforeCompile = shader => {
-      shader.uniforms.terrainDetail = {value: detail};
-      shader.uniforms.terrainRange = {value: new THREE.Vector2(...map.manifest.height_range.map(h=>h+(entity.transform?.position?.[1] || 0)))};
-      shader.vertexShader = 'varying vec3 vTerrainWorld; varying vec3 vTerrainNormal;\n' + shader.vertexShader;
-      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvTerrainWorld = (modelMatrix * vec4(position, 1.0)).xyz; vTerrainNormal = normalize(mat3(modelMatrix) * normal);');
-      shader.fragmentShader = 'uniform sampler2D terrainDetail; uniform vec2 terrainRange; varying vec3 vTerrainWorld; varying vec3 vTerrainNormal;\n' + shader.fragmentShader;
-      shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
-        float elevation = (vTerrainWorld.y - terrainRange.x) / max(1.0, terrainRange.y-terrainRange.x);
-        float slope = 1.0 - abs(normalize(vTerrainNormal).y);
-        vec3 ground = mix(vec3(0.53,0.43,0.24),vec3(0.19,0.34,0.105),smoothstep(0.03,0.18,elevation));
-        ground = mix(ground,vec3(0.30,0.22,0.13),smoothstep(0.04,0.22,slope)*0.8);
-        ground = mix(ground,vec3(0.40,0.41,0.39),max(smoothstep(0.18,0.48,slope),smoothstep(0.72,0.95,elevation)));
-        float grain = texture2D(terrainDetail,vTerrainWorld.xz*0.16).r*0.55 + texture2D(terrainDetail,vTerrainWorld.xz*0.013).r*0.45;
-        diffuseColor.rgb = ground * (0.65 + grain*0.7);`);
-    };
     const offset = entity.transform?.position || [0, 0, 0];
+    const material = terrainMaterial(THREE, detail, map.manifest.height_range.map(h=>h+offset[1]), entity.props.ai_terrain_detail);
     for (let z = 0; z < map.manifest.grid[1]; z++) for (let x = 0; x < map.manifest.grid[0]; x++) {
       const chunk = {map, x, z, offset, material, visible: entity.visible !== false, mesh: null, stride: null};
       if(chunk.visible) {chunk.coarse = buildMesh(chunk, null, 1); world.add(chunk.coarse);}

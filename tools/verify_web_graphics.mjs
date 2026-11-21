@@ -324,6 +324,48 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(finishes.brushed > 80 && finishes.cloth > 80 && finishes.coating > 80 && finishes.glError === 0, JSON.stringify(finishes));
     console.log('PASS PBR finishes: visible brushed anisotropy, fabric sheen, and thin-film iridescence');
 
+    const terrain = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {terrainDetailTexture, terrainMaterial} = await import('./terrain.js');
+      const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(-1.6,1.6,1.6,-1.6,0.1,200);
+      camera.up.set(0,0,-1);
+      const sun = new THREE.DirectionalLight(0xffffff,3);
+      sun.position.set(4,1.5,-2);
+      scene.add(sun);
+      const detail = terrainDetailTexture(THREE);
+      const base = terrainMaterial(THREE,detail,[0,10],0), relief = terrainMaterial(THREE,detail,[0,10],1);
+      const wide = new THREE.PlaneGeometry(4,4).rotateX(-Math.PI/2), half = new THREE.PlaneGeometry(2,4).rotateX(-Math.PI/2);
+      const full = new THREE.Mesh(wide,relief), left = new THREE.Mesh(half,relief), right = new THREE.Mesh(half,relief);
+      left.position.x = -1; right.position.x = 1;
+      scene.add(full,left,right);
+      const size = 128, renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.setSize(size,size,false);
+      const gl = renderer.getContext();
+      const sample = (height, material, tiled = false) => {
+        camera.position.y = height; camera.lookAt(0,0,0);
+        full.material = material; full.visible = !tiled; left.visible = right.visible = tiled;
+        renderer.render(scene,camera);
+        const pixels = new Uint8Array(size*size*4);
+        gl.readPixels(0,0,size,size,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+        return pixels;
+      };
+      const changed = (a,b) => {
+        let count = 0;
+        for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i]-b[i]) > 6) count++;
+        return count;
+      };
+      try {
+        const near = sample(3,relief);
+        return {detail:changed(near,sample(3,base)), seam:changed(near,sample(3,relief,true)),
+          far:changed(sample(120,base),sample(120,relief)), error:gl.getError()};
+      } finally {
+        base.dispose(); relief.dispose(); detail.dispose(); half.dispose(); wide.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(terrain.detail > 300 && terrain.seam < 10 && terrain.far === 0 && terrain.error === 0, JSON.stringify(terrain));
+    console.log('PASS terrain micro-relief: near-field shading, seamless tiles and distance fade');
+
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
     await page.setViewportSize({ width: 1100, height: 750 });
