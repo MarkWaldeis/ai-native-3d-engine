@@ -12,7 +12,7 @@ import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectib
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
-import { InputSystem, InputEdges } from './input.js';
+import { InputSystem, InputEdges, keyboardHelp } from './input.js';
 import { InputSettings } from './input-settings.js';
 
 const $ = id => document.getElementById(id);
@@ -21,14 +21,17 @@ const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
 const input = new InputSystem(), inputEdges = new InputEdges();
-let inputSettings, sampledInput = input.sample(), keyboardHelp = '', touchHelp = '', gamepadActive = false;
+let inputSettings, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
 const touchMode = () => document.body.classList.contains('touch-input');
 function showTouch() {
   document.body.classList.add('touch-input');
   if (fps) fps.coarse = true;
   updateHelp();
 }
-function updateHelp() { if (keyboardHelp) $('help').textContent = gamepadActive ? 'Gamepad verbunden · Sticks: Bewegen / Zielen · A: Aktion · Start: Pause' : touchMode() ? touchHelp : keyboardHelp; }
+function updateHelp() {
+  const help = gamepadActive ? 'Gamepad verbunden · Sticks: Bewegen / Zielen · A: Aktion · Start: Pause' : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
+  if (help && $('help').textContent !== help) $('help').textContent = help;
+}
 if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch-input');
 window.addEventListener('touchstart', showTouch, { passive: true });
 window.addEventListener('pointerdown', event => { if (event.pointerType === 'touch') showTouch(); }, { passive: true });
@@ -565,7 +568,7 @@ async function boot() {
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   const title = ui.title || (source.entities.some(e => e.tags?.includes('coin')) ? 'Münzenpfad' : source.name || 'Web-Spiel');
-  inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); });
+  inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp);
   const preset = new URLSearchParams(location.search).get('quality');
   effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
   await effects.prepareEnvironment();
@@ -610,7 +613,6 @@ async function boot() {
   if (ui.badge) $('modal-badge').textContent = ui.badge;
   if (ui.action_label) $('action').lastChild.textContent = ui.action_label;
   document.title = `${$('title').textContent} · AI Engine`;
-  keyboardHelp = fps ? 'Maus: Zielen · Klick: Feuer · R: Nachladen · Shift: Sprint · Esc: Pause' : 'WASD / Pfeile · Leertaste: Aktion';
   touchHelp = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
   if (touchMode() && fps) fps.coarse = true;
   updateHelp();

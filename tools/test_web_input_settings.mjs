@@ -22,20 +22,23 @@ function fixture(saved, authored) {
   globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { getGamepads: () => [] } });
   if (saved !== undefined) storage.set('ai-engine:input:Test', saved);
-  let paused = 0;
-  const input = new InputSystem(), settings = new InputSettings(input, authored, 'Test', () => paused++);
-  return { input, settings, storage, elements, paused: () => paused };
+  let paused = 0, changes = 0;
+  const input = new InputSystem(), settings = new InputSettings(input, authored, 'Test', () => paused++, () => changes++);
+  return { input, settings, storage, elements, paused: () => paused, changes: () => changes };
 }
 
 test('settings opens paused, replaces an action, persists per title and resets authored defaults', () => {
-  const { input, settings, storage, elements, paused } = fixture(undefined, { deadzone: 0.3 });
+  const { input, settings, storage, elements, paused, changes } = fixture(undefined, { deadzone: 0.3 });
+  assert.equal(changes(), 1, 'load refreshes help');
   settings.show(); assert.equal(settings.open, true); assert.equal(paused(), 1);
   elements.get('input-bindings').querySelector('[data-action="action"]').dispatchEvent(new Event('click'));
   settings.bind({ type: 'key', code: 'KeyE' });
+  assert.equal(changes(), 3, 'open and rebind refresh help');
   assert.deepEqual(input.config.bindings.action, [{ type: 'key', code: 'KeyE' }]);
   assert.equal(JSON.parse(storage.get(settings.storageKey)).bindings.action[0].code, 'KeyE');
   settings.dialog.close(); assert.equal(settings.open, false); assert.ok(settings.trigger.focused);
   elements.get('input-reset').dispatchEvent(new Event('click'));
+  assert.equal(changes(), 4, 'reset refreshes help');
   assert.equal(storage.has(settings.storageKey), false); assert.equal(input.config.deadzone, 0.3);
   assert.equal(input.config.bindings.action[0].code, 'Space');
 });

@@ -8,8 +8,8 @@ const labels = {
 const signature = binding => JSON.stringify(binding);
 
 export class InputSettings {
-  constructor(input, authored, title, onOpen) {
-    this.input = input; this.authored = authored; this.onOpen = onOpen;
+  constructor(input, authored, title, onOpen, onChange = () => {}) {
+    this.input = input; this.authored = authored; this.onOpen = onOpen; this.onChange = onChange;
     this.storageKey = `ai-engine:input:${title}`;
     input.fromJSON(authored); this.warnings = [...input.warnings];
     try {
@@ -57,6 +57,7 @@ export class InputSettings {
   }
   cancelCapture() { this.capturing = null; this.status.textContent = 'Wähle eine Aktion zum Belegen. Escape bricht die Aufnahme ab.'; }
   render() {
+    this.onChange();
     this.list.replaceChildren();
     for (const action of ACTIONS) {
       const row = document.createElement('li'), text = document.createElement('div');

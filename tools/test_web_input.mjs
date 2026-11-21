@@ -1,9 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ACTIONS, InputSystem, InputEdges, pushedBindings, parseInputConfig, radialDeadzone, sampleGamepads, describeBinding } from '../crates/engine-web/player/input.js';
+import { ACTIONS, InputSystem, InputEdges, pushedBindings, keyboardHelp, parseInputConfig, radialDeadzone, sampleGamepads, describeBinding } from '../crates/engine-web/player/input.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
 const pad = (axes = [], pressed = []) => ({ axes, buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressed.includes(i), value: pressed.includes(i) ? 1 : 0 })) });
+
+test('keyboard help follows current first keys after remap, reset and load including FPS actions', () => {
+  const input = new InputSystem();
+  const original = keyboardHelp(input.config);
+  assert.equal(original, 'Taste A / Taste D / Taste W / Taste S: Bewegen · Taste Leertaste: Aktion · Taste Esc: Pause');
+  input.config.bindings.action = [{ type: 'button', index: 0 }, { type: 'key', code: 'KeyE' }];
+  input.rebind('fire', { type: 'key', code: 'KeyF' });
+  const help = keyboardHelp(input.config, true);
+  assert.match(help, /Taste E: Aktion/); assert.doesNotMatch(help, /Leertaste/);
+  for (const text of ['Taste F / Mausklick: Feuer', 'Taste R: Nachladen', 'Taste Shift links: Sprint', 'Taste Esc: Pause']) assert.ok(help.includes(text));
+  assert.equal(keyboardHelp(new InputSystem(JSON.stringify(input)).config, true), help);
+  input.reset(); assert.equal(keyboardHelp(input.config), original);
+  assert.match(keyboardHelp(undefined), /nicht belegt: Aktion/);
+  const empty = new InputSystem({ bindings: { action: [], fire: [], reload: [], sprint: [], pause: [] } });
+  assert.match(keyboardHelp(empty.config, true), /Mausklick: Feuer · nicht belegt: Nachladen · nicht belegt: Sprint · nicht belegt: Pause/);
+});
 
 test('gamepad modal/pause edges trigger once until released', () => {
   const edges = new InputEdges();

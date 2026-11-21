@@ -170,6 +170,22 @@ const NUMPAD_NAMES = {
   MemoryAdd: 'Speicher +', MemorySubtract: 'Speicher −',
 };
 
+export function keyboardHelp(config, firstPerson = false) {
+  const firstKey = action => config?.bindings?.[action]?.find(binding => binding.type === 'key');
+  const label = action => {
+    const binding = firstKey(action);
+    return binding ? describeBinding(binding) : 'nicht belegt';
+  };
+  const movement = ['move_left', 'move_right', 'move_forward', 'move_back'].map(label).join(' / ');
+  const help = [`${movement}: Bewegen`, `${label('action')}: Aktion`];
+  if (firstPerson) {
+    help.push('Maus: Zielen', `${firstKey('fire') ? `${label('fire')} / ` : ''}Mausklick: Feuer`,
+      `${label('reload')}: Nachladen`, `${label('sprint')}: Sprint`);
+  }
+  help.push(`${label('pause')}: Pause`);
+  return help.join(' · ');
+}
+
 export function describeBinding(value) {
   const binding = bindingCopy(value);
   if (!binding) return 'Unbekannte Bindung';
