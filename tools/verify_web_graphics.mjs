@@ -1,6 +1,47 @@
 import assert from 'node:assert/strict';
 import { installClock } from './lantern_maze/browser.mjs';
 
+export async function verifyMobileGraphics(browser, base, profile, device, errors, shots) {
+  const page = await browser.newPage({...device, deviceScaleFactor:1});
+  const studio = `${base}/material_studio`;
+  page.on('pageerror', error => errors.push(`${profile}/graphics: ${error.message}`));
+  page.on('console', message => {
+    if (message.type() === 'error' && /THREE|WebGL/.test(message.text())) errors.push(`${profile}/graphics: ${message.text()}`);
+  });
+  page.on('response', response => {
+    if (response.status() >= 400) errors.push(`${profile}/graphics: ${response.status()} ${response.url()}`);
+  });
+  await page.route('**/*', route => {
+    const url = route.request().url();
+    if (new URL(url).origin === base) return route.continue();
+    errors.push(`${profile}/graphics: external request ${url}`);
+    return route.abort();
+  });
+  await page.addInitScript(installClock);
+  try {
+    for (const preset of ['low', 'ultra']) {
+      await page.goto(`${studio}/?quality=${preset}`);
+      await page.waitForFunction(() => !document.querySelector('#start').disabled, null, {polling:50});
+      await page.getByRole('button', {name:'Spielen'}).tap();
+      const actual = await page.evaluate(() => {
+        advanceFrames(2);
+        const canvas = document.getElementById('game'), gl = canvas.getContext('webgl2');
+        return {mode:canvas.dataset.graphics, quality:canvas.dataset.quality,
+          calls:window.__engineStats.drawCalls, error:gl.getError(),
+          floatTargets:!!gl.getExtension('EXT_color_buffer_float')};
+      });
+      assert.equal(actual.quality, preset === 'low' ? '0' : '2');
+      assert.ok(actual.calls > 0 && actual.error === 0, JSON.stringify(actual));
+      if (preset === 'low' || !actual.floatTargets) assert.equal(actual.mode, 'standard');
+      else assert.ok(['hdr', 'standard'].includes(actual.mode), JSON.stringify(actual));
+      if (preset === 'ultra') {
+        await page.screenshot({path:`${shots}/material-studio-${profile.replaceAll(' ','-')}.png`});
+        console.log(`PASS webkit/${profile}/graphics: playable material studio, Ultra ${actual.mode}, no WebGL errors`);
+      }
+    }
+  } finally { await page.close(); }
+}
+
 export async function verifyGraphics(browser, base, errors, shots) {
   const page = await browser.newPage({ viewport: { width: 800, height: 550 } });
   page.on('pageerror', error => errors.push(`graphics: ${error.message}`));
@@ -226,6 +267,42 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(spot.straight[0] > spot.straight[1] + 20 && spot.straight[1] > spot.straight[2] + 20, JSON.stringify(spot));
     assert.ok(spot.turned[1] > spot.turned[0] + 40 && spot.error === 0, JSON.stringify(spot));
     console.log('PASS spotlights: rendered soft cone edge follows an emitter rotation');
+
+    const shadows = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {GameEffects} = await import('./effects.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      const camera = new THREE.OrthographicCamera(-6, 6, 6, -6, 0.1, 50);
+      camera.position.set(18, 20, 0.01);
+      camera.lookAt(18, 0, 0);
+      camera.updateMatrixWorld();
+      const box = new THREE.BoxGeometry(2, 5, 2), floor = new THREE.PlaneGeometry(70, 70);
+      const material = new THREE.MeshStandardMaterial({color: 0xc8c8c8});
+      const caster = new THREE.Mesh(box, material), receiver = new THREE.Mesh(floor, material);
+      caster.position.set(18, 2.5, 0);
+      caster.castShadow = receiver.receiveShadow = true;
+      receiver.rotation.x = -Math.PI / 2;
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const sample = extent => {
+        const config = graphicsConfig({shadow_extent:extent, sun_direction:[0,1,1], sun_intensity:5}, 'low');
+        const scene = new THREE.Scene(), effects = new GameEffects(renderer, scene, null, config);
+        scene.fog = null;
+        scene.add(caster, receiver);
+        effects.update(0, new Map(), camera, false, 0, new THREE.Vector3());
+        effects.render(camera);
+        const {x,y} = new THREE.Vector3(18, 0, -3).project(camera);
+        gl.readPixels(Math.floor((x + 1) * gl.drawingBufferWidth / 2), Math.floor((y + 1) * gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        effects.sun.shadow.dispose();
+        return pixel[0];
+      };
+      try { return {normal:sample(24), wide:sample(64), error:gl.getError()}; }
+      finally { box.dispose(); floor.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    assert.ok(shadows.normal > shadows.wide + 30 && shadows.error === 0, JSON.stringify(shadows));
+    console.log('PASS sun shadows: wider authored volume captures a caster outside the default volume');
 
     const finishes = await page.evaluate(async () => {
       const THREE = await import('three');

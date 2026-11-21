@@ -40,6 +40,29 @@ function fixture(addProp = false) {
   return {scene,world,key:world.grid.key(ground.transform.position)};
 }
 
+test('streamed sun shadow flags split instance batches without duplicating templates', async () => {
+  globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
+  const {world,key} = fixture();
+  const path = glb(1);
+  for (const [index, props] of [
+    {},
+    {ai_sun_shadow:'{"cast":true,"receive":true}'},
+    {ai_sun_shadow:{cast:false}},
+    {ai_sun_shadow:{receive:false}},
+  ].entries()) world.add({
+    id:10+index, kind:'gltf', path, props,
+    transform:{position:[-128,-0.2,-128],scale:[1,1,1],rotation_deg:[0,0,0]},
+  });
+  await world.rebuild(key);
+  const meshes = world.groups.get(key).children;
+  const find = id => meshes.find(mesh=>mesh.userData.ids.has(id));
+  const a=find(10), b=find(12), c=find(13);
+  assert.equal(a, find(11));
+  assert.equal(a.geometry, b.geometry);
+  assert.equal(b.material, c.material);
+  assert.deepEqual([a,b,c].map(mesh=>[mesh.castShadow,mesh.receiveShadow]), [[true,true],[false,true],[true,false]]);
+});
+
 test('LOD rebuild retains visible ground until its replacement is ready', async () => {
   const {scene,world,key} = fixture(true);
   await world.rebuild(key);

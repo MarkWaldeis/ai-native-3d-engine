@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame, bindActivation } from './controls.js';
 import { GameEffects } from './effects.js';
-import { graphicsConfig } from './graphics-settings.js';
+import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
 import { GpuTimer } from './gpu-timer.js';
 import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
@@ -85,8 +85,7 @@ function fail(error) {
 
 function mesh(geometry, entity) {
   const result = new THREE.Mesh(geometry, primitiveMaterial(entity));
-  result.castShadow = true; result.receiveShadow = true;
-  return result;
+  return Object.assign(result, sunShadowSettings(entity.props?.ai_sun_shadow));
 }
 
 function createObject(entity) {
@@ -118,8 +117,9 @@ function createObject(entity) {
     case 'gltf': {
       object = new THREE.Group();
       const task = assets.load(entity.path).then(gltf => {
-        gltf.scene.traverse(child => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
-        object.add(gltf.scene.clone(true));
+        const model = gltf.scene.clone(true), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
+        model.traverse(child => { if (child.isMesh) Object.assign(child, flags); });
+        object.add(model);
       });
       loading.add(task); task.finally(() => loading.delete(task)).catch(fail);
       break;
