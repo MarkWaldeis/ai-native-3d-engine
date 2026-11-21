@@ -77,18 +77,19 @@ export class SdfLabel extends THREE.Object3D {
     this.mesh.geometry.dispose(); this.mesh.geometry = geometry; return true;
   }
   update(camera) {
-    this.parent.updateWorldMatrix(true, false);
+    const anchor = this.anchor || this.parent;
+    anchor.updateWorldMatrix(true, false);
     if (this.boundsObject) {
-      this.parent.getWorldPosition(this.worldPosition);
+      anchor.getWorldPosition(this.worldPosition);
       this.bounds.setFromObject(this.boundsObject);
       if (!this.bounds.isEmpty()) this.worldPosition.y = this.bounds.max.y;
       this.worldPosition.y += 0.4;
-    } else this.worldPosition.copy(this.position).applyMatrix4(this.parent.matrixWorld);
+    } else this.worldPosition.copy(this.position).applyMatrix4(anchor.matrixWorld);
     camera.getWorldPosition(this.cameraPosition);
     if (this.config.billboard) {
       const yaw = Math.atan2(this.cameraPosition.x - this.worldPosition.x, this.cameraPosition.z - this.worldPosition.z);
       this.rotationWorld.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
-    } else this.parent.getWorldQuaternion(this.rotationWorld).multiply(this.quaternion);
+    } else anchor.getWorldQuaternion(this.rotationWorld).multiply(this.quaternion);
     const distance = this.worldPosition.distanceTo(this.cameraPosition), fade = this.config.fade_distance;
     this.material.uniforms.opacity.value = fade ? Math.max(0, Math.min(1, (fade - distance) / Math.max(0.01, fade * 0.2))) : 1;
     this.visible = this.material.uniforms.opacity.value > 0;

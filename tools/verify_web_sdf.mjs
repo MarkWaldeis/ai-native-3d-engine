@@ -31,6 +31,7 @@ const server = http.createServer(async (req, res) => {
       }
       res.end(JSON.stringify(scene));
     } else if (path.basename(file) === 'sdf-text.js') res.end(await fs.readFile(file, 'utf8') + instrument);
+    else if (path.basename(file) === 'player.js') res.end(await fs.readFile(file, 'utf8') + '\nwindow.sdfApplyRagdolls=applyRagdolls; window.sdfObjects=objects; window.sdfRagdolls=ragdolls;');
     else res.end(await fs.readFile(file));
   } catch { res.writeHead(404); res.end('Not found'); }
 });
@@ -77,6 +78,19 @@ try {
     });
     if (phone) await page.locator('#start').tap(); else await page.locator('#start').click();
     await page.evaluate(() => { advanceFrames(3); window.playerLabel = [...sdfLabels].find(l => l.config.text.includes('{score}')); window.originalGeometry = playerLabel.mesh.geometry; });
+    assert.ok(await page.evaluate(() => {
+      const label = playerLabel, root = label.parent, id = [...sdfObjects].find(([, object]) => object === root)[0];
+      const state = { id, enabled: true, parts: [{ radius: 0.2, half_height: 0.3, position: [2, 1, -1], rotation_deg: [0, 0, 0] }] };
+      sdfApplyRagdolls([state]); label.update(sdfCamera);
+      const group = sdfRagdolls.get(id);
+      let valid = label.parent === group && group.visible && !root.visible && Math.abs(label.worldPosition.x - 2) < 1e-6 && label.worldPosition.y > 1.5;
+      state.parts[0].position[0] = 3; sdfApplyRagdolls([state]); label.update(sdfCamera);
+      valid &&= Math.abs(label.worldPosition.x - 3) < 1e-6;
+      state.enabled = false; sdfApplyRagdolls([state]); label.update(sdfCamera);
+      valid &&= label.parent === root && root.visible && !group.visible;
+      state.enabled = true; sdfApplyRagdolls([state]); sdfApplyRagdolls([]); label.update(sdfCamera);
+      return valid && label.parent === root && root.visible && !sdfRagdolls.has(id);
+    }), 'labels follow visible ragdoll parts and return to the root on disable/removal');
     assert.equal(await page.locator('#hud-layout > *').count(), 0, 'SDF counts work without ai_hud');
     assert.deepEqual(await page.evaluate(() => ({ count: __engineStats.sdfLabels, text: playerLabel.text })), { count: 5, text: '0 / 3 (3)' });
     assert.ok(await page.evaluate(() => __engineStats.sdfGlyphs >= 15));

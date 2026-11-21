@@ -204,13 +204,22 @@ function createObject(entity) {
   }
 }
 
+function followRagdollLabel(id, root, group) {
+  const label = textLabels.get(id);
+  if (!label || !root) return;
+  (group || root).add(label);
+  label.anchor = group?.children[0] || root;
+  label.boundsObject = label.config.offset ? null : group?.children[0] || root.children[0];
+}
+
 function applyRagdolls(states = []) {
   const active = new Set(states.map(rig => rig.id));
   for (const [id, group] of ragdolls) {
     if (active.has(id)) continue;
+    const root = objects.get(id);
+    followRagdollLabel(id, root);
     disposeObject(group);
     ragdolls.delete(id);
-    const root = objects.get(id);
     if (root) root.visible = root.userData.authoredVisible;
   }
   for (const rig of states) {
@@ -226,12 +235,13 @@ function applyRagdolls(states = []) {
       ragdolls.set(rig.id, group);
     }
     group.visible = root.userData.authoredVisible && rig.enabled;
-    root.visible = false;
+    root.visible = root.userData.authoredVisible && !rig.enabled;
     rig.parts.forEach((part, i) => {
       const object = group.children[i];
       object.position.fromArray(part.position);
       object.rotation.set(...part.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
     });
+    followRagdollLabel(rig.id, root, rig.enabled ? group : null);
   }
 }
 
