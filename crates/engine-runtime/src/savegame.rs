@@ -60,6 +60,26 @@ fn validate_map(map: &BTreeMap<String, Value>) -> Result<()> {
     Ok(())
 }
 
+fn validate_restored_paths(entity: &shared::scene::Entity, root: Option<&Path>) -> Result<()> {
+    let check = |path: &str| -> Result<()> {
+        let requested = Path::new(path);
+        if path.is_empty() || requested.is_absolute() || path.contains('\\') || path.contains(':')
+            || requested.components().any(|part| !matches!(part, std::path::Component::Normal(_) | std::path::Component::CurDir)) {
+            bail!("saved entity paths must be project-relative without .. or absolute paths");
+        }
+        if let Some(root) = root { engine_core::project_path(root, requested)?; }
+        Ok(())
+    };
+    if let shared::scene::PrimitiveKind::Gltf { path } = &entity.mesh { check(path)?; }
+    if let Some(path) = entity.script.as_ref().and_then(Script::path) { check(path)?; }
+    if let Some(lods) = entity.props.get("web_lods") {
+        for path in lods.as_object().context("web_lods must be an object")?.values() {
+            check(path.as_str().context("LOD path must be a string")?)?;
+        }
+    }
+    Ok(())
+}
+
 impl Simulation {
     pub fn save_game(&self) -> Value {
         let data = self.data.borrow();
@@ -120,6 +140,13 @@ impl Simulation {
         let mut sim = Self::create_mode(base_scene, root, sources, terrains, true)?;
         sim.base_changed = fingerprint(&sim.base_scene) != save.base_fingerprint;
         let mut entities: BTreeMap<_, _> = sim.base_scene.entities.iter().map(|e| (e.id, e.clone())).collect();
+        if sim.sources.is_none() {
+            for entity in entities.values_mut() {
+                if let shared::scene::PrimitiveKind::Gltf { path } = &mut entity.mesh {
+                    *path = Path::new(path).strip_prefix(&sim.root).context("base asset path escapes project root")?.to_string_lossy().into_owned();
+                }
+            }
+        }
         for id in save.delta.removed { entities.remove(&id); }
         let mut seen = BTreeSet::new();
         for patch in save.delta.modified {
@@ -141,7 +168,15 @@ impl Simulation {
         if entities.len() > MAX_ENTITIES { bail!("save entity limit exceeded"); }
         let minimum_next = entities.keys().next_back().copied().unwrap_or(0).checked_add(1).context("entity id overflow")?;
         if save.next_id == 0 || (!sim.base_changed && save.next_id < minimum_next) { bail!("invalid saved next_id"); }
-        for entity in entities.values() { validate_entity(entity)?; }
+        for entity in entities.values_mut() {
+            validate_entity(entity)?;
+            validate_restored_paths(entity, sim.sources.is_none().then_some(sim.root.as_path()))?;
+            if sim.sources.is_none() {
+                if let shared::scene::PrimitiveKind::Gltf { path } = &mut entity.mesh {
+                    *path = engine_core::project_path(&sim.root, Path::new(path))?.to_string_lossy().into_owned();
+                }
+            }
+        }
         {
             let mut data = sim.data.borrow_mut();
             data.scene.entities = entities.into_values().collect();

@@ -121,3 +121,24 @@ fn inventory_and_flag_empty_and_error_cases() {
         assert!(Simulation::from_sources(base.clone(),BTreeMap::new()).is_err());
     }
 }
+
+#[test]
+fn restored_asset_and_script_paths_are_confined() {
+    let base = Scene::default();
+    let save = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap().save_game();
+    for path in ["../outside.glb", "/outside.glb", "C:\\outside.glb"] {
+        for field in ["asset", "script"] {
+            let mut bad = save.clone();
+            let mut entity = json!({"id":1,"name":"bad","kind":"box","size":[1,1,1]});
+            if field == "asset" { entity = json!({"id":1,"name":"bad","kind":"gltf","path":path}); }
+            else { entity["script"] = json!({"path":path}); }
+            bad["delta"]["spawned"] = json!([entity]); bad["next_id"] = json!(2);
+            let err = Simulation::load_game_from_sources(base.clone(), BTreeMap::new(), bad).err().unwrap();
+            assert!(err.to_string().contains("project-relative"), "{err:#}");
+        }
+    }
+    let mut base = scene(); base.entities.truncate(1); base.entities[0].script = None;
+    let mut save = Simulation::from_sources(base.clone(), BTreeMap::new()).unwrap().save_game();
+    save["delta"]["modified"] = json!([{"id":1,"kind":"gltf","path":"../outside.glb"}]);
+    assert!(Simulation::load_game_from_sources(base, BTreeMap::new(), save).is_err());
+}
