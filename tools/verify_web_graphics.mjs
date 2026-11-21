@@ -1,6 +1,47 @@
 import assert from 'node:assert/strict';
 import { installClock } from './lantern_maze/browser.mjs';
 
+export async function verifyMobileGraphics(browser, base, profile, device, errors, shots) {
+  const page = await browser.newPage({...device, deviceScaleFactor:1});
+  const studio = `${base}/material_studio`;
+  page.on('pageerror', error => errors.push(`${profile}/graphics: ${error.message}`));
+  page.on('console', message => {
+    if (message.type() === 'error' && /THREE|WebGL/.test(message.text())) errors.push(`${profile}/graphics: ${message.text()}`);
+  });
+  page.on('response', response => {
+    if (response.status() >= 400) errors.push(`${profile}/graphics: ${response.status()} ${response.url()}`);
+  });
+  await page.route('**/*', route => {
+    const url = route.request().url();
+    if (new URL(url).origin === base) return route.continue();
+    errors.push(`${profile}/graphics: external request ${url}`);
+    return route.abort();
+  });
+  await page.addInitScript(installClock);
+  try {
+    for (const preset of ['low', 'ultra']) {
+      await page.goto(`${studio}/?quality=${preset}`);
+      await page.waitForFunction(() => !document.querySelector('#start').disabled, null, {polling:50});
+      await page.getByRole('button', {name:'Spielen'}).tap();
+      const actual = await page.evaluate(() => {
+        advanceFrames(2);
+        const canvas = document.getElementById('game'), gl = canvas.getContext('webgl2');
+        return {mode:canvas.dataset.graphics, quality:canvas.dataset.quality,
+          calls:window.__engineStats.drawCalls, error:gl.getError(),
+          floatTargets:!!gl.getExtension('EXT_color_buffer_float')};
+      });
+      assert.equal(actual.quality, preset === 'low' ? '0' : '2');
+      assert.ok(actual.calls > 0 && actual.error === 0, JSON.stringify(actual));
+      if (preset === 'low' || !actual.floatTargets) assert.equal(actual.mode, 'standard');
+      else assert.ok(['hdr', 'standard'].includes(actual.mode), JSON.stringify(actual));
+      if (preset === 'ultra') {
+        await page.screenshot({path:`${shots}/material-studio-${profile.replaceAll(' ','-')}.png`});
+        console.log(`PASS webkit/${profile}/graphics: playable material studio, Ultra ${actual.mode}, no WebGL errors`);
+      }
+    }
+  } finally { await page.close(); }
+}
+
 export async function verifyGraphics(browser, base, errors, shots) {
   const page = await browser.newPage({ viewport: { width: 800, height: 550 } });
   page.on('pageerror', error => errors.push(`graphics: ${error.message}`));
