@@ -13,7 +13,7 @@ const { LocalLights } = await import('../crates/engine-web/player/local-lights.j
 const { primitiveMaterial, textureAnisotropy, tuneAssetTextures } = await import('../crates/engine-web/player/materials.js');
 const { environmentLighting, rotatePanorama, skyTexture } = await import('../crates/engine-web/player/sky.js');
 const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
-const { batchKey } = await import('../crates/engine-web/player/streaming.js');
+const { batchKey, canInstance } = await import('../crates/engine-web/player/streaming.js');
 
 test('the first-person renderer links against the shared web asset loader', async () => {
   const { FirstPerson } = await import('../crates/engine-web/player/fps.js');
@@ -27,6 +27,11 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(config.quality, 2);
   assert.equal(config.exposure, 4);
   assert.equal(config.toneMapping, 'aces');
+  assert.equal(config.renderScale, 1);
+  assert.equal(graphicsConfig({render_scale:0.75}, 'ultra').renderScale, 0.75);
+  assert.equal(graphicsConfig({render_scale:0.1}, 'low').renderScale, 0.5);
+  assert.equal(graphicsConfig({render_scale:3}, 'ultra').renderScale, 1);
+  assert.equal(graphicsConfig({render_scale:'0.75'}, 'ultra').renderScale, 1);
   assert.equal(graphicsConfig({tone_mapping:'unknown'}, 'ultra').toneMapping, 'aces');
   assert.equal(graphicsConfig('{"tone_mapping":"agx"}', 'ultra').toneMapping, 'agx');
   assert.equal(config.bloomStrength, 0);
@@ -53,6 +58,13 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(graphicsConfig({environment_background:false}, 'ultra').environmentBackground, false);
 });
 
+test('logarithmic depth is explicit and never changes legacy scenes', () => {
+  assert.equal(graphicsConfig({}, 'ultra').logarithmicDepth, false);
+  assert.equal(graphicsConfig({logarithmic_depth:'true'}, 'ultra').logarithmicDepth, false);
+  assert.equal(graphicsConfig({logarithmic_depth:true}, 'low').logarithmicDepth, true);
+  assert.equal(graphicsConfig({logarithmic_depth:true}, 'legacy'), null);
+});
+
 test('moving the sun camera does not move shadows by fractions of a texel', () => {
   for (const offset of [new THREE.Vector3(-6, 16, 9), new THREE.Vector3(0, 20, 0)]) {
     const light = new THREE.DirectionalLight();
@@ -77,6 +89,39 @@ test('moving the sun camera does not move shadows by fractions of a texel', () =
       assert.ok(Math.abs((origin.y - shifted.y) * resolution + 1) < 1e-6);
     }
   }
+});
+
+test('auto exposure is opt-in, bounded, and only activates supported HDR tiers', () => {
+  const config = auto_exposure => graphicsConfig({auto_exposure}, 'balanced').autoExposure;
+  for (const disabled of [undefined, false, 1, 'invalid', '[]']) assert.equal(config(disabled), null);
+  assert.deepEqual(config(true), {minEV:-2, maxEV:2, brightenSpeed:1.25, darkenSpeed:3});
+  assert.deepEqual(config('{"min_ev":-99,"max_ev":-1,"brighten_speed":0,"darken_speed":99}'),
+    {minEV:-4, maxEV:0, brightenSpeed:0.1, darkenSpeed:8});
+  for (const [level, supported, enabled] of [[0,true,false],[1,true,true],[2,true,true],[2,false,false]]) {
+    const hdr = hdrSettings(level, supported, 0, 500, 500, 1, false, false, true);
+    assert.equal(hdr.enabled, enabled);
+    assert.equal(hdr.bloom, false);
+  }
+});
+
+test('primitive transmission uses physical shading and preserves optical scale without instancing', () => {
+  const box = ai_material => ({kind:'box', size:[1,1,1], color:[1,1,1,1], transform:{scale:[2,1,0.5]}, props:{ai_material}});
+  const glass = box('{"transmission":2,"ior":3,"thickness":90,"attenuation_color":"#00FF99","attenuation_distance":0}');
+  const material = primitiveMaterial(glass);
+  assert.equal(material.isMeshPhysicalMaterial, true);
+  assert.equal(material.transmission, 1);
+  assert.equal(material.ior, 2.333);
+  assert.equal(material.thickness, 50);
+  assert.equal(material.attenuationColor.getHexString(), '00ff99');
+  assert.equal(material.attenuationDistance, 0.01);
+  assert.equal(material.transparent, false, 'transmission uses the opaque-scene buffer, not alpha blending');
+  const clear = primitiveMaterial(box({transmission:0.8}));
+  assert.equal(clear.attenuationDistance, Infinity);
+  assert.equal(clear.thickness, 0.25);
+  assert.equal(primitiveMaterial(box({transmission:0, ior:2})).isMeshPhysicalMaterial, undefined);
+  assert.equal(canInstance(glass),false);
+  assert.equal(canInstance(box({transmission:0})),true);
+  material.dispose(); clear.dispose();
 });
 
 test('studio HDRI decodes HDR colors and lighting intensity does not alter the background', async () => {
@@ -318,6 +363,61 @@ test('procedural sky stores linear HDR radiance and moves the solar highlight wi
   assert.equal(texture.colorSpace, THREE.LinearSRGBColorSpace);
   assert.ok(red(width / 2, height * 0.75) > 2, 'the +X 45° sun is HDR');
   assert.ok(red(0, height * 0.75) < 1, 'opposite side has no glare');
+});
+
+test('procedural clouds are bounded, deterministic and leave the lower hemisphere untouched', () => {
+  const render = sky_clouds => {
+    const config = graphicsConfig({sky_clouds}, 'ultra');
+    return skyTexture(config, new THREE.Vector3(...config.sunDirection).normalize());
+  };
+  assert.equal(graphicsConfig({}, 'ultra').skyClouds, null);
+  assert.deepEqual(graphicsConfig({sky_clouds:{coverage:4, opacity:-1, scale:0, seed:100000}}, 'ultra').skyClouds,
+    {coverage:1, opacity:0, scale:0.25, seed:65535});
+  const clear = render(false), noCover = render({coverage:0}), cloudy = render(true);
+  const seeded = render({seed:456}), repeated = render({seed:456});
+  try {
+    assert.deepEqual(noCover.image.data, clear.image.data);
+    assert.deepEqual(seeded.image.data, repeated.image.data);
+    assert.notDeepEqual(seeded.image.data, cloudy.image.data);
+    const halfway = clear.image.data.length / 2;
+    assert.deepEqual(cloudy.image.data.subarray(0, halfway), clear.image.data.subarray(0, halfway));
+    let changed = 0;
+    for (let i = halfway; i < clear.image.data.length; i += 4) {
+      if (cloudy.image.data[i] !== clear.image.data[i]) changed += 1;
+    }
+    assert.ok(changed > 1000 && changed < halfway / 4, changed);
+  } finally {
+    for (const texture of [clear, noCover, cloudy, seeded, repeated]) texture.dispose();
+  }
+});
+
+test('opt-in atmospheric scattering responds to sun elevation, haze and azimuth', () => {
+  const morning = [1, 0.11, 0], noon = [1, 1.2, 0];
+  const sample = (options, direction) => {
+    const config = graphicsConfig({
+      sky:'#303030', horizon:'#303030', ground:'#303030', sun_color:'#ffffff',
+      sun_direction:direction, sky_atmosphere:options,
+    }, 'ultra');
+    return skyTexture(config, new THREE.Vector3(...config.sunDirection));
+  };
+  const color = (texture, azimuth, elevation) => {
+    const {data,width,height} = texture.image;
+    const x = Math.floor((azimuth / (2 * Math.PI) + 0.5) * width);
+    const y = Math.floor((elevation / Math.PI + 0.5) * height);
+    return [...data.subarray(4 * (y * width + x), 4 * (y * width + x) + 3)].map(THREE.DataUtils.fromHalfFloat);
+  };
+  assert.deepEqual(graphicsConfig({sky_atmosphere:{strength:8,haze:-1}}, 'ultra').skyAtmosphere,
+    {strength:1,haze:0});
+  assert.deepEqual(sample(false, morning).image.data, sample({strength:0}, morning).image.data);
+  const sunset = sample({haze:0.7}, morning), dry = sample({haze:0}, morning), day = sample(true, noon);
+  const near = color(sunset, 0.12, 0.12), away = color(sunset, 1.9, 0.12);
+  assert.ok(near[0] > near[2] + 0.04, 'low sunlight warms the sky');
+  assert.ok(near[0] > away[0] + 0.06, 'forward haze follows the sun');
+  assert.ok(near[0] > color(dry, 0.12, 0.12)[0] + 0.06, 'more haze increases the halo');
+  const zenith = color(day, 1.5, 1.45);
+  assert.ok(zenith[2] > zenith[0] + 0.015, 'daytime overhead sky scatters more blue');
+  assert.deepEqual(color(sunset, 0.12, -0.12), color(dry, 0.12, -0.12));
+  assert.deepEqual(sample(true, [1,-1,0]).image.data, sample(false, [1,-1,0]).image.data);
 });
 
 test('road boxes do not share a batch template with identical plain boxes', () => {

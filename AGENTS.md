@@ -135,6 +135,12 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- `ai_world.occlusion` (Default true), `occlusion_margin` (Default 2 m): Terrain-
+  Strahlproben blenden verdeckte Chunks und Terrain-Kacheln konservativ aus.
+  Neun obere Boxpunkte, zwei verdeckte Ergebnisse vor Ausblenden, sofort sichtbar
+  bei freier Sicht; gemeinsames Round-Robin-Budget von 96 Tests pro Frame.
+  Stats: `occludedChunks`, `occludedTerrainTiles`, `occlusionTests` (auch Benchmark).
+
 - `ai_graphics`: `time_of_day`, `foliage:{density,distance}`, `water:{level,color}`,
   `fog_density`; deprecated Alias `ai_render` überschreibt gleiche Felder.
   Vegetation/Wasser folgen der bestehenden Grafikqualität; Terrain-Sampler:
@@ -167,6 +173,21 @@ Player-Prop `ai_input` (Objekt/JSON): `bindings`, `deadzone` (0.15),
 erlaubt Neubelegung und speichert pro Spieltitel lokal. Touch-Steuerung wird bei
 groben Zeigern oder erster Touch-Eingabe sichtbar. Schema/Details: `docs/INPUT.md`.
 Checks: `node --test tools/test_web_*.mjs`, Web-Export und Release-Parität.
+
+## Multiplayer / Netcode
+
+- `engine-net`: 60-Hz-Autorität, `net_player`-Slots nach ID, eigene Inputs,
+  Prediction/Rollback, Snapshot-Deltas und 100-ms-Interpolation; `shared/` frozen.
+- MCP `net_simulate {clients:2,ticks:600,rtt_ms:120,jitter_ms:20,loss:0.05,seed:1,
+  inputs:[[{tick:0,action:"move_x",value:1}],[]]}`: isoliert von Authoring/Play;
+  optional `scene` als JSON oder projektgebundener Pfad. Positionsvergleich am
+  gleichen Tick; `null` bedeutet kein Vergleich, nicht Konvergenz.
+- Arena: `examples/net_arena/`; `cargo run -p engine-net --example loopback --
+  --scene examples/net_arena/scene.json --rtt-ms 120 --jitter-ms 20 --loss 0.05`.
+- Checks: `cargo test -p engine-net`; `cargo test -p engine-tests --test netcode`;
+  `cargo build -p engine-net --target wasm32-unknown-unknown`. Doku: `docs/NETCODE.md`.
+  Kein Spawn-Replikat, keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
+  Browser-Transport fehlt noch.
 
 ## Shooter / First Person
 

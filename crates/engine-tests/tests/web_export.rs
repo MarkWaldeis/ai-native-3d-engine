@@ -85,6 +85,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "nature-settings.js",
         "streaming.js",
         "world.js",
+        "occlusion.js",
         "effects.js",
         "presentation.js",
         "graphics-settings.js",
@@ -93,6 +94,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "sky.js",
         "materials.js",
         "surfaces.js",
+        "atmosphere.js",
         "local-lights.js",
         "style.css",
         "scene.json",
@@ -122,7 +124,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
     lateral
         .step(
             30,
-            &[engine_runtime::Input {
+            &[engine_runtime::Input { entity: None,
                 tick: 0,
                 action: "move_z".into(),
                 value: 1.0,
@@ -142,7 +144,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
     let mut sim = engine_runtime::Simulation::from_sources(scene, scripts).unwrap();
     sim.step(
         180,
-        &[engine_runtime::Input {
+        &[engine_runtime::Input { entity: None,
             tick: 0,
             action: "move_x".into(),
             value: 1.0,
@@ -252,6 +254,51 @@ fn web_export_bundles_authored_low_lods_and_rejects_invalid_paths() {
 }
 
 #[test]
+fn web_export_bundles_local_primitive_material_maps_once() {
+    let fixture = Fixture::new();
+    let root = &fixture.0;
+    let mut png_bytes = Vec::new();
+    {
+        let mut png = png::Encoder::new(&mut png_bytes, 2, 2);
+        png.set_color(png::ColorType::Rgb);
+        png.write_header().unwrap().write_image_data(&[128; 12]).unwrap();
+    }
+    std::fs::write(root.join("surface.PNG"), &png_bytes).unwrap();
+    std::fs::write(root.join("invalid.png"), b"not an image").unwrap();
+    let mut scene: Scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"floor","kind":"plane","size":4,
+         "props":{"ai_material":{"base_color_map":"surface.PNG","uv_repeat":[2,3]}}},
+        {"id":2,"name":"box","kind":"box","size":[1,1,1],
+         "props":{"ai_material":"{\"normal_map\":\"./surface.PNG\",\"orm_map\":\"surface.PNG\"}"}}
+    ]})).unwrap();
+    let original = scene.clone();
+    let out = root.join("material-site");
+    let pkg = root.join("pkg");
+    let report = export_bundle(&scene, root, &out, &pkg).unwrap();
+    assert_eq!(scene, original);
+    assert_eq!(report["assets"], 1);
+    let bundled = "assets/material/0.png";
+    assert_eq!(std::fs::read(out.join(bundled)).unwrap(), png_bytes);
+    let exported: Scene =
+        serde_json::from_slice(&std::fs::read(out.join("scene.json")).unwrap()).unwrap();
+    assert_eq!(exported.entities[0].props["ai_material"]["base_color_map"], bundled);
+    assert_eq!(exported.entities[0].props["ai_material"]["uv_repeat"], json!([2,3]));
+    let parsed: Value = serde_json::from_str(
+        exported.entities[1].props["ai_material"].as_str().unwrap()
+    ).unwrap();
+    assert_eq!(parsed, json!({"normal_map":bundled,"orm_map":bundled}));
+    for (i, bad) in [
+        json!("https://example.invalid/color.png"), json!("../outside.png"),
+        json!(root.join("surface.PNG")), json!("missing.png"), json!("invalid.png"), json!(42),
+    ].into_iter().enumerate() {
+        scene.entities[0].props["ai_material"]["base_color_map"] = bad;
+        let destination = root.join(format!("bad-material-{i}"));
+        assert!(export_bundle(&scene, root, &destination, &pkg).is_err());
+        assert!(!destination.exists());
+    }
+}
+
+#[test]
 fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
     let fixture = Fixture::new();
     let repo = root();
@@ -264,7 +311,7 @@ fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
     let original = scene.clone();
     let report = export_bundle(&scene, &repo, &out, &pkg).unwrap();
     assert_eq!(scene, original);
-    assert_eq!(report["assets"], 2);
+    assert_eq!(report["assets"], 5);
     assert!(out.join("vendor/addons/loaders/RGBELoader.js").is_file());
     assert!(out.join("contact-occlusion.js").is_file());
     let hdr = std::fs::read(repo.join("examples/material_studio/studio.hdr")).unwrap();
@@ -284,7 +331,7 @@ fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
         json!(r#"{"environment_map":"examples/material_studio/studio.hdr"}"#);
     assert_eq!(
         export_bundle(&scene, &repo, &fixture.0.join("string"), &pkg).unwrap()["assets"],
-        2
+        5
     );
 
     let assets = &fixture.0;

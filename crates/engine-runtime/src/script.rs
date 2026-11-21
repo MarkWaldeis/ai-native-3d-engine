@@ -175,7 +175,7 @@ pub(crate) fn engine(data: Rc<RefCell<Data>>) -> Engine {
             .collect()
     });
     engine.register_fn("input", |ctx: &mut Context, name: &str| -> f64 {
-        ctx.data.borrow().inputs.get(name).copied().unwrap_or(0.0)
+        ctx.data.borrow().input(ctx.id, name)
     });
     engine.register_fn("velocity", |ctx: &mut Context| -> Array {
         array(ctx.data.borrow().velocities.get(&ctx.id).copied().unwrap_or([0.0;3]))

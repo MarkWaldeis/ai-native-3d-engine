@@ -17,8 +17,10 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ("input-settings.js", include_str!("../crates/engine-web/player/input-settings.js")),
     ("animation.js", include_str!("../crates/engine-web/player/animation.js")),
     ("favicon.svg", include_str!("../crates/engine-web/favicon.svg")),
+    ("occlusion.js", include_str!("../crates/engine-web/player/occlusion.js")),
     ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),
     ("surfaces.js", include_str!("../crates/engine-web/player/surfaces.js")),
+    ("atmosphere.js", include_str!("../crates/engine-web/player/atmosphere.js")),
     (
         "nature.js",
         include_str!("../crates/engine-web/player/nature.js"),
@@ -308,6 +310,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
         }
     }
     let has_environment = bundle_environment(&mut scene, &root, &mut files)?;
+    let material_maps = bundle_material_maps(&mut scene, &root, &mut files)?;
     if let Some(mesh)=&scene.navmesh {files.insert("navigation.nav.json".into(),serde_json::to_vec(mesh)?);}
     files.insert("scene.json".into(), serde_json::to_vec_pretty(&scene)?);
     files.insert("scripts.json".into(), serde_json::to_vec_pretty(&scripts)?);
@@ -324,8 +327,86 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
         std::fs::write(path, bytes)?;
     }
     Ok(
-        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":content.values().map(Vec::len).sum::<usize>() + usize::from(has_environment),"terrain":terrains.len(),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
+        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":content.values().map(Vec::len).sum::<usize>() + usize::from(has_environment) + material_maps,"terrain":terrains.len(),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
     )
+}
+
+fn bundle_material_maps(
+    scene: &mut Scene,
+    root: &Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<usize> {
+    const MAX_BYTES: usize = 16 * 1024 * 1024;
+    const MAX_PIXELS: usize = 32 * 1024 * 1024;
+    const MAX_BUNDLE_BYTES: usize = 128 * 1024 * 1024;
+    let mut paths = BTreeMap::new();
+    let mut pixels = 0;
+    let mut total_bytes = 0;
+    for entity in &mut scene.entities {
+        if matches!(entity.mesh, PrimitiveKind::Gltf { .. }) {
+            continue;
+        }
+        let Some(authored) = entity.props.get_mut("ai_material") else {
+            continue;
+        };
+        let was_string = authored.is_string();
+        let mut material = match authored.as_str() {
+            Some(text) => serde_json::from_str(text).unwrap_or(Value::Null),
+            None => authored.clone(),
+        };
+        let mut changed = false;
+        for field in ["base_color_map", "normal_map", "orm_map"] {
+            let Some(reference) = material.get_mut(field) else {
+                continue;
+            };
+            let path = reference.as_str().map(Path::new)
+                .with_context(|| format!("ai_material.{field} must be a project-relative .png path"))?;
+            anyhow::ensure!(
+                path.is_relative() && path.extension().and_then(|ext| ext.to_str())
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("png")),
+                "ai_material.{field} must be a project-relative .png path"
+            );
+            let source = engine_core::project_path(root, path)
+                .with_context(|| format!("invalid ai_material.{field} path"))?;
+            let target = if let Some(target) = paths.get(&source) {
+                target
+            } else {
+                anyhow::ensure!(source.is_file(), "material map not found: {}", path.display());
+                let mut bytes = Vec::new();
+                std::fs::File::open(&source)?.take((MAX_BYTES + 1) as u64).read_to_end(&mut bytes)?;
+                anyhow::ensure!(bytes.len() <= MAX_BYTES, "material map exceeds 16 MiB: {}", path.display());
+                total_bytes += bytes.len();
+                anyhow::ensure!(total_bytes <= MAX_BUNDLE_BYTES, "material maps exceed 128 MiB per export");
+                pixels += check_material_png(&bytes)
+                    .with_context(|| format!("invalid material PNG: {}", path.display()))?;
+                anyhow::ensure!(pixels <= MAX_PIXELS, "material maps exceed 32 Mi pixels per export");
+                let target = format!("assets/material/{}.png", paths.len());
+                files.insert(target.clone(), bytes);
+                paths.entry(source).or_insert(target)
+            };
+            *reference = json!(target);
+            changed = true;
+        }
+        if changed {
+            *authored = if was_string { json!(serde_json::to_string(&material)?) } else { material };
+        }
+    }
+    Ok(paths.len())
+}
+
+fn check_material_png(bytes: &[u8]) -> Result<usize> {
+    let mut reader = png::Decoder::new(bytes).read_info()?;
+    let info = reader.info();
+    anyhow::ensure!(
+        info.width <= 4096 && info.height <= 4096
+            && info.bit_depth == png::BitDepth::Eight
+            && info.animation_control.is_none(),
+        "expected a static 8-bit PNG at most 4096×4096"
+    );
+    let pixels = info.width as usize * info.height as usize;
+    reader.next_frame(&mut vec![0; reader.output_buffer_size()])?;
+    reader.finish()?;
+    Ok(pixels)
 }
 
 fn bundle_environment(

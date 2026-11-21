@@ -11,7 +11,7 @@ const MAX_HITS: usize = 64;
 pub(crate) const DEFAULT_HEALTH: f64 = 100.0;
 const MAX_VARS: usize = 32;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct Combat {
     pub health: BTreeMap<u64, f64>,
     pub hits: BTreeMap<u64, Vec<Value>>,
@@ -188,12 +188,12 @@ pub(crate) fn register(engine: &mut Engine) {
     });
     engine.register_fn("aim_dir", |ctx: &mut Context| -> Array {
         let data = ctx.data.borrow();
-        let input = |name: &str| data.inputs.get(name).copied().unwrap_or(0.0);
+        let input = |name: &str| data.input(ctx.id, name);
         look_dir(input("look_yaw"), input("look_pitch")).into_iter().map(Dynamic::from).collect()
     });
     engine.register_fn("move_dir", |ctx: &mut Context| -> Array {
         let data = ctx.data.borrow();
-        let input = |name: &str| data.inputs.get(name).copied().unwrap_or(0.0);
+        let input = |name: &str| data.input(ctx.id, name);
         move_dir(input("move_x"), input("move_z"), input("look_yaw")).into_iter().map(Dynamic::from).collect()
     });
     engine.register_fn("health", |ctx: &mut Context| -> f64 { health_of(&ctx.data.borrow(), ctx.id) });
