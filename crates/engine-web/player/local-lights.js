@@ -93,6 +93,23 @@ export class LocalLights {
       const light = slots.pop();
       light.target?.removeFromParent();
       light.removeFromParent();
+      light.dispose();
+    }
+  }
+  setSpotShadow(active) {
+    const light = this.slots.spot[0];
+    if (!light || light.castShadow === active) return;
+    light.castShadow = active;
+    const { shadow } = light;
+    if (active) {
+      shadow.mapSize.setScalar(1024);
+      shadow.camera.near = 0.1;
+      shadow.camera.updateProjectionMatrix();
+      shadow.bias = -0.00015;
+      shadow.normalBias = 0.025;
+    } else {
+      shadow.dispose();
+      shadow.map = shadow.mapPass = null;
     }
   }
   update(focus, level) {
@@ -106,6 +123,7 @@ export class LocalLights {
     const maxX = cell(x + SEARCH_RADIUS), maxZ = cell(z + SEARCH_RADIUS);
     if (![minX, minZ, maxX, maxZ].every(Number.isSafeInteger)) {
       for (const type of TYPES) for (const light of this.slots[type]) light.intensity = 0;
+      this.setSpotShadow(false);
       return;
     }
     for (let cx = minX; cx <= maxX; cx++) {
@@ -128,6 +146,10 @@ export class LocalLights {
         }
       }
     }
+    const spots = this.chosen.spot;
+    const caster = level === 2 ? spots.findIndex(source => source.config.castShadow) : -1;
+    if (caster > 0) [spots[0], spots[caster]] = [spots[caster], spots[0]];
+    this.setSpotShadow(caster >= 0);
     for (const type of TYPES) this.slots[type].forEach((light, index) => {
       const source = this.chosen[type][index];
       if (!source) { light.intensity = 0; return; }

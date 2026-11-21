@@ -194,6 +194,32 @@ test('spotlight axes follow nonuniform and mirrored entity scales', () => {
   assert.ok(spot.target.position.distanceTo(new THREE.Vector3(1,0,-1).normalize()) < 1e-10);
 });
 
+test('only the nearest eligible Ultra spotlight casts shadows and releases its map on downgrade', () => {
+  const pool = new LocalLights(new THREE.Scene());
+  const focus = new THREE.Vector3();
+  for (const [id, x, cast] of [[1, 1, false], [2, 3, true], [3, 2, true], [4, 4, true]]) {
+    pool.register({id, transform:{position:[x,0,0], scale:[1,1,1], rotation_deg:[0,0,0]},
+      props:{ai_light:{type:'spot', intensity:id, cast_shadow:cast}}});
+  }
+  pool.update(focus, 2);
+  const shadowed = pool.slots.spot.filter(light => light.castShadow);
+  assert.equal(shadowed.length, 1);
+  assert.equal(shadowed[0].intensity, 3);
+  assert.equal(shadowed[0].shadow.mapSize.x, 1024);
+  assert.deepEqual(pool.slots.spot.map(light => light.intensity).sort(), [1,2,3,4]);
+  let disposed = false;
+  const map = new THREE.WebGLRenderTarget(1, 1);
+  map.addEventListener('dispose', () => { disposed = true; });
+  shadowed[0].shadow.map = map;
+  pool.update(focus, 1);
+  assert.ok(pool.slots.spot.every(light => !light.castShadow));
+  assert.ok(disposed);
+  assert.equal(shadowed[0].shadow.map, null);
+  pool.update(focus, 2);
+  pool.update(new THREE.Vector3(1000,0,0), 2);
+  assert.ok(pool.slots.spot.every(light => !light.castShadow && light.intensity === 0));
+});
+
 test('HDR respects fallback, render-pixel budget, and quality levels', () => {
   for (const [level, supported, strength] of [[0, true, 1], [2, false, 1], [2, true, 0]]) {
     assert.deepEqual(hdrSettings(level, supported, strength, 2560, 1440, 1.5), {
@@ -292,4 +318,9 @@ test('procedural sky stores linear HDR radiance and moves the solar highlight wi
   assert.equal(texture.colorSpace, THREE.LinearSRGBColorSpace);
   assert.ok(red(width / 2, height * 0.75) > 2, 'the +X 45° sun is HDR');
   assert.ok(red(0, height * 0.75) < 1, 'opposite side has no glare');
+});
+
+test('road boxes do not share a batch template with identical plain boxes', () => {
+  const box = {kind:'box', size:[4,0.1,20], color:[0.4,0.3,0.2]};
+  assert.notEqual(batchKey({...box, tags:['road']}), batchKey(box));
 });
