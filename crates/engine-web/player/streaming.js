@@ -9,7 +9,7 @@ export function worldConfig(entities) {
   if (!value && !large) return null;
   const config = {...defaults, ...value};
   if (typeof config.hlod !== 'boolean') throw new RangeError('Invalid ai_world.hlod');
-  if (!Number.isFinite(config.hlod_distance) || config.hlod_distance <= config.draw_distance) throw new RangeError('Invalid ai_world.hlod_distance');
+  if (!Number.isFinite(config.hlod_distance) || config.hlod && config.hlod_distance <= config.draw_distance) throw new RangeError('Invalid ai_world.hlod_distance');
   if (!Number.isInteger(config.hlod_cluster) || config.hlod_cluster < 1) throw new RangeError('Invalid ai_world.hlod_cluster');
   if (!Number.isFinite(config.hlod_min_radius) || config.hlod_min_radius < 0) throw new RangeError('Invalid ai_world.hlod_min_radius');
   if (config.camera_distance !== undefined && (!(config.camera_distance > 0) || !Number.isFinite(config.camera_distance))) throw new RangeError('Invalid ai_world.camera_distance');
