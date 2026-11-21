@@ -11,7 +11,8 @@ export async function verifyGraphics(browser, base, errors) {
   try {
     for (const [query, mode, level] of [['ultra', 'hdr', '2'], ['low', 'standard', '0'], ['legacy', 'legacy', '2']]) {
       await page.goto(`${base}/coin_game/?quality=${query}`);
-      await page.waitForFunction(() => !document.getElementById('start').disabled);
+      await page.waitForFunction(() => !document.getElementById('start').disabled || document.getElementById('modal').dataset.screen === 'error', null, { polling: 50 });
+      assert.equal(await page.locator('#start').isEnabled(), true, await page.locator('#modal-text').textContent());
       const actual = await page.evaluate(() => {
         advanceFrames(1);
         const canvas = document.getElementById('game');
