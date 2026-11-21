@@ -55,8 +55,15 @@ Remote rendering uses delayed snapshots, shortest-arc quaternion slerp matching
 Rapier's XYZ Euler convention, and at most 250 ms of velocity extrapolation.
 The monotonic render cursor prevents reordered arrivals from rewinding playback.
 
-The wire schema contains no mesh/collider/script definitions. Entity removal is
-supported; spawning an ID absent from the client's scene is rejected explicitly.
+Snapshots carry full mesh/collider/script entity definitions for script-spawned
+IDs. Full snapshots include all live spawned definitions; deltas include only
+new IDs relative to the acknowledged baseline. Authority replaces conflicting
+predicted definitions, and removals follow the interpolation timeline.
+`NetClient::entity_definitions()` returns the rendered entity set; diff its IDs
+between frames to create/destroy meshes. Script references must exist on peers.
+Constructors and `simulate::run` accept `SimSource::ProjectRoot(root)` to load
+native terrain/assets/scripts, or `SimSource::InMemory(scripts)` (bare script
+maps remain accepted). Reconciliation preserves the selected source mode.
 Late joiners receive authority transforms/state, not full Rapier contact caches
 or combat internals. This is a trusted-session prototype: no authentication,
 encryption, fragmentation, congestion control, or reliable event channel. UDP
