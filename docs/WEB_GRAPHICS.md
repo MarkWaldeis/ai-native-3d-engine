@@ -51,6 +51,10 @@ python3 -m http.server 8000 --directory target/site
 
 Open `http://localhost:8000/material_studio/?quality=ultra`.
 
+QA captures: [desktop Chromium](web_material_studio_desktop.png),
+[iPhone WebKit profile](web_material_studio_iphone.png),
+[iPad WebKit profile](web_material_studio_ipad.png).
+
 Preview a preset without editing the scene using
 `?quality=low`, `?quality=balanced`, `?quality=ultra`, or `?quality=legacy`.
 The first three enable the enhanced renderer and fix the quality tier.
