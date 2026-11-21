@@ -30,8 +30,15 @@ pub struct NetEntityState {
 impl Simulation {
     /// Insert or replace an authoritative entity without replaying its on_start hook.
     /// Script state and body velocities are supplied separately by the snapshot.
-    pub fn insert_net_entity(&mut self, entity: Entity) -> Result<()> {
+    pub fn insert_net_entity(&mut self, mut entity: Entity) -> Result<()> {
         super::validate_entity(&entity)?;
+        if let Some(animator)=&mut entity.animator {
+            if !animator.machine.states.contains_key(&animator.current_state)
+                || animator.previous_state.as_ref().is_some_and(|state| !animator.machine.states.contains_key(state))
+                || animator.machine.parameters.keys().any(|key| !animator.values.contains_key(key)) {
+                crate::animation::reset(animator);
+            }
+        }
         let next = entity.id.checked_add(1).context("entity id overflow")?;
         ensure!(
             self.data.borrow().entity_index(entity.id).is_some()

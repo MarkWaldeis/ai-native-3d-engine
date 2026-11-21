@@ -24,6 +24,45 @@ fn join(server: &mut NetServer, client: &mut NetClient, peer: u64) -> Result<()>
     )
 }
 
+fn animated_scene() -> shared::scene::Scene {
+    let mut scene=support::scene();
+    scene.entities.push(serde_json::from_value(json!({"id":8,"name":"animated","kind":"gltf","path":"unused.glb",
+        "animator":{"clips":[{"name":"Idle","duration":1.0}],"machine":{"initial":"idle","states":{"idle":{"clip":"Idle"}}}}})) .unwrap());
+    scene
+}
+
+#[test]
+fn animator_correction_preserves_live_state_during_replay() -> Result<()> {
+    let scene=animated_scene();
+    let mut server=NetServer::new(scene.clone(),BTreeMap::new(),ServerConfig {snapshot_interval:1,..ServerConfig::default()})?;
+    let mut client=NetClient::new(scene,BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut client,1)?;
+    for tick in 0..3 {client.tick(BTreeMap::from([("move_x".into(),1.0)]),tick as f64*17.0)?;}
+    for (_,snapshot) in server.tick()? {client.receive(snapshot,51.0)?;}
+    assert_eq!(client.stats().corrections,1);
+    let entity=client.simulation().scene().entities.into_iter().find(|e|e.id==8).unwrap();
+    let animator=entity.animator.unwrap();
+    assert_eq!(animator.current_state,"idle");
+    assert!((animator.time-3.0*engine_runtime::DT as f64).abs()<1e-6);
+    Ok(())
+}
+
+#[test]
+fn net_entity_insertion_initializes_authored_animator_defaults() -> Result<()> {
+    let scene=animated_scene();
+    let entity=scene.entities.last().unwrap().clone();
+    let mut sim=engine_runtime::Simulation::from_sources(scene,BTreeMap::new())?;
+    sim.insert_net_entity(entity)?;
+    sim.step(1,&[])?;
+    assert_eq!(sim.scene().entities.last().unwrap().animator.as_ref().unwrap().current_state,"idle");
+    let mut live=sim.scene().entities.last().unwrap().clone();
+    live.animator.as_mut().unwrap().time=0.5;
+    sim.insert_net_entity(live)?;
+    sim.step(1,&[])?;
+    assert!(sim.scene().entities.last().unwrap().animator.as_ref().unwrap().time>0.5);
+    Ok(())
+}
+
 #[test]
 fn zero_latency_prediction_is_bit_exact_without_corrections() -> Result<()> {
     let mut server = NetServer::new(support::scene(), BTreeMap::new(), ServerConfig::default())?;

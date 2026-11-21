@@ -511,6 +511,13 @@ impl NetClient {
 
 fn same_definition(a: &Entity, b: &Entity) -> bool {
     let mut a = a.clone();
+    let same_animator=match (&a.animator,&b.animator) {
+        (Some(a),Some(b)) => a.clips==b.clips && a.machine==b.machine && a.speed==b.speed && a.blend_time==b.blend_time,
+        (None,None) => true,
+        _ => false,
+    };
+    if !same_animator { return false; }
+    a.animator=b.animator.clone();
     a.transform.position = b.transform.position;
     a.transform.rotation_deg = b.transform.rotation_deg;
     a == *b
