@@ -32,7 +32,7 @@ test('haze composes material hooks, keeps program identities and uses a cheap lo
   const scene=new T.Scene(),config=graphicsConfig({haze:true,clouds:true}),fx=new Atmosphere(scene,config,2);
   const m=new T.MeshStandardMaterial();let calls=0;
   m.onBeforeCompile=()=>{calls++;};const key=m.customProgramCacheKey();
-  fx.patch(m);const shader={uniforms:{},vertexShader:'#include <fog_vertex>',fragmentShader:'#include <fog_fragment>'};m.onBeforeCompile(shader);
+  fx.patch(m);const shader={uniforms:{},vertexShader:'#include <begin_vertex>\n#include <fog_vertex>',fragmentShader:'#include <fog_fragment>'};m.onBeforeCompile(shader);
   assert.equal(calls,1);assert.equal(m.customProgramCacheKey(),key+'-valley-haze-v1');
   assert.ok(shader.fragmentShader.includes('hazeLevel<0.5'));assert.ok(shader.fragmentShader.includes('hazeHorizon+hazeSun'));
   const low=shader.fragmentShader.split('}else{')[0];assert.ok(low.includes('vFogDepth*hazeDensity'));assert.ok(T.ShaderChunk.fog_pars_fragment.includes('varying float vFogDepth'));assert.ok(!low.includes('exp('));assert.ok(!low.includes('length('));
@@ -41,6 +41,8 @@ test('haze composes material hooks, keeps program identities and uses a cheap lo
   fx.setQuality(1);assert.equal(fx.clouds.visible,true);fx.update(1);assert.equal(fx.clouds.material.uniforms.cloudTime.value,1);
   const dynamic=new T.MeshStandardMaterial();let variant=0;dynamic.customProgramCacheKey=()=>`water-${variant}`;fx.patch(dynamic);variant=1;assert.equal(dynamic.customProgramCacheKey(),'water-1-valley-haze-v1');
   const plain=new T.MeshBasicMaterial({fog:false}),original=plain.onBeforeCompile;fx.patch(plain);assert.equal(plain.onBeforeCompile,original);
+  const sprite=new T.SpriteMaterial();fx.patch(sprite);const spriteShader={uniforms:{},vertexShader:'#include <fog_vertex>',fragmentShader:'#include <fog_fragment>'};sprite.onBeforeCompile(spriteShader);
+  assert.ok(!spriteShader.vertexShader.includes('hazePosition'));assert.ok(!spriteShader.fragmentShader.includes('vHazeWorld'));
   fx.dispose();assert.equal(scene.children.length,0);
 });
 
