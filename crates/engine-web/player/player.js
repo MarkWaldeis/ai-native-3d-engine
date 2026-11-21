@@ -594,9 +594,9 @@ function frame(now) {
     updateCamera(false, elapsed);
     occluder?.beginFrame();
     streaming?.update(camera);
-    for (const id of ragdolls.keys()) {
+    for (const [id, group] of ragdolls) {
       const root = objects.get(id);
-      if (root) root.visible = false;
+      if (root && group.visible) root.visible = false;
     }
     terrain?.update(camera, now);
     const streamedFocus = streaming && objects.get(playerId)?.position;

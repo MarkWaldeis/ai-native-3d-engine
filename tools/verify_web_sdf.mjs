@@ -28,6 +28,7 @@ const server = http.createServer(async (req, res) => {
         const tags = entity.tags || [];
         const text = tags.includes('player') ? '{score} / {total:coin} ({left:coin})' : tags.includes('coin') ? 'Münze' : tags.includes('goal') ? 'Ziel\nÄ Ö Ü ß' : null;
         if (text) entity.props = { ...entity.props, ai_text: { text, size: 0.5, color: '#fff', outline_width: 0.15, outline_color: '#102030', ...(tags.includes('goal') ? { offset: [0, 2.5, 0] } : {}) } };
+        if (tags.includes('player')) entity.props.ai_graphics = { logarithmic_depth: true };
       }
       res.end(JSON.stringify(scene));
     } else if (path.basename(file) === 'sdf-text.js') res.end(await fs.readFile(file, 'utf8') + instrument);
@@ -51,6 +52,7 @@ try {
     await page.addInitScript(installClock);
     await page.goto(`${base}/coin_game/`);
     await page.waitForFunction(() => document.getElementById('start')?.disabled === false, null, { polling: 50 });
+    assert.equal(await page.locator('#game').getAttribute('data-depth'), 'logarithmic');
     assert.ok(await page.evaluate(async () => {
       const THREE = await import('three');
       const { SdfLabel, SdfAtlas } = await import('./sdf-text.js');
@@ -79,6 +81,7 @@ try {
     if (phone) await page.locator('#start').tap(); else await page.locator('#start').click();
     await page.evaluate(() => { advanceFrames(3); window.playerLabel = [...sdfLabels].find(l => l.config.text.includes('{score}')); window.originalGeometry = playerLabel.mesh.geometry; });
     assert.ok(await page.evaluate(() => {
+      document.getElementById('pause').click();
       const label = playerLabel, root = label.parent, id = [...sdfObjects].find(([, object]) => object === root)[0];
       const state = { id, enabled: true, parts: [{ radius: 0.2, half_height: 0.3, position: [2, 1, -1], rotation_deg: [0, 0, 0] }] };
       sdfApplyRagdolls([state]); label.update(sdfCamera);
@@ -87,9 +90,12 @@ try {
       state.parts[0].position[0] = 3; sdfApplyRagdolls([state]); label.update(sdfCamera);
       valid &&= Math.abs(label.worldPosition.x - 3) < 1e-6;
       state.enabled = false; sdfApplyRagdolls([state]); label.update(sdfCamera);
+      advanceFrames(1);
       valid &&= label.parent === root && root.visible && !group.visible;
       state.enabled = true; sdfApplyRagdolls([state]); sdfApplyRagdolls([]); label.update(sdfCamera);
-      return valid && label.parent === root && root.visible && !sdfRagdolls.has(id);
+      valid &&= label.parent === root && root.visible && !sdfRagdolls.has(id);
+      document.getElementById('start').click();
+      return valid;
     }), 'labels follow visible ragdoll parts and return to the root on disable/removal');
     assert.equal(await page.locator('#hud-layout > *').count(), 0, 'SDF counts work without ai_hud');
     assert.deepEqual(await page.evaluate(() => ({ count: __engineStats.sdfLabels, text: playerLabel.text })), { count: 5, text: '0 / 3 (3)' });
@@ -150,7 +156,7 @@ try {
     await page.evaluate(() => advanceFrames(2));
     assert.equal(await page.evaluate(() => __engineStats.sdfLabels), 4);
     assert.equal(await page.evaluate(() => [...sdfLabels].find(l => l.config.text.includes('{score}')).text), '1 / 3 (2)', 'restored save excludes collected coins without ai_hud');
-    console.log(`PASS SDF ${name}: real WASM labels, ${pixels} visible projected text pixels, shared left counts without ai_hud, pickup, removal, stable geometry, restart and save restore`);
+    console.log(`PASS SDF ${name}: real WASM labels, ${pixels} visible projected text pixels, log depth, scaled parents, ragdolls, shared left counts without ai_hud, pickup, removal, stable geometry, restart and save restore`);
     await page.close();
   }
   assert.deepEqual(errors, []); console.log('PASS SDF browser: no console/page errors or failed assets; local assets only');
