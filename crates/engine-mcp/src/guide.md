@@ -67,10 +67,44 @@ project routing, not an authentication/sandbox boundary.
 `task_complete` only after verification. `apply_batch` defaults to `mode:"partial"`:
 earlier successful commands remain if a later one fails. Use `mode:"atomic"` plus
 batch `expected_revision` for one scene revision/journal commit, or no changes on
-rejection. Atomic commands are only `spawn_primitive`, `set_transform`, `set_color`,
-`remove_entity`, `set_camera`; no child CAS, nested batches, scripts, Blender,
+rejection. Atomic commands are `spawn_primitive`, `set_transform`, `set_color`,
+`remove_entity`, `set_camera`, `prefab_*`; no child CAS, nested batches, write_script, Blender,
 save/export or other side effects. Empty atomic batches do not create revisions.
 Every supplied revision must be a nonnegative integer (not null/string/float).
+
+## Large-world authoring
+
+Prefer `get_scene_summary` and `query_entities` over full get_scene_state dumps.
+query_entities ANDs tag/component/prefab, bbox {min,max}, near {point,radius},
+region {x,z,chunk_size:128}; spatial tests use entity origins. limit defaults 100,
+max 500. Rows are compact (no props/source/geometry); pass identical filters and
+next_cursor for more. Edits invalidate cursors explicitly: restart pagination.
+The summary caps each aggregate at 64 buckets and includes full distinct counts.
+These tools query authoring; legacy query remains the active-simulation query.
+
+prefab_create {name,nodes:[{key,parent?,entity}]} defines one rooted local-transform
+hierarchy. prefab_instantiate {name,layout,transform?,overrides?}: grid counts[x,z]
+and spacing[x,z], scatter count/min/max/seed, along_path count/points; alternatively
+instances:[{transform,overrides}]. Max 10000 instances/100000 expanded entities.
+prefab_update replaces nodes, propagating to all instances and preserving
+per-node overrides and IDs. Root key is immutable; clear a removed key's overrides
+before deleting it. prefab_set_overrides {instance_id,overrides} replaces the map
+({} resets); JSON merge patches, arrays replace, null clears optional components.
+Direct set_transform/color/write_script edits also become overrides. Claim every
+affected member before editing; hierarchy edits may affect root and descendants.
+prefab_remove_instance removes the complete hierarchy; no individual removal.
+Definitions/overrides/scripts participate in snapshots/save/load/restart/atomic
+batches. Hierarchies flatten into ordinary runtime bodies, not animated parents.
+Shear-producing parent/child TRS and zero scales are rejected; bake in Blender.
+
+Blender collection empties import as prefab instances; source members are not
+duplicated as scene copies. Stable ai_uid values identify collections/members.
+Name aligned meshes *_LOD0/1/2 (same transform/origin); LOD1/2 are optional asset
+variants, not scene entities. Existing player distances/hysteresis select the
+authored variants, otherwise retain existing mesh/impostor fallbacks. Immutable
+SHA-256 GLBs deduplicate geometry and keep old revisions usable. Synthetic member
+UIDs cannot be pushed as independent Blender objects: edit the shared prototype
+or engine overrides. Runtime export strips authoring metadata and bundles LODs.
 
 Skripte / scripts: `write_script` binds immutable `{path,source}` versions only to
 explicit IDs. Rollback restores executable behavior even if files later change.

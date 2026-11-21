@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 impl Engine {
     pub(crate) fn sync_blender(&mut self, args: &Value, agent: &str) -> Result<Value, String> {
-        let sync = || -> anyhow::Result<(Vec<Entity>, Vec<u64>)> {
+        let sync = || -> anyhow::Result<(Vec<Entity>, Vec<u64>,Value)> {
             let objects = match args.get("objects") {
                 None => None,
                 Some(value) => {
@@ -83,6 +83,7 @@ impl Engine {
                     script: existing.first().and_then(|e|e.script.clone()),
                 };
                 merge_gameplay(&mut entity, &item["props"], self.assets_dir.parent().unwrap_or(std::path::Path::new(".")))?;
+                if let Some(lods)=item["props"].get("web_lods"){entity.props["web_lods"]=lods.clone();}else{entity.props.as_object_mut().unwrap().remove("web_lods");}
                 entities.push(entity);
             }
             let all = manifest["all_mesh_uids"]
@@ -103,21 +104,23 @@ impl Engine {
             } else {
                 vec![]
             };
-            Ok((entities, remove))
+            Ok((entities, remove,manifest))
         };
-        let (entities, remove) = sync().map_err(|e| e.to_string())?;
-        let ids: Vec<_> = entities
+        let (entities, remove,manifest) = sync().map_err(|e| e.to_string())?;
+        let mut ids: Vec<_> = entities
             .iter()
             .filter_map(|e| (e.id != 0).then_some(e.id))
             .chain(remove.iter().copied())
             .collect();
-        self.check_entity_locks(&ids, agent)?;
-        let value = self
-            .apply_cmd(
-                Command::SyncBlender { entities, remove },
-                crate::expected_rev(args),
-            )
-            .map_err(|e| e.to_string())?;
+        let mut candidate=self.world.clone();
+        let value=candidate.apply(Command::SyncBlender {entities,remove}).map_err(|e|e.to_string())?;
+        ids.extend(value["ids"].as_array().into_iter().flatten().filter_map(Value::as_u64));
+        let mut scene=candidate.scene.clone();let mut next=candidate.next_entity_id();
+        ids.extend(self.import_blender_prefabs(&mut scene,&manifest,&mut next).map_err(|e|e.to_string())?);
+        ids.sort_unstable();ids.dedup();self.check_entity_locks(&ids, agent)?;
+        engine_core::validate_scene_paths(&scene,self.assets_dir.parent().unwrap_or(std::path::Path::new("."))).map_err(|e|e.to_string())?;
+        if scene!=self.world.scene {self.world.replace_authoring_scene(scene).map_err(|e|e.to_string())?;}
+        let value=json!({"ids":ids,"revision":self.world.revision});
         Ok(text_result(value.to_string()))
     }
 
@@ -150,7 +153,7 @@ fn raw_baseline(entity: &Entity) -> Value {
     })
 }
 
-fn merge_gameplay(entity: &mut Entity, incoming: &Value, root: &std::path::Path) -> anyhow::Result<()> {
+pub(crate) fn merge_gameplay(entity: &mut Entity, incoming: &Value, root: &std::path::Path) -> anyhow::Result<()> {
     let mut incoming = incoming.as_object().ok_or_else(||anyhow::anyhow!("Blender props must be an object"))?.clone();
     if let Some(deleted) = incoming.remove("ai_deleted_props") {
         let deleted: Vec<String> = serde_json::from_value(decode_prop(&deleted))?;
