@@ -9,6 +9,7 @@ keywords = ["game-engine", "mcp", "wgpu", "ecs", "ai"]
 
 [workspace]
 members = [
+    "crates/engine-terrain",
     "shared",
     "crates/engine-core",
     "crates/engine-render",

@@ -195,6 +195,7 @@ impl Engine {
         let expected = expected_rev(args);
         let r = (|| -> anyhow::Result<Value> {
             match name {
+                "terrain_generate" | "terrain_import" | "terrain_info" | "terrain_sample" => engine_mcp::terrain::execute(name, args, self.assets_dir.parent().unwrap_or(Path::new("."))),
                 "write_script" => self.write_script(args),
                 "play" | "step" | "stop" | "get_sim_state" | "simulate" | "query" => self.runtime_tool(name, args),
                 "blender_status" => {

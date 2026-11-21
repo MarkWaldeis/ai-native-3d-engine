@@ -42,6 +42,25 @@ Danach: `cargo build` / `cargo build --release` / `cargo test --workspace`.
 
 ## Build (macOS / Linux)
 
+## Terrain (CPU / native Physik)
+
+`crates/engine-terrain`: deterministische unabhängige 256-m-Kacheln, PNG16/R16-
+Import, Manifest + f32-Höhen mit Halo, lokale Meshes und f64-Floating-Origin-API.
+44-km²-Preset: 26×26 Kacheln mit 129 Proben pro Kante. Randkacheln werden
+aufgefüllt; Sample-API prüft die echte Kartengrenze. `shared/` bleibt unverändert.
+MCP-Katalog/Dispatcher ergänzen Terrain lokal in `engine-mcp`, Pfade projektgebunden.
+Tools: `terrain_generate`, `terrain_import`, `terrain_info`, `terrain_sample`.
+`props.ai_terrain` referenziert das Manifest relativ zum Projektroot;
+`ai_terrain_radius` (Default 512 m) begrenzt native Rapier-Collider um Player und
+dynamische Körper. Nur Translation, keine Terrain-Rotation/Skalierung.
+Floating-Origin ist eine explizite API, kein automatischer Umbau der f32-Szene.
+Blender: `blender/terrain_heightmap.py`, nach Sculpting `--bake-active`;
+PNG16 + `.import.json`, Blender XY/Z → Engine XZ/Y, R16 Little Endian.
+Tests: `cargo test -p engine-tests --test terrain`; Release-Messung:
+`cargo run --release -p engine-terrain --example generate`. Kein Web-LOD hier.
+
+### Installation
+
 Stable Rust via rustup installieren, dann `cargo build --workspace` und
 `cargo test --workspace`. Bei frischer Installation ggf. `source "$HOME/.cargo/env"`.
 Die Windows-GNU-Linker-Konfiguration ist target-spezifisch und wird hier nicht

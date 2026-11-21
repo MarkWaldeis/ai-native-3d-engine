@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+engine-terrain = { path = "../engine-terrain" }
+engine-core = { path = "../engine-core" }
 shared = { path = "../../shared" }
 engine-geo = { path = "../engine-geo" }
 anyhow = "1"

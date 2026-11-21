@@ -20,6 +20,9 @@ pub(crate) struct Physics {
     multibody: MultibodyJointSet,
     ccd: CCDSolver,
     handles: BTreeMap<u64, RigidBodyHandle>,
+    root: std::path::PathBuf,
+    terrain: BTreeMap<u64, (String, engine_terrain::Terrain)>,
+    terrain_handles: BTreeMap<(u64, u32, u32), ColliderHandle>,
 }
 
 fn pose(t: &Transform) -> Isometry<Real> {
@@ -33,9 +36,122 @@ fn pose(t: &Transform) -> Isometry<Real> {
     )
 }
 
+fn nearby_terrain_tiles(
+    config: &engine_terrain::TerrainConfig,
+    offset: [f32; 3],
+    centers: &[[f64; 2]],
+    radius: f64,
+) -> BTreeSet<usize> {
+    let grid = config.grid();
+    let mut tiles = BTreeSet::new();
+    for center in centers {
+        let local = [center[0] - offset[0] as f64, center[1] - offset[2] as f64];
+        let lower: [i64; 2] = std::array::from_fn(|i| {
+            (((local[i] - radius) / config.tile_m).ceil() - 1.0).clamp(0.0, grid[i] as f64) as i64
+        });
+        let upper: [i64; 2] = std::array::from_fn(|i| {
+            ((local[i] + radius) / config.tile_m)
+                .floor()
+                .clamp(-1.0, grid[i] as f64 - 1.0) as i64
+        });
+        for z in lower[1]..=upper[1] {
+            for x in lower[0]..=upper[0] {
+                let min_x = x as f64 * config.tile_m;
+                let min_z = z as f64 * config.tile_m;
+                if (local[0] - local[0].clamp(min_x, min_x + config.tile_m)).powi(2)
+                    + (local[1] - local[1].clamp(min_z, min_z + config.tile_m)).powi(2)
+                    <= radius * radius
+                {
+                    tiles.insert(z as usize * grid[0] as usize + x as usize);
+                }
+            }
+        }
+    }
+    tiles
+}
+
+#[cfg(test)]
+mod terrain_tests {
+    use super::*;
+
+    #[test]
+    fn mesh_and_parry_heightfield_use_the_same_diagonal() {
+        let config = engine_terrain::TerrainConfig {
+            size_m: [256.0; 2], samples: 2, height_scale: 0.0, ..Default::default()
+        };
+        let mut terrain = engine_terrain::Terrain::generate(config.clone()).unwrap();
+        let tile = &mut terrain.tiles[0];
+        tile.heights[10] = 200.0;
+        let mesh = tile.mesh(&config);
+        let heightfield = rapier3d::parry::shape::HeightField::with_flags(
+            DMatrix::from_fn(2, 2, |row, col| tile.height(&config, col, row)),
+            vector![256.0, 1.0, 256.0],
+            rapier3d::parry::shape::HeightFieldFlags::FIX_INTERNAL_EDGES,
+        );
+        let (a, b) = heightfield.triangles_at(0, 0);
+        for (triangle, indices) in [a.unwrap(), b.unwrap()].iter().zip(mesh.indices.chunks(3)) {
+            for point in [triangle.a, triangle.b, triangle.c] {
+                let local = [point.x + 128.0, point.y, point.z + 128.0];
+                assert!(indices.iter().any(|i| mesh.vertices[*i as usize].position == local));
+            }
+        }
+        assert_eq!(terrain.sample(128.0, 128.0).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn bounded_candidates_match_full_grid_including_edges_and_outside() {
+        let config = engine_terrain::TerrainConfig {
+            size_m: [1024.0, 768.0],
+            ..Default::default()
+        };
+        let offset = [100.0, 0.0, -200.0];
+        let centers = [
+            [356.0, 56.0],
+            [100.0, -200.0],
+            [1200.0, 600.0],
+            [-900.0, -1200.0],
+        ];
+        for radius in [0.0, 1.0, 100.0, 256.0, 1024.0] {
+            let grid = config.grid();
+            let mut expected = BTreeSet::new();
+            for z in 0..grid[1] {
+                for x in 0..grid[0] {
+                    let min_x = offset[0] as f64 + x as f64 * config.tile_m;
+                    let min_z = offset[2] as f64 + z as f64 * config.tile_m;
+                    if centers.iter().any(|p: &[f64; 2]| {
+                        (p[0] - p[0].clamp(min_x, min_x + config.tile_m)).powi(2)
+                            + (p[1] - p[1].clamp(min_z, min_z + config.tile_m)).powi(2)
+                            <= radius * radius
+                    }) {
+                        expected.insert((z * grid[0] + x) as usize);
+                    }
+                }
+            }
+            assert_eq!(
+                nearby_terrain_tiles(&config, offset, &centers, radius),
+                expected
+            );
+            let reversed: Vec<_> = centers.iter().rev().copied().collect();
+            assert_eq!(
+                nearby_terrain_tiles(&config, offset, &reversed, radius),
+                expected
+            );
+        }
+        assert!(nearby_terrain_tiles(&config, offset, &[], 512.0).is_empty());
+        assert!(nearby_terrain_tiles(&config, offset, &[[1e6, 1e6]], 10.0).is_empty());
+        assert_eq!(
+            nearby_terrain_tiles(&config, offset, &[[356.0, 56.0]], 0.0).len(),
+            4
+        );
+    }
+}
+
 impl Physics {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(root: std::path::PathBuf) -> Self {
         Self {
+            root,
+            terrain: BTreeMap::new(),
+            terrain_handles: BTreeMap::new(),
             pipeline: PhysicsPipeline::new(),
             islands: IslandManager::new(),
             broad: BroadPhaseMultiSap::new(),
@@ -50,6 +166,7 @@ impl Physics {
     }
 
     pub(crate) fn reconcile(&mut self, scene: &Scene) -> Result<()> {
+        self.reconcile_terrain(scene)?;
         let live: BTreeSet<_> = scene.entities.iter().map(|e| e.id).collect();
         let removed: Vec<_> = self
             .handles
@@ -126,6 +243,118 @@ impl Physics {
             }
             self.handles.insert(entity.id, handle);
         }
+        Ok(())
+    }
+
+    fn reconcile_terrain(&mut self, scene: &Scene) -> Result<()> {
+        let mut wanted = BTreeSet::new();
+        let mut live = BTreeSet::new();
+        let centers: Vec<_> = scene
+            .entities
+            .iter()
+            .filter(|e| {
+                e.tags.iter().any(|t| t == "player")
+                    || e.rigidbody
+                        .as_ref()
+                        .is_some_and(|r| r.kind == BodyType::Dynamic)
+            })
+            .map(|e| {
+                [
+                    e.transform.position[0] as f64,
+                    e.transform.position[2] as f64,
+                ]
+            })
+            .collect();
+        let mut entities: Vec<_> = scene.entities.iter().collect();
+        entities.sort_by_key(|e| e.id);
+        for entity in entities {
+            let Some(path) = entity.props.get("ai_terrain").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            anyhow::ensure!(
+                entity.transform.rotation_deg == [0.0; 3] && entity.transform.scale == [1.0; 3],
+                "terrain requires identity rotation and scale"
+            );
+            live.insert(entity.id);
+            if self
+                .terrain
+                .get(&entity.id)
+                .is_some_and(|(old, _)| old != path)
+            {
+                self.terrain.remove(&entity.id);
+                let keys: Vec<_> = self
+                    .terrain_handles
+                    .keys()
+                    .filter(|k| k.0 == entity.id)
+                    .copied()
+                    .collect();
+                for key in keys {
+                    let h = self.terrain_handles.remove(&key).unwrap();
+                    self.colliders
+                        .remove(h, &mut self.islands, &mut self.bodies, true);
+                }
+            }
+            if !self.terrain.contains_key(&entity.id) {
+                let file = engine_core::project_path(&self.root, std::path::Path::new(path))?;
+                self.terrain.insert(
+                    entity.id,
+                    (path.to_owned(), engine_terrain::Terrain::load(&file)?),
+                );
+            }
+            let radius = entity
+                .props
+                .get("ai_terrain_radius")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(512.0);
+            anyhow::ensure!(
+                radius.is_finite() && radius >= 0.0,
+                "terrain radius must be nonnegative"
+            );
+            let terrain = &self.terrain[&entity.id].1;
+            let config = &terrain.manifest.config;
+            for index in nearby_terrain_tiles(config, entity.transform.position, &centers, radius) {
+                let tile = &terrain.tiles[index];
+                let x = entity.transform.position[0] as f64 + tile.x as f64 * config.tile_m;
+                let z = entity.transform.position[2] as f64 + tile.z as f64 * config.tile_m;
+                let key = (entity.id, tile.x, tile.z);
+                wanted.insert(key);
+                if let Some(h) = self.terrain_handles.get(&key) {
+                    self.colliders[*h].set_translation(vector![
+                        (x + config.tile_m / 2.0) as f32,
+                        entity.transform.position[1],
+                        (z + config.tile_m / 2.0) as f32
+                    ]);
+                    continue;
+                }
+                let n = config.samples;
+                let heights = DMatrix::from_fn(n, n, |row, col| tile.height(config, col, row));
+                let collider = ColliderBuilder::heightfield_with_flags(
+                    heights,
+                    vector![config.tile_m as f32, 1.0, config.tile_m as f32],
+                    rapier3d::parry::shape::HeightFieldFlags::FIX_INTERNAL_EDGES,
+                )
+                .translation(vector![
+                    (x + config.tile_m / 2.0) as f32,
+                    entity.transform.position[1],
+                    (z + config.tile_m / 2.0) as f32
+                ])
+                .build();
+                self.terrain_handles
+                    .insert(key, self.colliders.insert(collider));
+            }
+        }
+        let removed: Vec<_> = self
+            .terrain_handles
+            .keys()
+            .filter(|k| !wanted.contains(k))
+            .copied()
+            .collect();
+        for key in removed {
+            let h = self.terrain_handles.remove(&key).unwrap();
+            self.colliders
+                .remove(h, &mut self.islands, &mut self.bodies, true);
+        }
+        self.terrain.retain(|id, _| live.contains(id));
         Ok(())
     }
 

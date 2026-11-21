@@ -128,7 +128,7 @@ impl Simulation {
             data,
             engine,
             scripts: BTreeMap::new(),
-            physics: Physics::new(),
+            physics: Physics::new(root.clone()),
             root,
             sources,
             tick: 0,

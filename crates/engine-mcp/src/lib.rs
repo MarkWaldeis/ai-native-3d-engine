@@ -10,6 +10,7 @@ use shared::mcp_protocol::{builtin_tools, error_result, JsonRpcRequest, JsonRpcR
 pub const PROTOCOL_VERSION: &str = "2025-06-18";
 pub const SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18"];
 mod discovery;
+pub mod terrain;
 pub use discovery::agent_guide;
 
 /// Implemented by the host (main.rs) — executes one MCP tool call and returns
@@ -104,7 +105,7 @@ fn dispatch(req: &JsonRpcRequest, handler: &mut dyn ToolHandler) -> Value {
             if !args.is_object() {
                 return error(id, -32602, "arguments must be an object");
             }
-            if !builtin_tools().iter().any(|tool| tool.name == name) {
+            if !builtin_tools().iter().any(|tool| tool.name == name) && !terrain::NAMES.contains(&name) {
                 return error(
                     id,
                     -32602,
@@ -112,7 +113,7 @@ fn dispatch(req: &JsonRpcRequest, handler: &mut dyn ToolHandler) -> Value {
                         "unknown tool: {name}{}",
                         shared::suggestions::hint(
                             name,
-                            builtin_tools().iter().map(|tool| tool.name)
+                            builtin_tools().iter().map(|tool| tool.name).chain(terrain::NAMES.iter().copied())
                         )
                     ),
                 );
@@ -160,6 +161,19 @@ mod tests {
             }
             Ok(json!({"content": [{"type": "text", "text": format!("{name}:{args}")}]}))
         }
+    }
+
+    #[test]
+    fn unknown_terrain_tool_suggests_the_registered_name() {
+        let mut host = Echo;
+        let response = handle_line(
+            r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"terrain_sampl","arguments":{}}}"#,
+            &mut host,
+        ).unwrap();
+        assert_eq!(response["error"]["code"], -32602);
+        let message = response["error"]["message"].as_str().unwrap();
+        assert!(message.contains("did you mean"), "{message}");
+        assert!(message.contains("terrain_sample"), "{message}");
     }
 
     #[test]
