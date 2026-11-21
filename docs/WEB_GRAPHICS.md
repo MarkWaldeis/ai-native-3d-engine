@@ -47,3 +47,34 @@ primitive instances only share a draw when their resolved materials match.
 
 These settings affect browser rendering only. They don't change native
 screenshots or the deterministic simulation.
+
+## Vegetation, water and daylight
+
+```json
+{"ai_graphics":{"time_of_day":17,"foliage":{"density":1,"distance":64},"water":{"level":-0.4,"color":"#126e61"},"fog_density":0.004}}
+```
+
+`time_of_day` (0–24, periodic) derives sun direction/color/intensity and sky/horizon
+defaults. Explicit authored values always win. Without this key the original
+graphics defaults are unchanged. `ai_render` is a deprecated object/JSON alias:
+it is merged over `ai_graphics`. `quality=high` and `quality=medium` both mean
+balanced; ultra/low/legacy retain their existing meanings.
+
+`foliage` accepts true or `{density,distance}` (density 0–4, distance 16–128 m,
+with preset distance caps of 24/48/64 m).
+Grass tufts and broadleaf trees are deterministic GPU instances on independent
+16-m tiles, with wind and distance fade. Camera-near trees shrink away to avoid
+blocking gameplay. Placement skips water and steep/non-finite sampled ground.
+Default heights raycast static support meshes or fall back to zero; terrain may
+replace this with `window.__aiEngineVisuals.setHeightSampler((x,z)=>y)`.
+`water` accepts false or `{level,color}` and uses animated procedural normals,
+the existing environment reflection and a camera-following plane. Neither feature
+adds colliders or game rules. Both are off unless authored.
+
+Foliage density/distance and water normal detail follow the existing low/balanced/
+ultra level. The same governor steps down after six slow seconds and can recover
+after twelve seconds above 58 FPS, never above its initial tier. Fixed URL presets
+never adapt. `fog_density` opts into exponential fog (0 disables it); choose a low
+density for saturated vegetation instead of the legacy near-distance fog.
+`?stats=1` includes the nature quality tier. No additional post stack or addons
+are introduced. Screenshot: `docs/web_visuals.png`.
