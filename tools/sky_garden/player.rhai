@@ -45,6 +45,10 @@ fn on_tick(ctx, dt) {
     ctx.state_set("_coyote", coyote);
     ctx.state_set("_jump_buffer", buffer.max(0.0));
     ctx.set_velocity(velocity);
+    if ctx.has_animator() {
+        ctx.animator_set("speed", velocity[0].abs() + velocity[2].abs());
+        ctx.animator_set("grounded", grounded && velocity[1] < 0.5);
+    }
     for crystal in ctx.find_by_tag("crystal") {
         let target = ctx.entity_position(crystal);
         let dx = p[0] - target[0]; let dy = p[1] - target[1]; let dz = p[2] - target[2];

@@ -45,6 +45,8 @@ test('batch keys include asset or primitive dimensions/material/segments', () =>
   assert.notEqual(batchKey({kind:'gltf',path:'a'}),batchKey({kind:'gltf',path:'b'}));
   assert.notEqual(batchKey({kind:'gltf',path:'a',props:{web_lods:{1:'low-a'}}}),batchKey({kind:'gltf',path:'a',props:{web_lods:{1:'low-b'}}}));
   assert.ok(isStatic(a)); assert.ok(!isStatic({...a,script:'x'})); assert.ok(!isStatic({...a,tags:['coin']}));
+  assert.equal(canInstance({...a,nav_agent:{speed:1}}),false);
+  assert.equal(isStatic({...a,nav_agent:{speed:1}}),false);
 });
 test('mirrored instances use individual objects while even reflections can batch', () => {
   for (const kind of ['box','plane','sphere','cylinder','gltf']) {

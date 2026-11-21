@@ -13,6 +13,7 @@ use std::{
 };
 
 const PLAYER_FILES: &[(&str, &str)] = &[
+    ("animation.js", include_str!("../crates/engine-web/player/animation.js")),
     ("favicon.svg", include_str!("../crates/engine-web/favicon.svg")),
     ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),
     (
@@ -135,6 +136,9 @@ fn run(command: &mut Command, help: &str) -> Result<()> {
 }
 
 pub fn export_web(scene: &Scene, root: &Path, out: &Path) -> Result<Value> {
+    let mut navigation_scene=scene.clone();
+    if let Some(mesh)=&scene.navmesh {navigation_scene.navmesh=Some(engine_runtime::navigation::bake(scene,root,mesh.params.clone())?.0);}
+    let scene=&navigation_scene;
     let out = engine_core::project_path(root, out)?;
     let out = out.as_path();
     engine_core::validate_scene_paths(scene, root)?;
@@ -298,6 +302,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
     }
     let has_environment = bundle_environment(&mut scene, &root, &mut files)?;
     let material_maps = bundle_material_maps(&mut scene, &root, &mut files)?;
+    if let Some(mesh)=&scene.navmesh {files.insert("navigation.nav.json".into(),serde_json::to_vec(mesh)?);}
     files.insert("scene.json".into(), serde_json::to_vec_pretty(&scene)?);
     files.insert("scripts.json".into(), serde_json::to_vec_pretty(&scripts)?);
     files.insert(".nojekyll".into(), vec![]);

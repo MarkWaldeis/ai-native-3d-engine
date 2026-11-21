@@ -1,5 +1,17 @@
 # AI engine guide / Leitfaden für KI-Agenten
 
+Animation: `animation_clips {id}` (oder Projekt-GLB `path`) inspiziert echte
+Clipnamen/Laufzeiten. `animator_validate {id,machine?}` prüft ohne Mutation;
+`animator_set {id,machine,speed?,blend_time?,agent?,expected_revision?}` setzt
+die Komponente mit Locks/CAS/Atomic-Batch/Rollback/Persistenz. Machines enthalten
+`initial`, numerische `parameters`, benannte `states {clip,speed?,looping?}` und
+geordnete `transitions {from,to,conditions:[{parameter,op,value}]}`. Unbekannte
+Clips/Parameter und unerreichbare States sind Fehler. Rhai:
+`ctx.has_animator()`, `ctx.animator_set("speed", value)` und
+`ctx.animator_set("grounded", bool)`; bool entspricht 0/1. Erste passende
+Transition pro Tick gewinnt; native und WASM verwenden dieselbe Simulation.
+Siehe `docs/CHARACTER_ANIMATION.md` für Blender-Rezept, Semantik und Grenzen.
+
 Local stdio/loopback clients are trusted. HTTP defaults to 127.0.0.1:7777;
 non-loopback requires --allow-remote with a bearer token on every request.
 AI_ENGINE_HTTP_TOKEN sets one "remote" principal; AI_ENGINE_HTTP_TOKENS is a JSON
@@ -176,3 +188,21 @@ accepts these JSON assert objects (all may add `at_tick:N`, default final tick):
 
 Tick 0 means after on_start. Reports include actual values and passed flags;
 `screenshot:true` adds a final PNG. Unknown names suggest close matches.
+
+## Navigation
+
+`nav_bake {params?,expected_revision?}` builds bounded tiled collision navigation
+and stores a project asset plus scene data; unchanged source tiles are reused.
+`nav_query_path {start:[x,y,z],goal:[x,y,z]}` uses foot positions, deterministic A*
+and corridor string-pulling. `nav_lint {start?}` warns about unreachable objectives.
+`get_screenshot {views:["top"],overlay_navigation:true}` draws green polygons and
+magenta routes. The bake respects global locks/CAS and is not atomic-batch safe.
+
+Attach `nav_agent:{speed:1.5,offset_y:0.22,target:[x,y,z]}` with no body or a
+kinematic body. Rhai `ctx.nav_set_target([x,y,z])` returns reachability;
+`ctx.nav_path()` returns remaining corners. Fixed ticks and inactive-region
+pausing are shared by native/WASM. Native startup, path queries and exports
+incrementally refresh after static authoring edits; persist with `nav_bake`.
+No live obstacle carving, crowd avoidance or direct streamed-heightfield bake.
+See `docs/NAVIGATION.md` for bounds/budgets, conservative collision geometry,
+parameters and the Lantern patrol parity example.

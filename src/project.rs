@@ -55,6 +55,9 @@ pub fn initialize(dir: &Path, template: &str) -> Result<Value> {
             );
         }
         "sky_garden" => {
+            files.insert("assets/milo_rig.glb".into(), include_bytes!("../examples/sky_garden/assets/milo_rig.glb").to_vec());
+            files.insert("milo_rig.blend".into(), include_bytes!("../examples/sky_garden/milo_rig.blend").to_vec());
+            files.insert("rigged_character.py".into(), include_bytes!("../tools/sky_garden/rigged_character.py").to_vec());
             files.insert(
                 "scripts/player.rhai".into(),
                 include_bytes!("../examples/sky_garden/scripts/player.rhai").to_vec(),

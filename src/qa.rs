@@ -48,12 +48,14 @@ impl Engine {
         };
         let w = dimension("width", if views.is_some() { 480 } else { 960 })?;
         let h = dimension("height", if views.is_some() { 320 } else { 540 })?;
-        let scene = self
+        let nav=args.get("overlay_navigation").map(|v|v.as_bool().ok_or_else(||anyhow::anyhow!("overlay_navigation must be boolean"))).transpose()?.unwrap_or(false);
+        let mut scene = self
             .simulation
             .as_ref()
             .map(|s| s.scene())
             .unwrap_or_else(|| self.world.scene.clone());
-        if views.is_none() && !overlay {
+        if !nav {scene.navmesh=None;}
+        if views.is_none() && !overlay && !nav {
             return Ok(image_result(self.render_scene_base64(&scene, w, h)?));
         }
         self.render_revision = self.render_revision.wrapping_add(1);
@@ -243,5 +245,6 @@ pub(crate) fn validate_scene(scene: &Scene, root: &Path) -> Value {
             }
         }
     }
+    if let Some(extra)=crate::navigation::lint(scene,None)["findings"].as_array(){findings.extend(extra.iter().cloned());}
     json!(findings)
 }

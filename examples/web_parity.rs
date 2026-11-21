@@ -50,6 +50,7 @@ fn main() -> anyhow::Result<()> {
             .map_err(anyhow::Error::msg)?;
         let report: Value = serde_json::from_str(result["content"][0]["text"].as_str().unwrap())?;
         let state = &report["final_state"]["state"];
+        if name=="lantern_patrol" {anyhow::ensure!(state["_nav_patrol_visits"].as_u64().unwrap_or(0)>=3,"NPC must reach at least three patrol stops");}
         for (key, expected) in trace["expected"].as_object().unwrap() {
             anyhow::ensure!(
                 state[key] == *expected
@@ -89,7 +90,18 @@ fn main() -> anyhow::Result<()> {
                 json!({"tick":tick,"state":state})
             })
             .collect();
-        let summary = json!({"win_tick":win_tick,"checkpoints":checkpoints});
+        let mut animation = engine_runtime::Simulation::new(engine.world.scene.clone(), &project)?;
+        let inputs: Vec<engine_runtime::Input> = serde_json::from_value(trace["inputs"].clone())?;
+        let mut animation_samples = Vec::new();
+        loop {
+            if animation.tick % 30 == 0 || animation.tick == ticks {
+                animation_samples.push(json!({"tick":animation.tick,"animators":animation.animator_states(),"nav_agents":animation.nav_agent_states()}));
+            }
+            if animation.tick == ticks { break; }
+            let events: Vec<_> = inputs.iter().filter(|i| i.tick == animation.tick).cloned().collect();
+            animation.step(1, &events)?;
+        }
+        let summary = json!({"win_tick":win_tick,"checkpoints":checkpoints,"animation_samples":animation_samples});
         eprintln!(
             "PASS native simulate {name}: win_tick={}, final={state}",
             summary["win_tick"]

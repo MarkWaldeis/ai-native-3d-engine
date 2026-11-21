@@ -51,6 +51,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     contactRadius: bounded(config.contact_radius, 1.2, 0.1, 3),
     bloomStrength: bounded(config.bloom_strength, 0.22, 0, 2),
     bloomThreshold: bounded(config.bloom_threshold, 1.1, 0, 8),
+    bloomScatter: bounded(config.bloom_scatter, 0, 0, 1),
     foliage: config.foliage === true || foliage ? {density:bounded(foliage?.density,1,0,4),distance:bounded(foliage?.distance,64,16,128)} : false,
     water: water ? {level:bounded(water.level,0,-10000,10000),color:hex(water.color,'#126e61')} : false,
     fogDensity: Number.isFinite(config.fog_density) ? bounded(config.fog_density,0.004,0,0.2) : undefined,

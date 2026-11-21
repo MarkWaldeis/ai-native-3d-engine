@@ -131,6 +131,42 @@ def _mesh_key(mesh):
     return digest.hexdigest()
 
 
+def _export_rigged(obj, directory):
+    rig = obj.find_armature()
+    if rig.parent:
+        raise ValueError("rig armature must be a root object; bake parent transforms first")
+    rig_world, mesh_world = rig.matrix_world.copy(), obj.matrix_world.copy()
+    converted = _BASIS @ rig_world @ _BASIS.inverted()
+    loc, rot, scale = converted.decompose()
+    trs = Matrix.LocRotScale(loc, rot, scale)
+    if any(abs(converted[i][j] - trs[i][j]) > 1e-5 for i in range(4) for j in range(4)):
+        raise ValueError("rig root transform contains shear; bake it before export")
+    temporary = directory / f"rig-{uuid.uuid4().hex}.glb"
+    try:
+        bpy.ops.object.select_all(action="DESELECT")
+        rig.matrix_world = Matrix.Identity(4)
+        obj.matrix_world = rig_world.inverted() @ mesh_world
+        rig.select_set(True)
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.export_scene.gltf(filepath=str(temporary), export_format="GLB", use_selection=True,
+                                  export_yup=True, export_animations=True, export_skins=True,
+                                  export_animation_mode="ACTIONS")
+        data = _canonical_glb(temporary.read_bytes())
+        path = directory / f"{hashlib.sha256(data).hexdigest()}.glb"
+        if not path.exists():
+            temporary.write_bytes(data)
+            os.replace(temporary, path)
+        return {"ai_uid": obj["ai_uid"], "name": obj.name, "path": str(path),
+                "transform": _transform(trs), "props": _props(obj), "color": _color(obj)}
+    finally:
+        rig.matrix_world = rig_world
+        obj.matrix_world = mesh_world
+        rig.select_set(False)
+        obj.select_set(False)
+        temporary.unlink(missing_ok=True)
+
+
 def _export_meshes(request, supplied=None):
     directory = Path(request["dir"]).expanduser().resolve()
     directory.mkdir(parents=True, exist_ok=True)
@@ -163,6 +199,9 @@ def _export_meshes(request, supplied=None):
                  "props": _props(obj), "color": _color(obj)} for obj in meshes],
                 "baked_world_transform": True}
         for obj in meshes:
+            if obj.find_armature():
+                manifest.append(_export_rigged(obj, directory))
+                continue
             # Export evaluated local geometry at identity; the manifest supplies
             # C * matrix_world * C^-1 exactly once in the engine's Y-up frame.
             evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
