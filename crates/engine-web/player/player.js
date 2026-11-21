@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance } from './controls.js';
+import { GameEffects } from './effects.js';
+import { GameAudio, feedbackEvents, nextObjective, objectiveBearing } from './presentation.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -11,6 +13,8 @@ const actionInput = new ActionLatch();
 let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
+let effects, lastFeedback, lastHUD = '';
+const audio = new GameAudio();
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const loader = new GLTFLoader();
@@ -35,11 +39,13 @@ function resetInput() {
 }
 
 function fail(error) {
-  running = false; resetInput(); mode = 'error'; modal.hidden = false;
+  running = false; ready = false; resetInput(); audio.suspend(); mode = 'error'; modal.hidden = false;
+  modal.dataset.screen = 'error'; $('restart').hidden = true; $('pause').disabled = true;
+  $('modal-badge').textContent = 'KURZE UNTERBRECHUNG';
   $('modal-title').textContent = 'Das Spiel konnte nicht starten.';
   $('modal-text').textContent = String(error?.message || error);
   $('start').disabled = false; $('start').textContent = 'Seite neu laden';
-  $('modal-note').textContent = 'Bitte einen aktuellen Browser mit WebGL 2 verwenden.';
+  $('modal-note').textContent = 'Bitte lade die Seite neu. Verwende einen aktuellen Browser mit WebGL 2.';
   console.error(error);
 }
 
@@ -90,6 +96,7 @@ function createObject(entity) {
   }
   group.add(object); group.visible = entity.visible !== false;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
+  effects.decorate(group);
   group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
   if (group.userData.tags.includes('player')) {
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), new THREE.MeshBasicMaterial({
@@ -106,13 +113,18 @@ function disposeObject(object) {
     child.geometry?.dispose();
     for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
       if (!mat) continue;
-      for (const value of Object.values(mat)) if (value?.isTexture) value.dispose();
+      for (const value of Object.values(mat)) if (value?.isTexture && !value.userData.shared) value.dispose();
       mat.dispose();
     }
   });
 }
 
 function apply(result) {
+  const feedback = feedbackEvents(lastFeedback, result.state);
+  for (const id of result.removed) {
+    const object = objects.get(id);
+    if (object?.userData.tags.some(tag => tag === 'coin' || tag === 'crystal')) effects.burst(object.position, object.userData.tags.includes('crystal'));
+  }
   latest = result;
   for (const id of result.removed) { const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) createObject(entity);
@@ -122,32 +134,45 @@ function apply(result) {
     object.position.fromArray(transform.position); object.scale.fromArray(transform.scale);
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
-  const fragments = [];
-  for (const [key, value] of Object.entries(result.state)) {
-    if (key === 'won' || key === 'gewonnen' || key.startsWith('_') || (ui.hud_keys && !ui.hud_keys.includes(key))) continue;
-    const span = document.createElement('span');
-    if (key === 'score') {
-      const icon = document.createElement('i'); icon.className = 'coin-icon'; icon.setAttribute('aria-hidden', 'true'); span.append(icon);
-      span.append(document.createTextNode(`${ui.score_label || 'Münzen'} `));
-      const number = document.createElement('b'); number.textContent = value; span.append(number);
-      const total = source.entities.filter(e => e.tags?.includes(ui.collectible_tag || 'coin')).length;
-      if (total) span.append(document.createTextNode(` / ${total}`));
-    } else span.textContent = `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`;
-    fragments.push(span);
+  if (feedback.collect) {
+    audio.play('collect');
+    $('state').classList.remove('collected'); void $('state').offsetWidth; $('state').classList.add('collected');
   }
-  if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
-  $('state').replaceChildren(...fragments);
+  if (feedback.jump) audio.play('jump');
+  if (feedback.win) audio.play('win');
+  lastFeedback = { ...result.state };
+  const hud = JSON.stringify(Object.entries(result.state).filter(([key]) => key !== 'won' && key !== 'gewonnen' && !key.startsWith('_') && (!ui.hud_keys || ui.hud_keys.includes(key))));
+  if (hud !== lastHUD) {
+    lastHUD = hud;
+    const fragments = [];
+    for (const [key, value] of Object.entries(result.state)) {
+      if (key === 'won' || key === 'gewonnen' || key.startsWith('_') || (ui.hud_keys && !ui.hud_keys.includes(key))) continue;
+      const span = document.createElement('span');
+      if (key === 'score') {
+        const icon = document.createElement('i'); icon.className = 'coin-icon'; icon.setAttribute('aria-hidden', 'true'); span.append(icon);
+        span.append(document.createTextNode(`${ui.score_label || 'Münzen'} `));
+        const number = document.createElement('b'); number.textContent = value; span.append(number);
+        const total = source.entities.filter(e => e.tags?.includes(ui.collectible_tag || 'coin')).length;
+        if (total) span.append(document.createTextNode(` / ${total}`));
+      } else span.textContent = `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`;
+      fragments.push(span);
+    }
+    if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
+    $('state').replaceChildren(...fragments);
+  }
   $('logs').textContent = result.logs.slice(-12).join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
 function showWin() {
   running = false; resetInput(); mode = 'restart'; modal.hidden = false;
+  $('restart').hidden = true;
   $('modal-badge').textContent = ui.win_badge || 'ALLE MÜNZEN GESAMMELT';
   $('modal-symbol').textContent = '✦'; $('modal-title').textContent = 'Gewonnen!';
   $('modal-text').textContent = ui.win_text || `Geschafft! ${latest.state.score ?? ''} Münzen gesammelt und das Ziel erreicht. Noch eine Runde?`;
   $('start').textContent = 'Nochmal spielen'; $('start').disabled = false;
   $('modal-note').textContent = 'Dein Spiel läuft mit derselben Simulation wie im Editor.';
+  modal.dataset.screen = 'win';
 }
 
 function movement() {
@@ -202,16 +227,18 @@ function updateShadows() {
 
 function resize() {
   const width = innerWidth, height = innerHeight;
-  renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)); renderer.setSize(width, height, false);
+  effects.configure();
   camera.aspect = width / height; camera.updateProjectionMatrix(); updateCamera(true);
 }
 
 async function restart() {
   running = false; ready = false; resetInput();
+  lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
   apply(JSON.parse(game.load(JSON.stringify(source), JSON.stringify(scripts))));
   await Promise.all([...loading]);
+  if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
   const player = latest.transforms.find(e => e.tags.includes('player'));
   if (player) {
     spawnHeight = player.transform.position[1];
@@ -223,25 +250,48 @@ async function restart() {
 }
 
 function startRunning() {
+  audio.unlock();
+  $('restart').hidden = true; $('start').disabled = false;
   resetInput(); modal.hidden = true; mode = 'pause'; running = true; previous = performance.now(); accumulator = 0;
   $('pause').textContent = 'Ⅱ'; $('pause').setAttribute('aria-label', 'Spiel pausieren');
 }
 
 $('start').addEventListener('click', async () => {
   try {
+    audio.unlock();
     if (mode === 'error') { location.reload(); return; }
     if (!ready) return;
     if (mode === 'restart') { $('start').disabled = true; await restart(); }
     startRunning();
   } catch (error) { fail(error); }
 });
+function pause() {
+  running = false; resetInput(); accumulator = 0; audio.suspend(); mode = 'pause'; modal.hidden = false;
+  modal.dataset.screen = 'pause';
+  $('modal-badge').textContent = 'DURCHATMEN'; $('modal-title').textContent = 'Kurze Pause';
+  $('modal-symbol').textContent = 'Ⅱ';
+  $('modal-text').textContent = 'Dein Abenteuer wartet auf dich. Spiele in deinem Tempo weiter.';
+  $('start').textContent = 'Weiterspielen'; $('start').disabled = false;
+  $('modal-note').textContent = 'Kein Zeitdruck. Dein Fortschritt bleibt erhalten.';
+  $('restart').hidden = false;
+}
+$('restart').addEventListener('click', async () => {
+  if (!ready || mode === 'error') return;
+  audio.unlock(); $('restart').disabled = true; $('start').disabled = true;
+  try { await restart(); startRunning(); } catch (error) { fail(error); }
+  finally { $('restart').disabled = false; }
+});
 $('pause').addEventListener('click', () => {
   if (!ready || mode === 'restart') return;
   if (running) {
-    running = false; resetInput(); mode = 'pause'; modal.hidden = false;
-    $('modal-badge').textContent = 'DURCHATMEN'; $('modal-title').textContent = 'Kurze Pause';
-    $('modal-text').textContent = 'Dein Spiel wartet auf dich.'; $('start').textContent = 'Weiterspielen'; $('start').disabled = false;
+    pause();
   } else startRunning();
+});
+$('mute').addEventListener('click', () => {
+  audio.muted = !audio.muted;
+  if (!document.hidden) audio.unlock();
+  $('mute').textContent = audio.muted ? 'Ton aus' : 'Ton an';
+  $('mute').setAttribute('aria-pressed', String(audio.muted));
 });
 $('logs-toggle').addEventListener('click', () => { $('logs').hidden = !$('logs').hidden; });
 $('fullscreen').addEventListener('click', async () => {
@@ -256,7 +306,11 @@ const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'Arrow
 window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
 window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
 window.addEventListener('blur', resetInput);
-document.addEventListener('visibilitychange', () => { resetInput(); previous = performance.now(); accumulator = 0; });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && running) pause();
+  else if (document.hidden) audio.suspend();
+  resetInput(); previous = performance.now(); accumulator = 0;
+});
 document.addEventListener('gesturestart', e => e.preventDefault(), { passive: false });
 document.addEventListener('contextmenu', e => e.preventDefault());
 const pad = $('joystick');
@@ -288,35 +342,55 @@ function frame(now) {
   requestAnimationFrame(frame);
   if (!renderer || !ready) return;
   try {
-    const elapsed = document.hidden ? 0 : Math.min((now - previous) / 1000, 0.1); previous = now;
+    const rawElapsed = (now - previous) / 1000;
+    const elapsed = Math.min(rawElapsed, 0.1); previous = now;
+    if (document.hidden) return;
     if (running) {
       accumulator += elapsed;
       while (accumulator >= 1 / 60 && running) { apply(JSON.parse(game.tick(JSON.stringify(controls())))); accumulator -= 1 / 60; }
     }
-    updateCamera(false, elapsed); updateShadows(); renderer.render(world, camera);
+    updateCamera(false, elapsed); effects.update(elapsed, objects, camera, running, rawElapsed);
+    updateShadows(); updateObjective(); renderer.render(world, camera);
   } catch (error) { ready = false; fail(error); }
+}
+
+function updateObjective() {
+  const entries = [...objects].filter(([, object]) => object.visible).map(([id, object]) => ({id,tags:object.userData.tags,position:object.position.toArray()}));
+  const player = entries.find(entity => entity.tags.includes('player'));
+  const target = player && nextObjective(entries, player.position);
+  $('objective').hidden = !target;
+  if (!target) return;
+  const position = new THREE.Vector3(...target.position), projected = position.clone().project(camera);
+  const behind = position.clone().sub(camera.position).dot(camera.getWorldDirection(new THREE.Vector3())) < 0;
+  const origin = new THREE.Vector3(...player.position).project(camera), sign = behind ? -1 : 1;
+  const dx = (projected.x * sign - origin.x) * innerWidth, dy = (projected.y * sign - origin.y) * innerHeight;
+  $('objective-arrow').style.transform = `rotate(${objectiveBearing(dx, dy)}rad)`;
+  const label = target.tags.includes('crystal') ? 'Nächster Kristall' : target.tags.includes('coin') ? 'Nächste Münze' : target.tags.includes('portal') ? 'Zum Portal' : 'Zum Ziel';
+  const text = `${label} · ${Math.ceil(position.distanceTo(new THREE.Vector3(...player.position)))} m`;
+  if ($('objective-text').textContent !== text) $('objective-text').textContent = text;
 }
 
 async function fetchJson(path) { const response = await fetch(path); if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`); return response.json(); }
 async function boot() {
+  $('game').addEventListener('webglcontextlost', event => {
+    event.preventDefault(); fail(new Error('Die Grafikverbindung wurde unterbrochen. Bitte lade die Seite neu.'));
+  });
   const context = $('game').getContext('webgl2', { antialias: true, alpha: false });
   if (!context) throw new Error('WebGL 2 ist nicht verfügbar. Bitte Safari oder Chrome aktualisieren.');
   renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true });
+  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
-  world = new THREE.Scene(); world.background = new THREE.Color(0xa0bdd5);
+  world = new THREE.Scene();
   [source, scripts] = await Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json'), init()]);
+  if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
   const authoredUI = source.entities.find(e => e.tags?.includes('player'))?.props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
-  if (ui.sky_color) { world.background = new THREE.Color(ui.sky_color); renderer.setClearColor(world.background); }
+  effects = new GameEffects(renderer, world, ui.sky_color);
   game = new WebGame();
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
-  const ambient = new THREE.HemisphereLight(0xe2f3ff, 0x304438, 1.8); world.add(ambient);
-  const sun = new THREE.DirectionalLight(0xfff4de, 2.5); sun.position.set(-3, 10, 6); sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024); sun.shadow.camera.left = sun.shadow.camera.bottom = -15; sun.shadow.camera.right = sun.shadow.camera.top = 15;
-  sun.shadow.normalBias = 0.03; world.add(sun);
   resize(); await restart(); $('pause').disabled = false;
   $('start').disabled = false; $('start').textContent = 'Spielen';
   const coinGame = source.entities.some(e => e.tags?.includes('coin'));

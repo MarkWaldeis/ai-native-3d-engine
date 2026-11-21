@@ -1,0 +1,91 @@
+import * as THREE from 'three';
+import { qualitySettings } from './presentation.js';
+
+export class GameEffects {
+  constructor(renderer, scene, skyColor) {
+    this.renderer = renderer; this.scene = scene; this.time = 0;
+    renderer.shadowMap.autoUpdate = false; this.shadowFrame = 0;
+    this.inverseRotation = new THREE.Quaternion();
+    this.level = matchMedia('(pointer: coarse)').matches ? 1 : 2;
+    this.slow = 0; this.sampleTime = 0; this.frames = 0;
+    const canvas = document.createElement('canvas'); canvas.width = 16; canvas.height = 256;
+    const context = canvas.getContext('2d'), gradient = context.createLinearGradient(0, 0, 0, 256);
+    gradient.addColorStop(0, '#3b7298'); gradient.addColorStop(0.5, skyColor || '#aecbd5');
+    gradient.addColorStop(1, '#f1d7b0'); context.fillStyle = gradient; context.fillRect(0, 0, 16, 256);
+    scene.background = new THREE.CanvasTexture(canvas); scene.background.colorSpace = THREE.SRGBColorSpace;
+    scene.fog = new THREE.Fog(skyColor || '#b6ced8', 12, 55);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.12;
+    scene.add(new THREE.HemisphereLight(0xd9f4ff, 0x546445, 2));
+    this.sun = new THREE.DirectionalLight(0xffe6b5, 3.2); this.sun.castShadow = true;
+    Object.assign(this.sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 0.5, far: 55 });
+    this.sun.shadow.normalBias = 0.045; this.sun.shadow.bias = -0.00015;
+    scene.add(this.sun, this.sun.target);
+    const fill = new THREE.DirectionalLight(0x9fc8ff, 0.7); fill.position.set(4, 5, -8); scene.add(fill);
+    const glowCanvas = document.createElement('canvas'); glowCanvas.width = glowCanvas.height = 64;
+    const glowContext = glowCanvas.getContext('2d'), glow = glowContext.createRadialGradient(32,32,0,32,32,32);
+    glow.addColorStop(0,'#ffffff'); glow.addColorStop(0.2,'#ffffffbb'); glow.addColorStop(1,'#ffffff00');
+    glowContext.fillStyle = glow; glowContext.fillRect(0,0,64,64); this.glowTexture = new THREE.CanvasTexture(glowCanvas); this.glowTexture.userData.shared = true;
+    this.particles = [];
+    this.positions = new Float32Array(96 * 3); this.colors = new Float32Array(96 * 3);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(this.positions,3).setUsage(THREE.DynamicDrawUsage));
+    geometry.setAttribute('color', new THREE.BufferAttribute(this.colors,3).setUsage(THREE.DynamicDrawUsage));
+    this.points = new THREE.Points(geometry, new THREE.PointsMaterial({size:0.19,map:this.glowTexture,transparent:true,vertexColors:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+    this.points.frustumCulled = false; scene.add(this.points); geometry.setDrawRange(0,0);
+    this.configure();
+  }
+  configure() {
+    const settings = qualitySettings(this.level, devicePixelRatio);
+    this.renderer.setPixelRatio(settings.pixelRatio); this.renderer.setSize(innerWidth,innerHeight,false);
+    if (this.sun.shadow.mapSize.x !== settings.shadowSize) {
+      this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
+      this.sun.shadow.mapSize.setScalar(settings.shadowSize);
+    }
+    this.renderer.domElement.dataset.quality = String(this.level);
+    this.renderer.shadowMap.needsUpdate = true;
+  }
+  decorate(group) {
+    if (!group.userData.tags.some(tag => ['portal','goal'].includes(tag))) return;
+    const halo = new THREE.Sprite(new THREE.SpriteMaterial({map:this.glowTexture,color:0x72ffe0,transparent:true,opacity:0.16,depthWrite:false,blending:THREE.AdditiveBlending}));
+    halo.scale.set(2.6,2.6,1); group.add(halo); group.userData.halo = halo;
+  }
+  burst(position, crystal = false) {
+    for (let i=0;i<24;i++) {
+      const angle = i * 2.39996, speed = 0.8 + (i % 5) * 0.28;
+      this.particles.push({position:position.clone(),velocity:new THREE.Vector3(Math.cos(angle)*speed,1+(i%4)*0.5,Math.sin(angle)*speed),age:0,color:new THREE.Color(crystal ? 0x8cffe0 : 0xffd16b)});
+    }
+    this.particles = this.particles.slice(-96);
+  }
+  reset() { this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = 0; }
+  update(elapsed, objects, camera, active, frameElapsed = elapsed) {
+    this.time += elapsed;
+    if (this.level > 0 || ++this.shadowFrame % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
+    for (const [id, group] of objects) {
+      const collectible = group.userData.tags.some(tag => tag === 'coin' || tag === 'crystal');
+      if (collectible) {
+        group.children[0].position.set(0,Math.sin(this.time*2.1+id)*0.09,0).applyQuaternion(this.inverseRotation.copy(group.quaternion).invert()).divide(group.scale);
+        group.children[0].rotation.y = this.time*0.65;
+      }
+      if (group.userData.halo) group.userData.halo.material.opacity = 0.16 + Math.sin(this.time*2)*0.04;
+    }
+    this.sun.target.position.copy(camera.position).addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 10);
+    this.sun.target.position.y = 0; this.sun.position.copy(this.sun.target.position).add(new THREE.Vector3(-6,16,9));
+    this.particles = this.particles.filter(p => p.age < 0.85);
+    this.particles.forEach((p,i) => {
+      p.age += elapsed; p.velocity.y -= elapsed*3; p.position.addScaledVector(p.velocity,elapsed);
+      p.position.toArray(this.positions,i*3); p.color.clone().multiplyScalar(Math.max(0,1-p.age/0.85)).toArray(this.colors,i*3);
+    });
+    this.points.geometry.attributes.position.needsUpdate = true; this.points.geometry.attributes.color.needsUpdate = true;
+    this.points.geometry.setDrawRange(0,this.particles.length);
+    if (active && frameElapsed > 0) {
+      this.sampleTime += frameElapsed; this.frames++;
+      if (this.sampleTime >= 3) {
+        const fps = this.frames/this.sampleTime;
+        this.renderer.domElement.dataset.fps = fps.toFixed(1);
+        this.slow = fps < 42 ? this.slow + 1 : 0;
+        if (this.slow >= 2 && this.level > 0) { this.level--; this.configure(); this.slow = 0; }
+        this.sampleTime = this.frames = 0;
+      }
+    }
+  }
+}

@@ -33,6 +33,26 @@ footer button{border-radius:16px;background:#ffffffad;color:#183647;padding:7px 
 h2{font-size:34px;letter-spacing:-1px;line-height:1.1;margin:14px 0 18px}.modal p{font-size:14px;line-height:1.65;color:#bdcdd8;margin:0 0 25px}
 #start{width:100%;background:var(--mint);border-radius:13px;padding:15px 24px;font-weight:750;color:#1e351e;font-size:15px;box-shadow:0 5px 0 #526e3c}
 .modal-note{display:block;color:#91a8b9;font-size:10px;margin-top:22px;line-height:1.5}
+.brand{background:linear-gradient(135deg,#173b40ed,#142c3be8)}
+.state{transition:border-color .2s,box-shadow .2s}
+.state.collected{animation:collect-pop .5s ease-out;border-color:#ffe39f;box-shadow:0 0 28px #fbd47555}
+@keyframes collect-pop{0%{transform:scale(1)}30%{transform:scale(1.08)}100%{transform:scale(1)}}
+.modal{background:radial-gradient(ellipse at 50% 30%,#32665a55,#091d30b8)}
+.modal-card{position:relative;isolation:isolate;background:radial-gradient(ellipse at 0 0,#47796666,transparent 65%),linear-gradient(145deg,#193e46,#101f33);border-color:#c5f4d53d;box-shadow:0 30px 110px #07152588,inset 0 1px #ffffff20}
+.modal-card::before{content:"";display:block;width:70px;height:4px;border-radius:4px;background:linear-gradient(90deg,#adf4c1,#ffe09a);margin:0 auto 20px}
+#modal-symbol{text-shadow:0 0 28px #ffe09a88}
+.modal[data-screen="win"] .modal-card{border-color:#ffe09a88;background:radial-gradient(ellipse at 50% 0,#937c3544,transparent 65%),linear-gradient(145deg,#244a44,#142636)}
+.modal[data-screen="win"] #modal-symbol{animation:victory-star 2.5s ease-in-out infinite}
+@keyframes victory-star{50%{transform:scale(1.15) rotate(10deg);text-shadow:0 0 40px #ffe09acc}}
+#start{background:linear-gradient(125deg,#d2fba5,#9de7b6);transition:filter .15s,transform .15s}
+#start:active{transform:translateY(3px);box-shadow:0 2px 0 #526e3c}
+#mute[aria-pressed="true"]{color:#ffdf83}
+#restart{display:block;width:100%;margin-top:17px;padding:11px;border:1px solid #b9d9d266;border-radius:13px;background:#ffffff0c;font-size:13px;font-weight:650}
+.objective{position:absolute;top:163px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:7px 13px;border-radius:20px;background:#142e3de0;color:#e6f6d5;font-size:11px;pointer-events:none;white-space:nowrap}
+#objective-arrow{display:inline-block;color:var(--mint);font-size:20px;line-height:1}
+@media(max-width:600px){.objective{top:max(142px,calc(env(safe-area-inset-top) + 127px));font-size:10px}}
+@media(max-height:500px){.objective{top:116px;padding:4px 10px}#controls #joystick>span{bottom:8px;color:#f4faff;font-size:8px;letter-spacing:1px}#restart{margin-top:10px;padding:8px}}
+@media(prefers-reduced-motion:reduce){.state.collected,.modal[data-screen="win"] #modal-symbol{animation:none}}
 @media(hover:hover){button:not(:disabled):hover{filter:brightness(1.1)}}
 @media(max-width:600px){#hud{top:max(14px,env(safe-area-inset-top));left:14px;right:14px;gap:9px;align-items:flex-start}.brand{min-width:0;padding:12px;border-radius:13px}.eyebrow{font-size:8px;letter-spacing:1.2px}h1{font-size:18px}.state{padding:13px 10px;min-height:61px;gap:6px;font-size:11px;border-radius:13px;white-space:nowrap}.state b{font-size:21px}.icon-button{width:35px;height:35px;margin-top:13px}.mission{top:max(95px,calc(env(safe-area-inset-top) + 80px));font-size:10px;padding:8px 12px;max-width:95vw;white-space:normal;text-align:center}.joystick-area{left:25px;bottom:max(77px,calc(env(safe-area-inset-bottom) + 48px))}#joystick{width:120px;height:120px}#stick{left:32px;top:32px}#action{right:30px;width:78px;height:78px}footer{left:14px;right:14px;bottom:max(13px,env(safe-area-inset-bottom));font-size:9px}#help{max-width:125px;line-height:1.5}.modal-card{padding:26px 25px}h2{font-size:30px}.modal p{font-size:13px}}
 @media(max-height:500px){#hud{top:max(10px,env(safe-area-inset-top));left:max(15px,env(safe-area-inset-left));right:max(15px,env(safe-area-inset-right));gap:12px}.brand{padding:10px 16px;min-width:190px}h1{font-size:20px}.state{padding:10px 18px;min-height:57px}.state b{font-size:21px}.mission{top:82px;font-size:10px}.joystick-area{bottom:47px;left:max(25px,env(safe-area-inset-left))}#joystick{width:100px;height:100px}#stick{left:22px;top:22px}#action{width:70px;height:70px;bottom:56px}footer{bottom:max(8px,env(safe-area-inset-bottom))}#joystick>span{bottom:-17px}.modal-card{padding:18px 32px;width:530px}#modal-symbol{display:none}h2{font-size:25px;margin:10px 0}.modal p{margin:0 0 12px;font-size:12px}.modal-note{margin-top:12px}#start{padding:11px}}
