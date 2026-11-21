@@ -3,6 +3,15 @@ export const FX_KINDS = ['muzzle', 'tracer', 'impact', 'blood', 'explosion'];
 export const PITCH_LIMIT = 1.45;
 const DEFAULTS = { eye_height: 0.75, move_speed: 5, sprint_speed: 8.5, jump_speed: 5.5, mouse_sens: 0.0022 };
 
+export function travelSpeedInput(search) {
+  const value = Number(new URLSearchParams(search).get('speed'));
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+export function defeated(state) {
+  return typeof state.lost === 'boolean' ? state.lost : Number(state.health) <= 0;
+}
+
 function parse(value) {
   if (typeof value !== 'string') return value;
   try { return JSON.parse(value); } catch { return null; }
@@ -41,8 +50,8 @@ export function fpsInputs(move, look, buttons) {
   if (length > 1) { x /= length; z /= length; }
   return {
     move_x: x, move_z: z, look_yaw: look.yaw, look_pitch: look.pitch,
-    fire: buttons.fire ? 1 : 0, reload: buttons.reload ? 1 : 0,
-    sprint: buttons.sprint ? 1 : 0, jump: buttons.jump ? 1 : 0,
+    fire: buttons.fire > 0.5 ? 1 : 0, reload: buttons.reload > 0.5 ? 1 : 0,
+    sprint: buttons.sprint > 0.5 ? 1 : 0, jump: buttons.jump > 0.5 ? 1 : 0,
   };
 }
 

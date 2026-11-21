@@ -5,6 +5,14 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {options,summarize,violations,serve,summary} from './run_browser_bench.mjs';
 
+test('summary includes asset streaming counters and missing markers',()=>{
+  const results={browserVersion:'test',config:{},scene:{entities:1,colliders:0},profiles:{desktop:{assets:{assetsQueued:1,assetsLoading:2,assetsLoaded:3,assetMB:4,textureUploadsPending:5,assetEvictions:6}},mobile:{}},violations:[]};
+  const report=summary(results);
+  assert.match(report,/Uploads pending/);
+  assert.match(report,/desktop \| 1\.00 \| 2\.00 \| 3\.00 \| 4\.00 \| 5\.00 \| 6\.00/);
+  assert.match(report,/mobile \| — \| — \| — \| — \| — \| —/);
+});
+
 test('options validate profiles, timing, channel and mobile throttling',()=>{
   const config=options(['--site','fixture']);
   assert.deepEqual(config.profiles,['desktop','mobile']);
@@ -60,6 +68,14 @@ test('summary reports terrain counters and leaves absent terrain measurements mi
   assert.match(report,/Loaded tiles \(decoded LRU\)/);
   assert.match(report,/desktop \| 42\.00 \| 8\.00 \| 123456\.00 \| 2345678\.00 \| 0\.00/);
   assert.match(report,/mobile \| — \| — \| — \| — \| —/);
+});
+
+test('summary reports HLOD counters and missing-profile markers',()=>{
+  const results={browserVersion:'test',config:{},scene:{entities:10,colliders:0},profiles:{desktop:{hlod:{hlodClusters:4,hlodDrawCalls:5,hlodTriangles:120}},mobile:{}},violations:[]};
+  const report=summary(results);
+  assert.match(report,/HLOD draw calls/);
+  assert.match(report,/desktop \| 4\.00 \| 5\.00 \| 120\.00/);
+  assert.match(report,/mobile \| — \| — \| —/);
 });
 
 test('summary includes occlusion counters and missing markers',()=>{

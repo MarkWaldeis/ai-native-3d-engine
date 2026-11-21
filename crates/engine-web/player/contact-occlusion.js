@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
-const readDepth = /* glsl */`
+export const readDepth = /* glsl */`
+  uniform highp sampler2D sceneDepth;
   uniform mat4 inverseProjection;
   uniform float logFar;
   float viewZ(float depth) {
@@ -11,7 +12,6 @@ const readDepth = /* glsl */`
 `;
 
 export const contactFragment = /* glsl */`
-  uniform sampler2D sceneDepth;
   ${readDepth}
   uniform vec2 projectionScale;
   uniform vec2 texel;
@@ -70,12 +70,10 @@ export const contactFragment = /* glsl */`
 
 export const contactComposite = /* glsl */`
   #ifdef CONTACT_OCCLUSION
-  uniform sampler2D sceneDepth;
   uniform sampler2D contactMap;
   uniform vec2 contactSize;
   uniform float contactStrength;
   uniform float contactRadius;
-  ${readDepth}
   float contactAt(vec2 uv, float centerZ, float weight, inout float totalWeight) {
     float depth = texture2D(sceneDepth, uv).r;
     if (depth >= 1.0) return 0.0;
@@ -100,6 +98,16 @@ export const contactComposite = /* glsl */`
   #endif
 `;
 
+export function depthUniforms(sceneDepth) {
+  return {sceneDepth:{value:sceneDepth}, inverseProjection:{value:new THREE.Matrix4()}, logFar:{value:0}};
+}
+
+export function updateCameraDepth(uniforms, camera, logarithmicDepth) {
+  uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
+  // Three.js stores log2(1 - viewZ) / log2(1 + far) for perspective cameras.
+  uniforms.logFar.value = logarithmicDepth && camera.isPerspectiveCamera ? Math.log2(1 + camera.far) : 0;
+}
+
 export class ContactOcclusion {
   constructor(pass, sceneDepth, texel, config, logarithmicDepth) {
     this.logarithmicDepth = logarithmicDepth;
@@ -109,9 +117,8 @@ export class ContactOcclusion {
     });
     this.size = new THREE.Vector2();
     this.uniforms = {
-      sceneDepth: {value: sceneDepth}, texel,
-      inverseProjection: {value: new THREE.Matrix4()}, projectionScale: {value: new THREE.Vector2()},
-      radius: {value: config.contactRadius}, perspective: {value: true}, logFar: {value: 0},
+      ...depthUniforms(sceneDepth), texel, projectionScale: {value: new THREE.Vector2()},
+      radius: {value: config.contactRadius}, perspective: {value: true},
     };
     this.material = pass(contactFragment, this.uniforms);
   }
@@ -129,11 +136,9 @@ export class ContactOcclusion {
   }
   render(draw, camera) {
     const projection = camera.projectionMatrix.elements;
-    this.uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
+    updateCameraDepth(this.uniforms, camera, this.logarithmicDepth);
     this.uniforms.projectionScale.value.set(projection[0], projection[5]);
     this.uniforms.perspective.value = !!camera.isPerspectiveCamera;
-    // Three.js stores log2(1 - viewZ) / log2(1 + far) for perspective cameras.
-    this.uniforms.logFar.value = this.logarithmicDepth && camera.isPerspectiveCamera ? Math.log2(1 + camera.far) : 0;
     draw(this.material, this.target);
   }
   dispose() {

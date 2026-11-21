@@ -20,6 +20,7 @@ Vier Rollen, eigene X-Agent-Id, abhängige Tasks, Entity-Claims und Journal.
 - Player-Prop `ai_ui` (JSON-String oder Objekt): `title`, `mission`, `score_label`,
   `collectible_tag`, `action_label`, `intro_title`, `intro_text`, `win_text`,
   `badge`, `win_badge`, `hud_keys`, `sky_color`. `_`-State bleibt im HUD unsichtbar.
+  Freie HUD-Layouts ergänzt `ai_hud`; Schema und Beispiele: `docs/HUD.md`.
 - `cargo test -p engine-tests --test swarm_game`: Writer, Grounding/Wandkontakt,
   portables Speichern, simulate-basierter Sprung/Sieg/Sturz-Test.
 
@@ -149,6 +150,27 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- GLB-Hintergrundstreaming: `asset_concurrency` (4) priorisiert nach nächstem
+  geladenem Chunk; ungewollte Warteschlangen-Einträge entfallen. Chunks warten
+  nicht auf GLBs: `web_mesh_bounds` liefert Platzhalter, sonst bleibt die Stelle
+  leer. Mit `web_lods` zuerst gröbste Autoren-LOD, dann gewünschte Distanzstufe.
+  `texture_uploads_per_frame` (2) begrenzt `initTexture`; Modelle erscheinen erst
+  nach allen Uploads. `asset_cache_mb` (256) ist ein geschätztes LRU-Ziel für
+  Geometrie/Texturen; geladene Chunk-Assets bleiben gepinnt, dürfen es übersteigen.
+  Ohne Welt-Streaming bleibt der alte Loader aktiv. Stats/Overlay/Bench:
+  `assetsQueued`, `assetsLoading`, `assetsLoaded`, `assetMB`,
+  `textureUploadsPending`, `assetEvictions`.
+
+- HLOD: `ai_world.hlod` (true), `hlod_distance` (1600 m, größer als
+  `draw_distance`), `hlod_cluster` (4×4 Chunks), `hlod_min_radius` (1,5 m).
+  Statische Fernobjekte werden mit Welttransforms/Farben zusammengeführt,
+  GLBs durch lokale Bounds ersetzt. Ein Cluster-Aufbau pro Frame, gemeinsame
+  Materialien und zusammenhängende Chunk-Indexbereiche sparen Draw Calls.
+  Chunkweiser Wechsel mit Hysterese; bei asynchroner Nah-LOD bleibt der Proxy
+  bis zur Bereitschaft erhalten. `hlod:false` erhält den bisherigen Renderpfad.
+  Nebel/Kamera reichen bis `hlod_distance`; Stats/Bench: `hlodClusters`,
+  `hlodDrawCalls`, `hlodTriangles`. Optionaler Occluder über `setHlodOcclusion`.
+
 - `ai_world.occlusion` (Default true), `occlusion_margin` (Default 2 m): Terrain-
   Strahlproben blenden verdeckte Chunks und Terrain-Kacheln konservativ aus.
   Neun obere Boxpunkte, zwei verdeckte Ergebnisse vor Ausblenden, sofort sichtbar
@@ -177,6 +199,41 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 - `python3 tools/gen_large_world.py target/large_world.json` erzeugt die große
   Demo (nicht einchecken); danach regulär mit `--export-web` exportieren.
 
+## Deklaratives HUD / GUI
+
+- Player-Prop `ai_hud` (Objekt/JSON): `{replace_default, widgets}`; Text/Counter,
+  Balken, Panels mit `children` und Toasts. Werte ausschließlich aus WASM-`state`.
+- `hud-layout.js` validiert und löst Vorlagen, Anker, Safe-Area und Phone-Overrides
+  (<600 px) auf; `hud-renderer.js` aktualisiert persistente DOM-Knoten.
+- `replace_default` verbirgt nur `#state`; FPS-ShooterHud bleibt unabhängig.
+  Touch-Anker unten links/rechts halten Joystick/Aktion frei. Siehe `docs/HUD.md`.
+- Tests: `tools/test_web_hud.mjs`, echter Browser: `tools/verify_web_hud.mjs`;
+  Bilder unter `target/hud-shots/`. JS enthält keine Spielregeln.
+
+## Welttext / SDF
+
+Entity-Prop `ai_text`: String oder `{text,size,color,outline_color,outline_width,
+offset,billboard,align,max_width,depth_test,fade_distance}`; Vorlagen wie im HUD.
+Runtime-Canvas/SDF-Atlas ohne externe Assets, eine Geometrie pro Label; JS stellt
+nur WASM-State dar. Standard 0.5 m, aufrechte Billboards; Details: `docs/TEXT.md`.
+Tests: `tools/test_web_sdf.mjs`, `tools/verify_web_sdf.mjs`; Bilder:
+`target/sdf-shots/`. Stats: `sdfLabels`, `sdfGlyphs`.
+
+## Eingabe / Gamepad
+
+`ai_touch` ergänzt logische Touch-Tasten/Joystick-Layout; `ai_input.haptics`
+steuert optionale Gamepad-/Touch-Vibration, gespeichert über „Steuerung“.
+Schema: `docs/INPUT.md`; Tests: `test_web_touch.mjs`, `verify_web_touch.mjs`.
+
+Web-Player: WASD/Pfeile, Leertaste sowie Standard-Gamepads (linker Stick/D-Pad:
+Bewegen, rechter Stick: Zielen, A: Aktion, RT: Feuer, X: Nachladen, L3: Sprint,
+Start: Pause). A startet auch das sichtbare Start-/Neustart-Modal.
+Player-Prop `ai_input` (Objekt/JSON): `bindings`, `deadzone` (0.15),
+`look_sensitivity` (1 rad/s), `invert_y` (false). Footer „Steuerung“ pausiert,
+erlaubt Neubelegung und speichert pro Spieltitel lokal. Touch-Steuerung wird bei
+groben Zeigern oder erster Touch-Eingabe sichtbar. Schema/Details: `docs/INPUT.md`.
+Checks: `node --test tools/test_web_*.mjs`, Web-Export und Release-Parität.
+
 ## Multiplayer / Netcode
 
 - `engine-net`: 60-Hz-Autorität, `net_player`-Slots nach ID, eigene Inputs,
@@ -189,8 +246,13 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   --scene examples/net_arena/scene.json --rtt-ms 120 --jitter-ms 20 --loss 0.05`.
 - Checks: `cargo test -p engine-net`; `cargo test -p engine-tests --test netcode`;
   `cargo build -p engine-net --target wasm32-unknown-unknown`. Doku: `docs/NETCODE.md`.
-  Kein Spawn-Replikat, keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
-  Browser-Transport fehlt noch.
+  Spawn-Replikation mit Definitionen; keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
+  Browser: `cargo run -- --export-web examples/net_arena/scene.json target/site/net_arena_ws`,
+  `cargo run -- --net-serve examples/net_arena/scene.json --addr 127.0.0.1:7790`,
+  `python3 -m http.server 8000 --bind 127.0.0.1 --directory target/site`;
+  zwei Tabs `http://127.0.0.1:8000/net_arena_ws/?net=ws://127.0.0.1:7790`.
+  NetGame rechnet in Rust, JS transportiert/rendert; HUD/Diagnose `window.__engineNet`.
+  Nur vertrauenswürdiges Netz, kein TLS; ohne `?net` bleibt Singleplayer unverändert.
 
 ## Shooter / First Person
 
@@ -200,6 +262,16 @@ Touch-Look rechts, FEUER-Taste); Inputs `move_x/z`, `look_yaw/pitch` (absolut, r
 WASM-Tick liefert zusätzlich `fx`/`events`. JS rendert nur (fps.js, fx.js, hud.js).
 Doku: `docs/SHOOTER.md`; Beispiel `examples/fps_arena`; Tests
 `cargo test -p engine-tests --test shooter`, `node --test tools/test_web_fps.mjs`.
+
+## Rapier-Physik
+
+- `props.ai_physics`: Compound-/Convex-Hull-/Trimesh-Collider, Gruppenmasken,
+  Sensoren, Dämpfung/CCD, Gelenke, benannte Hitboxes und Humanoid-Ragdoll.
+  Die bestehenden `collider`/`rigidbody`-Felder bleiben kompatibel.
+- MCP und Rhai: `raycast`, `shape_cast`, `overlap`; Rhai zusätzlich
+  `ctx.collision_events()`, `ctx.set_ragdoll(...)` und `ctx.damage(hit, amount)`.
+  Native/WASM verwenden dieselbe Simulation. Siehe `docs/PHYSICS.md` und
+  `examples/physics_lab`; Tests: `cargo test -p engine-tests --test physics`.
 
 ## Swarm-Server
 
@@ -261,6 +333,15 @@ Noch keine Texturen/Multi-Material-Darstellung; eine Grundfarbe pro Objekt.
 E2E: `cargo test -p engine-tests --test blender_bridge -- --nocapture` (SKIP ohne Blender).
 Demo: `blender/sync_demo.py`; Vergleichsbilder in `docs/blender_sync_demo.png`
 und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt gültig).
+
+## Persistente Spielstände
+
+`save_game {path?}` speichert die aktive Simulation; `load_game {path?|save?}`
+startet sie nach `stop` aus der Autorenszene. Pfade: projektgebundene `.json`.
+Version 1 speichert Entity-Deltas, Tick, Zustand, Flags, Inventar und Geschwindigkeiten.
+Rhai: `flag_set/flag`, `inventory_add/remove/count`; fehlende Flags liefern `()`.
+Beim Laden nur `on_load(ctx)`, nicht `on_start`; `base_changed` meldet Basisänderungen.
+Web: F5/F9 oder `window.__aiSaveGame/__aiLoadGame`, lokal pro Spielpfad.
 
 ## Gameplay / M3
 

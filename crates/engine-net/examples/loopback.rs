@@ -1,10 +1,8 @@
 use anyhow::{bail, ensure, Context, Result};
 use engine_net::simulate::{run, InputEvent, Options};
-use shared::{components::Script, scene::Scene};
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
+use engine_net::SimSource;
+use shared::scene::Scene;
+use std::path::PathBuf;
 
 fn main() -> Result<()> {
     let mut options = Options::default();
@@ -52,18 +50,7 @@ fn main() -> Result<()> {
     }
     let scene: Scene = serde_json::from_str(&std::fs::read_to_string(&scene_path)?)?;
     // Like the engine, example scene references are relative to the project cwd.
-    let mut sources = BTreeMap::new();
-    for entity in &scene.entities {
-        if let Some(Script::Path(path) | Script::File { path }) = &entity.script {
-            if !sources.contains_key(path) {
-                let source = [PathBuf::from(path), Path::new("assets").join(path)]
-                    .into_iter()
-                    .find(|p| p.is_file())
-                    .with_context(|| format!("missing script {path}"))?;
-                sources.insert(path.clone(), std::fs::read_to_string(source)?);
-            }
-        }
-    }
+    let sources = SimSource::ProjectRoot(std::env::current_dir()?);
     println!(
         "{}",
         serde_json::to_string_pretty(&run(scene, sources, options)?)?

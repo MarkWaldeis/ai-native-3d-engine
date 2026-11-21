@@ -33,7 +33,13 @@ impl Bounds {
 
 pub fn bounds(entity: &Entity) -> Result<Bounds> {
     let mesh = match &entity.mesh {
-        PrimitiveKind::Gltf { path } => engine_geo::load_gltf(std::path::Path::new(path))?,
+        PrimitiveKind::Gltf { path } => {
+            if let Some(animator) = &entity.animator {
+                engine_geo::skinning::SkinnedAsset::load(std::path::Path::new(path))?.pose(Some(animator))?.mesh
+            } else {
+                engine_geo::load_gltf(std::path::Path::new(path))?
+            }
+        }
         PrimitiveKind::Sphere { segments, .. } | PrimitiveKind::Cylinder { segments, .. }
             if *segments > 256 =>
         {

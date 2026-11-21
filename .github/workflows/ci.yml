@@ -42,8 +42,13 @@ jobs:
           cargo run -- --export-web examples/material_studio/scene.json target/m9-site/material_studio
           cargo run -- --project examples/lantern_maze --export-web scene.json web
           mv examples/lantern_maze/web target/m9-site/lantern_maze
+          cargo run -- --project examples/waldwaechter --export-web scene.json web
+          mv examples/waldwaechter/web target/m9-site/waldwaechter
       - name: Native simulate reference for recorded traces
-        run: cargo run --example web_parity > target/web-native.json
+        run: |
+          cargo run --example web_parity > target/web-native.json
+          cargo run --example native_skinning > target/native-skinning.json
+          node tools/verify_native_skinning.mjs target/native-skinning.json
       - name: Keyboard release checks and native-WASM parity
         env:
           PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
@@ -55,6 +60,21 @@ jobs:
           SHOTS_DIR: target/web-release-shots/webkit
           LIBGL_ALWAYS_SOFTWARE: '1'
         run: node tools/verify_web_release.mjs target/m9-site target/web-native.json
+      - name: On-device QA tooling (Chromium and WebKit; no hardware claim)
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
+          SHOTS_DIR: target/web-release-shots/device-qa
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          node tools/device_qa/package.mjs target/m9-site
+          node tools/verify_device_qa.mjs target/m9-site
+      - name: Waldwächter native parity and desktop/touch release
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
+          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: |
+          cargo run --example waldwaechter_parity > target/forest-native.json
+          node tools/waldwaechter/browser.mjs target/m9-site target/forest-native.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -62,6 +82,7 @@ jobs:
           path: |
             target/web-release-shots
             target/web-native.json
+            target/forest-native.json
   test:
     name: cargo test (${{ matrix.os }})
     strategy:

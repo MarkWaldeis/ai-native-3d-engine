@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import init, { WebGame } from './pkg/engine_web.js';
+import init, { WebGame, NetGame } from './pkg/engine_web.js';
+import { netURL, BrowserNet } from './net.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame, bindActivation } from './controls.js';
 import { GameEffects } from './effects.js';
 import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
@@ -10,16 +11,42 @@ import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
 import { feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { SpatialAudio, bindAudioGestures } from './audio.js';
+import { travelSpeedInput } from './fps_core.js';
 import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
+import { HudLayout } from './hud-renderer.js';
+import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
+import { InputSettings } from './input-settings.js';
+import { parseTextConfig } from './sdf-font.js';
+import { SdfAtlas, SdfLabel } from './sdf-text.js';
+import { hudTemplate } from './hud-layout.js';
+import { TouchControls } from './touch-controls.js';
+import { hapticCue, pulseHaptics } from './touch.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
 const keys = new Set();
 const joystick = { x: 0, z: 0, pointer: null };
 const actionInput = new ActionLatch();
+const travelSpeed = travelSpeedInput(location.search);
+const input = new InputSystem(), inputEdges = new InputEdges();
+let inputSettings, touchControls, sampledInput = input.sample(), touchHelp = '', gamepadActive = false;
+const touchMode = () => document.body.classList.contains('touch-input');
+function showTouch() {
+  document.body.classList.add('touch-input');
+  if (fps) fps.coarse = true;
+  touchControls?.layout();
+  updateHelp();
+}
+function updateHelp() {
+  const help = gamepadActive ? gamepadHelp(input.config, !!fps) : touchMode() ? touchHelp : keyboardHelp(input.config, !!fps);
+  for (const id of ['help', 'input-help']) if (help && $(id).textContent !== help) $(id).textContent = help;
+}
+if (matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch-input');
+window.addEventListener('touchstart', showTouch, { passive: true });
+window.addEventListener('pointerdown', event => { if (event.pointerType === 'touch') showTouch(); }, { passive: true });
 let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
@@ -30,11 +57,15 @@ const animations = new Animations();
 window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
+const ragdolls = new Map();
+const textLabels = new Map();
+let textAtlas, textWarnings = [];
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
-let terrain, occluder;
+let terrain, occluder, hudLayout;
+let net, netEndpoint;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0,assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -77,6 +108,7 @@ function resetInput() {
   keys.clear(); joystick.x = 0; joystick.z = 0; joystick.pointer = null;
   actionInput.reset(); $('stick').style.transform = ''; $('action').classList.remove('pressed');
   fps?.resetInput();
+  touchControls?.reset();
 }
 
 function fail(error) {
@@ -98,7 +130,9 @@ function mesh(geometry, entity) {
 function createObject(entity) {
   if (entity.props?.ai_terrain) return;
   if (replacesWater(entity, effects.graphics)) return;
-  if (streaming?.batched(entity)) { streaming.add(entity); return; }
+  const config = entity.props?.ai_physics;
+  const physics = typeof config === 'string' ? JSON.parse(config) : config;
+  if (entity.props?.ai_text === undefined && !physics?.ragdoll && streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
   switch (entity.kind) {
@@ -124,6 +158,22 @@ function createObject(entity) {
     }
     case 'gltf': {
       object = new THREE.Group();
+      if(streaming) {
+        const container=object;
+        group.userData.streamedGltf=(gltf,parts)=>{
+          animations.remove(entity.id);
+          container.traverse(child=>{if(child.isSkinnedMesh) child.skeleton.dispose();});
+          container.clear();
+          if(gltf) {
+            const model=cloneSkinned(gltf.scene,gltf.animations), flags=sunShadowSettings(entity.props?.ai_sun_shadow);
+            model.traverse(child=>{child.userData.sharedAsset=true;if(child.isMesh) Object.assign(child,flags);});
+            container.add(model); animations.add(entity,model,model.animations);
+          } else for(const part of parts) {
+            const placeholder=new THREE.Mesh(part.geometry,part.material); placeholder.userData.sharedAsset=true; container.add(placeholder);
+          }
+        };
+        break;
+      }
       const task = assets.load(entity.path).then(gltf => {
         const model = cloneSkinned(gltf.scene,gltf.animations), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
         model.traverse(child => { if (child.isMesh) Object.assign(child, flags); });
@@ -136,12 +186,22 @@ function createObject(entity) {
     default: throw new Error(`Unbekannte Geometrie: ${entity.kind}`);
   }
   group.add(object); group.visible = entity.visible !== false;
+  group.userData.authoredVisible = group.visible;
+  group.userData.color = entity.color;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
   effects.decorate(group);
+  if (entity.props?.ai_text !== undefined) {
+    const { config, warnings } = parseTextConfig(entity.props.ai_text);
+    textWarnings.push(...warnings);
+    textAtlas ||= new SdfAtlas();
+    const label = new SdfLabel(textAtlas, config);
+    if (!config.offset) label.boundsObject = object;
+    group.add(label); textLabels.set(entity.id, label);
+  }
   if (group.userData.tags.some(tag => ['player','portal','goal'].includes(tag)) || isCollectible(group.userData, ui.collectible_tag)) objectives.set(entity.id,group);
   streaming?.add(entity,group);
   if (group.userData.tags.includes('enemy')) enemies.set(entity.id, group);
-  group.userData.support = !!entity.collider && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
+  group.userData.support = !!(entity.collider || physics?.collider) && !physics?.sensor && !physics?.ragdoll && entity.rigidbody?.type !== 'dynamic' && !group.userData.tags.includes('trigger') && !group.userData.tags.includes('player');
   if (group.userData.tags.includes('player')) {
     playerId = entity.id;
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 1.25), new THREE.MeshBasicMaterial({
@@ -152,14 +212,58 @@ function createObject(entity) {
   }
 }
 
+function followRagdollLabel(id, root, group) {
+  const label = textLabels.get(id);
+  if (!label || !root) return;
+  (group || root).add(label);
+  label.anchor = group?.children[0] || root;
+  label.boundsObject = label.config.offset ? null : group?.children[0] || root.children[0];
+}
+
+function applyRagdolls(states = []) {
+  const active = new Set(states.map(rig => rig.id));
+  for (const [id, group] of ragdolls) {
+    if (active.has(id)) continue;
+    const root = objects.get(id);
+    followRagdollLabel(id, root);
+    disposeObject(group);
+    ragdolls.delete(id);
+    if (root) root.visible = root.userData.authoredVisible;
+  }
+  for (const rig of states) {
+    const root = objects.get(rig.id);
+    if (!root) continue;
+    let group = ragdolls.get(rig.id);
+    if (!group) {
+      group = new THREE.Group();
+      for (const part of rig.parts) {
+        group.add(mesh(new THREE.CapsuleGeometry(part.radius, 2 * part.half_height, 5, 10), {color:root.userData.color}));
+      }
+      world.add(group);
+      ragdolls.set(rig.id, group);
+    }
+    group.visible = root.userData.authoredVisible && rig.enabled;
+    root.visible = root.userData.authoredVisible && !rig.enabled;
+    rig.parts.forEach((part, i) => {
+      const object = group.children[i];
+      object.position.fromArray(part.position);
+      object.rotation.set(...part.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
+    });
+    followRagdollLabel(rig.id, root, rig.enabled ? group : null);
+  }
+}
+
 function apply(result) {
   audio.apply(result);
+  if (netEndpoint && result.my_entity != null) playerId = result.my_entity;
+  hudLayout?.update(result);
   const feedback = feedbackEvents(lastFeedback, result.state);
   for (const id of result.removed) {
     const object = objects.get(id);
     if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
+  for (const id of result.removed) { textLabels.get(id)?.dispose(); textLabels.delete(id); }
   for(const id of result.removed){animations.remove(id);animations.states.delete(id);}
   for (const id of result.removed) { enemies.delete(id); effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) {
@@ -175,6 +279,9 @@ function apply(result) {
     object.position.fromArray(transform.position); object.scale.fromArray(transform.scale);
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
+  applyRagdolls(result.ragdolls);
+  for (const label of textLabels.values()) label.setText(hudTemplate(label.config.text, result.state, hudLayout.totals, hudLayout.left));
+  stats.sdfLabels = textLabels.size; stats.sdfGlyphs = textAtlas?.glyphs.size || 0;
   fps?.apply(result, objects.get(playerId));
   if (feedback.collect) {
     audio.play('collect');
@@ -182,6 +289,7 @@ function apply(result) {
   }
   if (feedback.jump) audio.play('jump');
   if (feedback.win) audio.play('win');
+  pulseHaptics(hapticCue(feedback, result.events || []), { settings: input.config.haptics, pads: navigator.getGamepads?.() || [], gamepadActive, touch: touchMode() });
   lastFeedback = { ...result.state };
   const hud = JSON.stringify(Object.entries(result.state).filter(([key]) => key !== 'won' && key !== 'gewonnen' && !key.startsWith('_') && (!ui.hud_keys || ui.hud_keys.includes(key))));
   if (hud !== lastHUD) {
@@ -202,7 +310,10 @@ function apply(result) {
     if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
     $('state').replaceChildren(...fragments);
   }
-  $('logs').textContent = result.logs.slice(-12).join('\n');
+  if (netEndpoint) {
+    $('state').textContent = `${result.connected ? `Spieler ${result.player_number}` : 'Verbinde …'} · ${Math.round(result.stats?.rtt_ms || 0)} ms · ${result.players || 0} Spieler verbunden`;
+  }
+  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...(touchControls?.warnings || []), ...textWarnings, ...(textAtlas?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -219,24 +330,24 @@ function showWin() {
 }
 
 function movement() {
-  let x = joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
-  let z = joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp'));
-  const move = viewMovement(x, z, cameraOffset.toArray());
+  const move = viewMovement(sampledInput.move_x, sampledInput.move_z, cameraOffset.toArray());
   return new THREE.Vector3(move.x, 0, move.z);
 }
 
 function localMovement() {
   return {
-    x: joystick.x + Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft')),
-    z: joystick.z + Number(keys.has('KeyS') || keys.has('ArrowDown')) - Number(keys.has('KeyW') || keys.has('ArrowUp')),
+    x: sampledInput.move_x,
+    z: sampledInput.move_z,
   };
 }
 
-function controls() {
-  if (fps) return fps.inputs(localMovement(), actionInput.sample());
+function controls(consume = true, queued = true) {
+  sampledInput = input.sample({ keys, pads: navigator.getGamepads?.() || [], touch: { ...joystick, actions: touchControls?.sample(queued) } });
+  const pressed = Math.max(actionInput.sample(consume, queued), sampledInput.actions.action);
+  const result = fps ? { ...fps.inputs(localMovement(), pressed, sampledInput.actions), travel_speed: travelSpeed } : null;
   const move = movement();
-  const pressed = actionInput.sample();
-  return { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
+  if (consume) touchControls?.consume();
+  return result || { move_x: move.x, move_z: move.z, jump: pressed, action: pressed };
 }
 
 function previewingRoute() {
@@ -251,7 +362,7 @@ function stopPreview() {
 function updateCamera(immediate = false, elapsed = 1 / 60) {
   const player = transforms.get(playerId);
   if (!player) return;
-  if (fps) { fps.updateCamera(player, elapsed, fps.buttons.sprint); return; }
+  if (fps) { fps.updateCamera(player, elapsed, sampledInput.actions.sprint); return; }
   const direction = movement();
   if (direction.length() > 0.15) lookDirection.lerp(direction.normalize(), immediate ? 1 : 1 - Math.exp(-elapsed * 6));
   const target = new THREE.Vector3(...player.transform.position);
@@ -302,16 +413,28 @@ function resize() {
   camera.aspect = width / height; camera.updateProjectionMatrix(); updateCamera(true);
 }
 
-async function restart() {
+async function restart(save = null) {
+  if (netEndpoint && save !== null) throw new Error('Lokale Spielstände sind im Multiplayer nicht verfügbar.');
   running = false; ready = false; resetInput();
   stopPreview();
   previewRemaining = 3.5;
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   animations.clear();
+  hudLayout?.reset(source.entities);
+  for (const label of textLabels.values()) label.dispose();
+  textLabels.clear(); textAtlas?.dispose(); textAtlas = null; textWarnings = [];
+  applyRagdolls();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
-  const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
+  net?.close();
+  const initial = save === null
+    ? game.load(JSON.stringify(source), JSON.stringify(scripts))
+    : game.load_game(JSON.stringify(source), JSON.stringify(scripts), save);
+  if (netEndpoint) {
+    net = new BrowserNet(game, netEndpoint, fail, undefined, {onDisconnect: showNetworkDisconnect});
+    window.__engineNet = net.status;
+  }
   audio.configure(source);
   await terrain?.preload();
   mark('webGameLoaded');
@@ -326,17 +449,43 @@ async function restart() {
   }
   camera.position.fromArray(source.camera.position); camera.lookAt(...source.camera.target); updateCamera(true);
   if (streaming) await Promise.all(streaming.update(camera));
-  accumulator = 0; previous = performance.now(); ready = true;
+  accumulator = 0; previous = performance.now(); ready = true; $('pause').disabled = false;
   mark('assetsReady');
 }
 
+const saveKey = `ai-engine-save:v1:${location.pathname}`;
+window.__aiSaveGame = () => {
+  if (netEndpoint) throw new Error('Lokale Spielstände sind im Multiplayer nicht verfügbar.');
+  if (!ready) throw new Error('Spiel ist noch nicht bereit.');
+  const save = game.save_game();
+  localStorage.setItem(saveKey, save);
+  return save;
+};
+window.__aiLoadGame = async () => {
+  if (netEndpoint) throw new Error('Lokale Spielstände sind im Multiplayer nicht verfügbar.');
+  const save = localStorage.getItem(saveKey);
+  if (save === null) return false;
+  await restart(save);
+  startRunning();
+  return true;
+};
+window.addEventListener('keydown', e => {
+  if (e.code !== 'F5' && e.code !== 'F9') return;
+  e.preventDefault();
+  if (e.repeat) return;
+  Promise.resolve().then(() => e.code === 'F5' ? window.__aiSaveGame() : window.__aiLoadGame())
+    .catch(error => console.error('Spielstand:', error));
+});
+
 function startRunning() {
+  if (document.activeElement?.matches('button')) document.activeElement.blur();
   audio.unlock();
   $('restart').hidden = true; $('start').disabled = false;
   resetInput(); modal.hidden = true; mode = 'pause'; running = true; previous = performance.now(); accumulator = 0;
   if (previewingRoute() && previewMission === null) { previewMission = $('mission').textContent; $('mission').textContent = 'Zielvorschau · Bewegen überspringt'; }
   $('pause').textContent = 'Ⅱ'; $('pause').setAttribute('aria-label', 'Spiel pausieren');
   fps?.start();
+  touchControls?.layout();
 }
 
 bindActivation($('start'), async () => {
@@ -366,7 +515,7 @@ $('restart').addEventListener('click', async () => {
   finally { $('restart').disabled = false; }
 });
 $('pause').addEventListener('click', () => {
-  if (!ready || mode === 'restart') return;
+  if (!ready || mode === 'restart' || inputSettings?.open) return;
   if (running) {
     pause();
   } else startRunning();
@@ -386,10 +535,17 @@ $('fullscreen').addEventListener('click', async () => {
   } catch { $('mission').textContent = 'Vollbild ist in diesem Browser nicht verfügbar.'; }
 });
 
-const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
 bindAudioGestures(window, () => audio.unlock(), () => running && !document.hidden);
-window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { stopPreview(); if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
-window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
+window.addEventListener('keydown', e => {
+  if (running && ['Space', 'Enter'].includes(e.code) && e.target.closest?.('footer button')) e.preventDefault();
+  if (inputSettings?.open || (!running && e.target.closest?.('button, input, dialog'))) return;
+  const actions = Object.keys(input.config.bindings).filter(action => input.config.bindings[action].some(binding => binding.type === 'key' && binding.code === e.code));
+  if (!actions.length) return;
+  e.preventDefault();
+  if (actions.includes('pause') && !e.repeat && ready && mode !== 'restart') { if (running) pause(); else startRunning(); return; }
+  if (running) { stopPreview(); keys.add(e.code); if (actions.includes('action')) actionInput.press(`key:${e.code}`); }
+});
+window.addEventListener('keyup', e => { keys.delete(e.code); actionInput.release(`key:${e.code}`); });
 window.addEventListener('blur', resetInput);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && running) pause();
@@ -424,15 +580,49 @@ for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) $('act
 });
 window.addEventListener('resize', () => { resetInput(); if (renderer && camera) resize(); });
 
+function showNetworkDisconnect() {
+  if (mode === 'error' || (!modal.hidden && modal.dataset.screen === 'disconnected')) return;
+  fps?.stop(); running = false; resetInput(); mode = 'restart';
+  $('state').textContent = 'Verbindung getrennt';
+  modal.hidden = false; modal.dataset.screen = 'disconnected';
+  $('modal-badge').textContent = 'MULTIPLAYER'; $('modal-symbol').textContent = '↻';
+  $('modal-title').textContent = 'Verbindung getrennt';
+  $('modal-text').textContent = 'Der Server ist nicht erreichbar. Verbinde dich erneut, um weiterzuspielen.';
+  $('modal-note').textContent = 'Der Server bestimmt deinen aktuellen Spielstand.';
+  $('start').textContent = 'Neu verbinden'; $('start').disabled = false;
+  $('restart').hidden = true; $('pause').disabled = true;
+}
+
 function frame(now) {
   requestAnimationFrame(frame);
+  hudLayout?.frame(now);
   if (!renderer || !ready) return;
   try {
     const rawElapsed = (now - previous) / 1000;
     const elapsed = Math.min(rawElapsed, 0.1); previous = now;
     if (document.hidden) return;
+    const pads = navigator.getGamepads?.() || [];
+    const gamepad = input.sampleGamepads(pads);
+    sampledInput = input.sample({ keys, pads, touch: { ...joystick, actions: touchControls?.sample() } });
+    const edges = inputEdges.sample(sampledInput.actions);
+    if (Object.values(gamepad.actions).some(value => Math.abs(value) > 0.15)) { gamepadActive = true; updateHelp(); }
+    else if (!Array.from(pads).some(pad => pad && pad.connected !== false)) { gamepadActive = false; updateHelp(); }
+    inputSettings?.poll(pads);
+    if (!inputSettings?.open) {
+      if (edges.has('pause') && mode !== 'restart') { if (running) pause(); else if (mode === 'pause') startRunning(); }
+      else if (edges.has('action') && !modal.hidden && !$('start').disabled) $('start').click();
+      if (running) {
+        if (gamepad.actions.action > 0.5) actionInput.press('gamepad'); else actionInput.release('gamepad');
+        if (Math.hypot(gamepad.move_x, gamepad.move_z) > 0.1) stopPreview();
+        fps?.gamepadLook(sampledInput.look_x, sampledInput.look_y, elapsed);
+      }
+    }
     renderer.info.reset();
-    if (running) {
+    if (net) {
+      const result = running ? net.tick(controls(false, false), controls(false), () => { actionInput.sample(); touchControls?.consume(); }) : net.tick({});
+      if (result) apply(result);
+      if (!net.status.connected && net.socket.readyState >= 2) showNetworkDisconnect();
+    } else if (running) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
       if (previewRemaining === 0) stopPreview();
       accumulator += elapsed;
@@ -450,11 +640,16 @@ function frame(now) {
     Object.assign(stats, audio.stats());
     occluder?.beginFrame();
     streaming?.update(camera);
+    for (const [id, group] of ragdolls) {
+      const root = objects.get(id);
+      if (root && group.visible) root.visible = false;
+    }
     terrain?.update(camera, now);
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
-    if (fps) fps.frame(elapsed, fpsMarkers()); else { updateShadows(); updateObjective(); }
+    if (fps) fps.frame(elapsed, fpsMarkers(), effects.level); else { updateShadows(); updateObjective(); }
+    for (const label of textLabels.values()) label.update(camera);
     if (gpuTimer) {
       gpuTimer.begin();
       const renderStart = performance.now();
@@ -468,14 +663,16 @@ function frame(now) {
     fps?.renderOverlay();
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
+    Object.assign(stats,streaming?.hlod?.stats() || {hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0});
     stats.occludedChunks=streaming?.occludedChunks || 0; stats.occlusionTests=occluder?.tests || 0;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
+    Object.assign(stats,streaming?.assetStream.stats() || {assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0});
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
-      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · assets ${stats.assetsQueued} queued/${stats.assetsLoading} loading/${stats.assetsLoaded} ready · ${stats.assetMB.toFixed(1)} MB · uploads ${stats.textureUploadsPending} · evictions ${stats.assetEvictions} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
@@ -518,9 +715,13 @@ async function boot() {
     init().then(result => { mark('wasmInitialized'); return result; }),
   ]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
-  const props = source.entities.find(e => e.tags?.includes('player'))?.props;
+  const props = source.entities.find(e => e.tags?.includes('player'))?.props || source.entities.find(e => e.tags?.includes('net_player'))?.props;
+  netEndpoint = netURL(location.href, props?.ai_net);
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
+  hudLayout = new HudLayout(props?.ai_hud, source.entities);
+  const title = ui.title || (source.entities.some(e => e.tags?.includes('coin')) ? 'Münzenpfad' : source.name || 'Web-Spiel');
+  inputSettings = new InputSettings(input, props?.ai_input, title, () => { if (running) pause(); resetInput(); }, updateHelp);
   const preset = new URLSearchParams(location.search).get('quality');
   const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
   renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });
@@ -531,13 +732,14 @@ async function boot() {
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
   world = new THREE.Scene();
   effects = new GameEffects(renderer, world, ui.sky_color, graphics);
+  world.userData.terrainQuality=()=>effects.level;
   effects.nature?.setExclusions(source.entities);
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
   await Promise.all([effects.prepareEnvironment(), assets.preloadMaterialMaps(source.entities)]);
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config,assets);
-    if (world.fog?.isFog) { world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance; }
+    if (world.fog?.isFog) { const distance=config.hlod ? config.hlod_distance : config.draw_distance; world.fog.near = distance * 0.65; world.fog.far = distance; }
   }
   if (new URLSearchParams(location.search).get('stats') === '1') {
     gpuTimer = new GpuTimer(context);
@@ -546,14 +748,14 @@ async function boot() {
     statsOverlay.style.cssText = 'position:fixed;left:8px;top:8px;z-index:1000;background:#000b;color:white;padding:6px;font:12px monospace;pointer-events:none';
     document.body.append(statsOverlay);
   }
-  game = new WebGame();
+  game = netEndpoint ? new NetGame() : new WebGame();
   terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
   if(terrain) {
     occluder=new TerrainOcclusion(terrain.occluderHeightAt,{enabled:config?.occlusion ?? true,margin:config?.occlusion_margin ?? 2});
-    streaming?.setOcclusion(occluder); terrain.setOcclusion(occluder);
+    streaming?.setOcclusion(occluder); streaming?.setHlodOcclusion(occluder); terrain.setOcclusion(occluder);
   }
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
-  if (config) camera.far = config.draw_distance;
+  if (config) camera.far = config.hlod ? config.hlod_distance : config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));
   if (cameraOffset.length() < 0.1) cameraOffset.set(7, 6, 9);
   const firstPerson = fpsConfig(source.entities);
@@ -578,8 +780,10 @@ async function boot() {
   if (ui.badge) $('modal-badge').textContent = ui.badge;
   if (ui.action_label) $('action').lastChild.textContent = ui.action_label;
   document.title = `${$('title').textContent} · AI Engine`;
-  if (matchMedia('(pointer: coarse)').matches) $('help').textContent = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
-  else if (fps) $('help').textContent = 'Maus: Zielen · Klick: Feuer · R: Nachladen · Shift: Sprint · Esc: Pause';
+  touchHelp = fps ? 'Links: Bewegen · Rechts ziehen: Zielen · FEUER' : 'Joystick: Bewegen · Taste: Aktion';
+  touchControls = new TouchControls(props?.ai_touch, { fps: !!fps, enabled: () => running, onInteract: stopPreview, onLayout: () => hudLayout?.layout() });
+  if (touchMode() && fps) fps.coarse = true;
+  updateHelp();
   if (fps && !ui.action_label) $('action').lastChild.textContent = 'SPRUNG';
   requestAnimationFrame(frame);
 }

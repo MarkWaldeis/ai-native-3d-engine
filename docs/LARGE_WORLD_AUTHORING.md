@@ -153,7 +153,58 @@ performance budget. Test startup overlapped the first benchmark case.
 | Region (0,0), 128 m | 3.823 | 4.292 | 662 | 3 |
 | Scene summary | 13.935 | 15.250 | 2,869 | 14,997 |
 
-Limitations: queries still scan; authoring checkpoints still serialize complete
-scene/history; content-addressed assets are retained without automatic garbage
-collection. Neither these authoring features nor the existing renderer establish
-AAA production readiness.
+## M15 safe subset: indexed authoring queries
+
+The World owns immutable ID-sorted postings for tags, component presence, prefab
+names and the existing 128 m position regions. Combined filters intersect the
+smallest posting first. Pagination preserves the existing revision/filter-bound
+cursor, total count, ID order and response schema. Bounding boxes, radii and
+custom region sizes remain exact position filters on the selected candidates;
+this is not a geometry BVH or a runtime spatial index.
+
+Caches are lazy, synchronized and disposable. World clones share immutable
+postings, not cache ownership; edits, atomic commits and rollback invalidate the
+local cache. Restart rebuilds it: no checkpoint or shared schema changed. Because
+embedding code can edit the public `World.scene` directly, every reuse also checks
+the exact relevant entity projection (IDs, position bits, tags, component flags,
+prefab names). No hash-collision or revision-only freshness assumption is made.
+That check is still **O(N)**; display names are read live and scene summaries still
+scan. Acquire a fresh `World.authoring_index()` before using its row indices after
+an edit; an externally retained Arc is a snapshot, not a live view.
+
+Sequential HTTP MCP comparison on the same 14,997-entity / 44 km² generator,
+macOS ARM64, unoptimized dev builds without debug symbols/incremental compilation,
+200 samples after 10 warmups per case. The generator's box-ground variant is used,
+not a terrain streaming/rendering benchmark. All seven match counts and response
+byte sizes stayed identical. These are measurements, not cross-machine budgets.
+
+| Tool/filter | Before p50 / p95 ms | Indexed p50 / p95 ms |
+|---|---:|---:|
+| Page, limit 100 | 4.879 / 6.862 | 2.443 / 2.506 |
+| Tag ground | 4.315 / 5.706 | 2.500 / 2.749 |
+| Component collider | 5.349 / 6.279 | 2.481 / 2.550 |
+| Bounding box | 5.737 / 8.236 | 3.325 / 3.456 |
+| Radius 500 m | 6.144 / 8.285 | 3.536 / 3.654 |
+| Region (0,0), 128 m | 4.261 / 5.846 | 1.344 / 1.385 |
+| Summary (not indexed) | 13.715 / 15.681 | 13.271 / 15.916 |
+
+Cold index construction: **9.165 ms**; warm exact validation: **0.733 ms**.
+Owned vector/string capacity payload: **1,716,762 bytes** for a 3,608,993-byte
+scene JSON. That excludes BTreeMap nodes, Arc/allocator overhead and is **not RSS**.
+The cache adds memory; it does not deduplicate runtime entity components.
+
+```sh
+cargo test --test authoring_index -- --nocapture
+python3 tools/bench/bench_authoring.py --samples 200
+cargo run --example authoring_index -- /path/to/generated/scene.json
+```
+
+**M15 remains partial:** prefab instances still expand to flat runtime entities.
+Shared-template runtime is explicitly blocked until #34/#46/#48/#51 merge and
+the frozen scene/runtime contract is coordinated. Incremental authoring checkpoints
+and conservative dry-run-default GLB GC are now delivered separately; see
+[project storage](PROJECT_STORAGE.md) for the journal, compaction and reference
+protection rules, and remaining CPU/heap/asset-type limits. No
+physics, savegame, netcode, player streaming or rendering-quality files changed.
+Neither these authoring features nor the existing renderer establish AAA
+production readiness.

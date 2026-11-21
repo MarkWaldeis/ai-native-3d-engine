@@ -87,6 +87,20 @@ fn web_export_bundles_audio_deduplicates_and_preserves_string_props() {
 }
 
 #[test]
+fn net_arena_export_bundles_multiplayer_transport_and_spawn_script() {
+    let fixture=Fixture::new();
+    let root=root();
+    let scene:Scene=serde_json::from_str(&std::fs::read_to_string(root.join("examples/net_arena/scene.json")).unwrap()).unwrap();
+    let out=fixture.0.join("net-arena");
+    export_bundle(&scene,&root,&out,&fixture.0.join("pkg")).unwrap();
+    let player=std::fs::read_to_string(out.join("player.js")).unwrap();
+    assert!(player.contains("new NetGame()"));
+    assert!(out.join("net.js").is_file());
+    let scripts:Value=serde_json::from_str(&std::fs::read_to_string(out.join("scripts.json")).unwrap()).unwrap();
+    assert!(scripts.as_object().unwrap().values().any(|source|source.as_str().unwrap().contains("spawn_entity")));
+}
+
+#[test]
 fn web_export_bundles_compact_terrain_once_and_rewrites_paths() {
     let fixture=Fixture::new();
     let terrain=engine_terrain::Terrain::generate(engine_terrain::TerrainConfig {size_m:[512.0;2],samples:33,..Default::default()}).unwrap();
@@ -128,11 +142,21 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "index.html",
         "favicon.svg",
         "player.js",
+        "hud-layout.js",
+        "hud-renderer.js",
+        "sdf-font.js",
+        "sdf-text.js",
+        "input.js",
+        "input-settings.js",
+        "touch.js",
+        "touch-controls.js",
         "nature.js",
         "nature-settings.js",
         "streaming.js",
         "world.js",
+        "hlod.js",
         "occlusion.js",
+        "asset-streaming.js",
         "effects.js",
         "presentation.js",
         "audio.js",

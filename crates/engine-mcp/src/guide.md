@@ -61,8 +61,10 @@ Legacy lease omission is allowed only for first-generation task_complete.
 create/claim/renew/release/takeover/complete, lease, actor, previous owner. Task
 events do not advance scene revisions. Project engines (`--project X`) checkpoint
 tasks, lease counters, locks/deadlines, both journals, authoring scene/revision,
-allocator and rollback snapshots atomically in `X/.ai-engine/state.json` before
-acknowledging mutations. Offline time consumes TTL. Restart stopped with fresh
+allocator and rollback snapshots in `X/.ai-engine/`: an atomic base plus delta
+journal/head commits, compacted every 16 writes. Back up the whole directory;
+`state.json` alone is not current. Mutations are acknowledged after commit.
+Offline time consumes TTL. Restart stopped with fresh
 HTTP sessions; reread journals and expired claims before editing. Only one writer
 per project is allowed. Corrupt state fails startup, never silently resets.
 Reads/play ticks are not checkpointed. Explicit save_scene remains the portable
@@ -167,6 +169,13 @@ eval or clock APIs. Errors include script file/entity and line.
 - `ctx.input("move_x")`, `ctx.input("move_z")`, `ctx.input("action")` or `jump`;
   unspecified inputs start at zero. Native inputs are world axes; browser controls
   convert camera-relative joystick/keyboard axes before sending them to simulation.
+- Persistent state: `ctx.flag_set(name,value)` / `ctx.flag(name)` (missing: `()`),
+  `ctx.inventory_add(item,n)`, `ctx.inventory_remove(item,n)` (false if insufficient),
+  `ctx.inventory_count(item)` (missing: 0). Names ≤256 bytes, ≤256 entries;
+  flag values ≤65536 bytes, inventory quantities nonnegative signed integers.
+  `save_game {path?}` requires play; `load_game {path?|save?}` requires stopped play.
+  Paths are project-confined `.json`, saves ≤4 MB. Loading calls optional
+  `on_load(ctx)`, never `on_start`; `base_changed` allows authoring updates.
 - `ctx.state_get("score")`, `ctx.state_set("score", 3)` share global JSON-compatible
   state; missing keys return unit. `ctx.log("message")` writes bounded logs.
 - `ctx.spawn_entity(#{name:"ball",kind:"sphere",radius:0.5,segments:16,transform:#{position:[0.0,1.0,0.0]}})` returns ID;

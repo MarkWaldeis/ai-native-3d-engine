@@ -19,7 +19,16 @@ export async function verifyMobileGraphics(browser, base, profile, device, error
   });
   await page.addInitScript(installClock);
   try {
-    for (const preset of ['low', 'ultra']) {
+    for (const [preset, level] of [['low', 0], ['ultra', 2], ['balanced', 1]]) {
+      if (preset === 'balanced') await page.route('**/material_studio/scene.json', async route => {
+        const response = await route.fetch(), scene = await response.json();
+        const player = scene.entities.find(entity => entity.tags?.includes('player'));
+        Object.assign(player.props.ai_graphics, {
+          bloom_strength:0, height_fog:{density:0.04, falloff:8}, auto_exposure:true,
+          color_grade:{saturation:0.7, contrast:1.25},
+        });
+        await route.fulfill({response,json:scene});
+      });
       await page.goto(`${studio}/?quality=${preset}`);
       await page.waitForFunction(() => !document.querySelector('#start').disabled, null, {polling:50});
       await page.getByRole('button', {name:'Spielen'}).tap();
@@ -30,13 +39,15 @@ export async function verifyMobileGraphics(browser, base, profile, device, error
           calls:window.__engineStats.drawCalls, error:gl.getError(),
           floatTargets:!!gl.getExtension('EXT_color_buffer_float')};
       });
-      assert.equal(actual.quality, preset === 'low' ? '0' : '2');
+      assert.equal(actual.quality, String(level));
       assert.ok(actual.calls > 0 && actual.error === 0, JSON.stringify(actual));
       if (preset === 'low' || !actual.floatTargets) assert.equal(actual.mode, 'standard');
       else assert.ok(['hdr', 'standard'].includes(actual.mode), JSON.stringify(actual));
       if (preset === 'ultra') {
         await page.screenshot({path:`${shots}/material-studio-${profile.replaceAll(' ','-')}.png`});
         console.log(`PASS webkit/${profile}/graphics: playable material studio, Ultra ${actual.mode}, no WebGL errors`);
+      } else if (preset === 'balanced') {
+        console.log(`PASS webkit/${profile}/graphics: height fog, exposure and grading on Balanced (${actual.mode}), no WebGL errors`);
       }
     }
   } finally { await page.close(); }
@@ -464,6 +475,168 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(depth.standard.some(sample => sample.correct < 12), JSON.stringify(depth));
     console.log('PASS logarithmic depth: near surface wins at 2 km in direct and HDR rendering');
 
+    const fog = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { HDRPipeline } = await import('./hdr.js');
+      const { graphicsConfig } = await import('./graphics-settings.js');
+      const geometry = new THREE.PlaneGeometry(10, 10);
+      const material = new THREE.MeshBasicMaterial({color:'#202020'});
+      const mesh = new THREE.Mesh(geometry, material);
+      const scene = new THREE.Scene();
+      const fallback = new THREE.Fog('#cc4410', 4, 10);
+      scene.fog = fallback;
+      scene.background = new THREE.Color('#403020');
+      scene.add(mesh);
+      const config = graphicsConfig({
+        height_fog:{density:0.04, falloff:10, color:'#94caff'}, bloom_strength:0,
+        hdr_antialias:false,
+      }, 'balanced');
+      const result = [];
+      for (const [logarithmicDepthBuffer, orthographic] of [[false,false],[true,false],[true,true]]) {
+        const camera = orthographic
+          ? new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 200)
+          : new THREE.PerspectiveCamera(70, 1, 0.1, 200);
+        const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas'), logarithmicDepthBuffer});
+        renderer.debug.onShaderError = () => { throw new Error('height fog shader did not compile'); };
+        const gl = renderer.getContext();
+        const pipeline = new HDRPipeline(renderer, config);
+        const contact = new HDRPipeline(renderer, {...config, contactStrength:0.8});
+        const metered = new HDRPipeline(renderer, {...config, contactStrength:0.8,
+          autoExposure:graphicsConfig({auto_exposure:true}, 'balanced').autoExposure,
+        });
+        const noDepth = new HDRPipeline(renderer, {...config, bloomStrength:0.2, contactStrength:0.8});
+        const zeroConfig = {...config, heightFog:{...config.heightFog,density:0}};
+        const zero = new HDRPipeline(renderer, zeroConfig);
+        const zeroHdr = new HDRPipeline(renderer, {...zeroConfig, bloomStrength:0.2});
+        const pixels = new Uint8Array(4);
+        const read = (x,y) => {
+          gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
+          return Array.from(pixels.slice(0,3));
+        };
+        const sample = (height, distance, fromHeight = height, source = pipeline) => {
+          camera.position.set(0,fromHeight,0);
+          camera.lookAt(0,height,-distance);
+          mesh.position.set(0,height,-distance);
+          mesh.quaternion.copy(camera.quaternion);
+          source.render(scene,camera);
+          return read(48,48);
+        };
+        try {
+          pipeline.resize(1,96,96,1);
+          const near = sample(-1,8);
+          const ground = sample(-1,45);
+          const sky = read(1,1);
+          const far = sample(-1,150);
+          const elevated = sample(45,45);
+          const through = sample(-1,45,45);
+          const fogOnly = !!pipeline.sceneTarget && !pipeline.bright && !pipeline.contact;
+          contact.resize(2,96,96,1);
+          const combined = sample(-1,45,-1,contact);
+          mesh.scale.setScalar(20);
+          metered.resize(2,96,96,1);
+          const meteredGround = sample(-1,45,-1,metered);
+          metered.resetExposure();
+          const meteredElevated = sample(45,45,45,metered);
+          mesh.scale.setScalar(1);
+          pipeline.resize(0,96,96,1);
+          const low = sample(-1,45);
+          zero.resize(1,96,96,1);
+          const noFog = sample(-1,45,-1,zero), noFogDirect = !zero.sceneTarget;
+          zeroHdr.resize(2,96,96,1);
+          const noFogHdr = sample(-1,45,-1,zeroHdr), noFogDepth = !zeroHdr.sceneTarget.depthTexture;
+          zero.resize(0,96,96,1);
+          const zeroLow = sample(-1,45,-1,zero);
+          const check = gl.checkFramebufferStatus;
+          let rejectDepth = true;
+          gl.checkFramebufferStatus = function(target) {
+            if (rejectDepth) { rejectDepth = false; return gl.FRAMEBUFFER_INCOMPLETE_ATTACHMENT; }
+            return check.call(this,target);
+          };
+          try { noDepth.resize(2,96,96,1); }
+          finally { gl.checkFramebufferStatus = check; }
+          const bloomFallback = !!noDepth.bright && !noDepth.sceneTarget.depthTexture && !noDepth.fogEnabled;
+          result.push({near,ground,sky,far,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,
+            noFog,noFogHdr,noFogDirect,noFogDepth,zeroLow,restored:scene.fog === fallback,error:gl.getError()});
+        } finally {
+          for (const effect of [zero,zeroHdr,noDepth,metered,contact,pipeline]) effect.release();
+          renderer.dispose(); renderer.forceContextLoss();
+        }
+      }
+      geometry.dispose(); material.dispose();
+      return result;
+    });
+    for (const result of fog) {
+      const {near,ground,sky,far,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,restored,error} = result;
+      assert.ok(ground[2] > near[2] + 40 && near[2] > elevated[2] + 35, JSON.stringify(result));
+      assert.ok(far[2] > ground[2] + 10, JSON.stringify(result));
+      assert.ok(through[2] > elevated[2] + 30 && through[2] < ground[2] - 15, JSON.stringify(result));
+      assert.deepEqual(sky,[64,48,32]);
+      assert.ok(combined.every((value,index) => Math.abs(value-ground[index]) <= 2), JSON.stringify(result));
+      assert.ok(meteredGround[2] < ground[2] - 20 && meteredElevated[2] > elevated[2] + 20, JSON.stringify(result));
+      assert.deepEqual(low,[204,68,16]);
+      assert.deepEqual(result.noFog,[32,32,32]);
+      assert.deepEqual(result.noFogHdr,result.noFog);
+      assert.deepEqual(result.zeroLow,low);
+      assert.ok(result.noFogDirect && result.noFogDepth, JSON.stringify(result));
+      assert.ok(fogOnly && bloomFallback && restored && error === 0, JSON.stringify(result));
+    }
+    for (const key of ['near','ground','elevated','through']) {
+      assert.ok(fog[0][key].every((value,index) => Math.abs(value-fog[1][key][index]) <= 3), JSON.stringify(fog));
+    }
+    console.log('PASS height fog: low layers, clear sky, log-depth, contact and exposure compatibility, and Low fallback');
+
+    const grades = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { HDRPipeline } = await import('./hdr.js');
+      const { graphicsConfig } = await import('./graphics-settings.js');
+      const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(55, 1, 0.1, 20);
+      const geometry = new THREE.PlaneGeometry(4, 4), material = new THREE.MeshBasicMaterial();
+      const patch = new THREE.Mesh(geometry, material);
+      patch.position.z = -2;
+      scene.add(patch);
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.debug.onShaderError = () => { throw new Error('color grade shader did not compile'); };
+      renderer.info.autoReset = false;
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const make = color_grade => new HDRPipeline(renderer, graphicsConfig({
+        color_grade, bloom_strength:0, hdr_antialias:false,
+      }, 'balanced'));
+      const neutral = make({saturation:1, contrast:1});
+      const grayscale = make({saturation:0});
+      const contrast = make({contrast:2});
+      const sample = (pipeline, color, tier = 1, gain = 1) => {
+        pipeline.resize(tier,64,64,1);
+        material.color.set(color).multiplyScalar(gain);
+        pipeline.render(scene, camera);
+        gl.readPixels(32,32,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+        return [...pixel.slice(0,3)];
+      };
+      try {
+        return [THREE.ACESFilmicToneMapping, THREE.AgXToneMapping].map(curve => {
+          renderer.toneMapping = curve;
+          const plain = sample(neutral, '#ef5017');
+          const mono = sample(grayscale, '#ef5017');
+          const resolvesOnly = !neutral.sceneTarget && !!grayscale.sceneTarget
+            && !grayscale.bright && !grayscale.contact && renderer.info.render.calls === 2;
+          return {plain, mono, resolvesOnly, low:sample(grayscale, '#ef5017', 0),
+            shadow:sample(neutral, '#505050')[0], gradedShadow:sample(contrast, '#505050')[0],
+            light:sample(neutral, '#ffffff', 1, 1.6)[0], gradedLight:sample(contrast, '#ffffff', 1, 1.6)[0],
+            error:gl.getError()};
+        });
+      } finally {
+        neutral.release(); grayscale.release(); contrast.release();
+        geometry.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    for (const result of grades) {
+      const {plain, mono, resolvesOnly, low, shadow, gradedShadow, light, gradedLight, error} = result;
+      assert.ok(plain[0] - plain[2] > 30 && Math.max(...mono)-Math.min(...mono) <= 1, JSON.stringify(result));
+      assert.ok(shadow - gradedShadow > 8 && gradedLight - light > 4, JSON.stringify(result));
+      assert.deepEqual(low, plain);
+      assert.ok(resolvesOnly && error === 0, JSON.stringify(result));
+    }
+    console.log('PASS color grade: monochrome and contrast after ACES and AgX; no bloom, Low unchanged');
+
     const spot = await page.evaluate(async () => {
       const THREE = await import('three');
       const { LocalLights } = await import('./local-lights.js');
@@ -564,6 +737,11 @@ export async function verifyGraphics(browser, base, errors, shots) {
       caster.castShadow = receiver.receiveShadow = true;
       receiver.rotation.x = -Math.PI / 2;
       const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const readReceiver = () => {
+        const {x,y} = new THREE.Vector3(18, 0, -3).project(camera);
+        gl.readPixels(Math.floor((x + 1) * gl.drawingBufferWidth / 2), Math.floor((y + 1) * gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        return pixel[0];
+      };
       const sample = extent => {
         const config = graphicsConfig({shadow_extent:extent, sun_direction:[0,1,1], sun_intensity:5}, 'low');
         const scene = new THREE.Scene(), effects = new GameEffects(renderer, scene, null, config);
@@ -571,16 +749,38 @@ export async function verifyGraphics(browser, base, errors, shots) {
         scene.add(caster, receiver);
         effects.update(0, new Map(), camera, false, 0, new THREE.Vector3());
         effects.render(camera);
-        const {x,y} = new THREE.Vector3(18, 0, -3).project(camera);
-        gl.readPixels(Math.floor((x + 1) * gl.drawingBufferWidth / 2), Math.floor((y + 1) * gl.drawingBufferHeight / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        const value = readReceiver();
         effects.sun.shadow.dispose();
-        return pixel[0];
+        return value;
       };
-      try { return {normal:sample(24), wide:sample(64), error:gl.getError()}; }
+      try {
+        const normal=sample(24), wide=sample(64);
+        const scene = new THREE.Scene(), config = graphicsConfig({
+          shadow_extent:64, sun_direction:[0,1,1], sun_intensity:5, bloom_strength:0, hdr_antialias:false,
+        }, 'ultra');
+        const effects = new GameEffects(renderer, scene, null, config), focus = new THREE.Vector3(), objects = new Map();
+        renderer.info.autoReset = false;
+        scene.fog = null; scene.add(caster, receiver);
+        const frame = () => {
+          renderer.info.reset();
+          effects.update(0, objects, camera, false, 0, focus);
+          effects.render(camera);
+          return {value:readReceiver(), calls:renderer.info.render.calls};
+        };
+        frame(); // Allocate the first shadow map.
+        const fresh=frame(), reused=frame();
+        caster.position.x += 3;
+        const moved=frame();
+        effects.sun.shadow.dispose();
+        return {normal, wide, fresh, reused, moved, error:gl.getError()};
+      }
       finally { box.dispose(); floor.dispose(); material.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
     });
     assert.ok(shadows.normal > shadows.wide + 30 && shadows.error === 0, JSON.stringify(shadows));
     console.log('PASS sun shadows: wider authored volume captures a caster outside the default volume');
+    assert.ok(shadows.reused.value === shadows.fresh.value && shadows.reused.calls < shadows.fresh.calls &&
+      shadows.moved.value > shadows.fresh.value + 30 && shadows.moved.calls === shadows.fresh.calls, JSON.stringify(shadows));
+    console.log('PASS sun shadow reuse: unchanged pixels, fewer draws, immediate caster movement');
 
     const streamedShadow = await page.evaluate(async () => {
       const THREE = await import('three');
@@ -638,7 +838,8 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const source = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2),color.map(value=>new THREE.MeshBasicMaterial({color:value})));
       source.position.x = 2;
       model.add(source);
-      const world = new StreamingWorld(scene,renderer,config,{load:async()=>({scene:model})});
+      const load=async()=>({scene:model});
+      const world = new StreamingWorld(scene,renderer,config,{anisotropy:1,loader:{loadAsync:load},load});
       const camera = new THREE.PerspectiveCamera(30,1,0.1,40);
       const samples = [];
       try {
@@ -654,6 +855,13 @@ export async function verifyGraphics(browser, base, errors, shots) {
             camera.position.fromArray(offset).multiplyScalar(10).add(center);
             camera.lookAt(center); camera.updateMatrixWorld();
             await Promise.all(world.update(camera));
+            if(batched) {
+              for(let attempt=0;attempt<20 && !world.assetStream.get('fixture');attempt++) {
+                await new Promise(resolve=>setTimeout(resolve,0));
+                await Promise.all(world.update(camera));
+              }
+              if(!world.assetStream.get('fixture')) throw new Error('Streamed impostor fixture did not become ready');
+            }
             await world.entities.get(entity.id).impostorTask;
             world.update(camera);
             if (batched && !instance) {

@@ -1,8 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyLook, combatCues, fpsConfig, fpsInputs, heading, lookDir, minimapPoint, PITCH_LIMIT, reloadDip, SlotPool, tracerSpan, wrapAngle } from '../crates/engine-web/player/fps_core.js';
+import { applyLook, combatCues, defeated, fpsConfig, fpsInputs, heading, lookDir, minimapPoint, PITCH_LIMIT, reloadDip, SlotPool, tracerSpan, travelSpeedInput, wrapAngle } from '../crates/engine-web/player/fps_core.js';
 
 const close = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
+
+test('defeat presentation follows the script flag while a respawn is pending', () => {
+  assert.equal(defeated({ health: 0, lost: false }), false);
+  assert.equal(defeated({ health: 0, lost: true }), true);
+  assert.equal(defeated({ health: 100, lost: false }), false);
+  assert.equal(defeated({ health: 0 }), true);
+  assert.equal(defeated({ health: 100 }), false);
+  assert.equal(defeated({}), false);
+});
+
+test('travel speed URL input is numeric, opt-in and rejects invalid values', () => {
+  assert.equal(travelSpeedInput('?speed=4'), 4);
+  assert.equal(travelSpeedInput('?speed=1.5'), 1.5);
+  assert.equal(travelSpeedInput('?speed=99'), 99);
+  for (const search of ['', '?speed=', '?speed=no', '?speed=Infinity', '?speed=0', '?speed=-2']) assert.equal(travelSpeedInput(search), 1);
+});
 
 test('fpsConfig only enables first person for a player with ai_fps', () => {
   assert.equal(fpsConfig([{ tags: ['player'], props: {} }]), null);
@@ -35,6 +51,13 @@ test('direction, compass and minimap share the runtime convention (yaw 0 = -Z)',
   const right = minimapPoint([0, 0, 0], 0, [10, 0, 0], 20, 100); close(right.x, 75); close(right.y, 50);
   const turned = minimapPoint([0, 0, 0], -Math.PI / 2, [10, 0, 0], 20, 100); close(turned.x, 50); close(turned.y, 25);
   assert.equal(minimapPoint([0, 0, 0], 0, [100, 0, 0], 20, 100), null);
+});
+
+test('FPS button actions use a strict >0.5 press threshold for analog bindings', () => {
+  for (const value of [undefined, null, NaN, -1, 0, 0.2, 0.5, 0.51, 1, false, true]) {
+    const result = fpsInputs({ x: 0, z: 0 }, { yaw: 0, pitch: 0 }, { fire: value, reload: value, sprint: value, jump: value });
+    for (const action of ['fire', 'reload', 'sprint', 'jump']) assert.equal(result[action], value > 0.5 ? 1 : 0);
+  }
 });
 
 test('SlotPool recycles the oldest slot instead of allocating', () => {

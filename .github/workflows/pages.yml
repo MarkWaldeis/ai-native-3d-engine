@@ -33,8 +33,14 @@ jobs:
         run: |
           cargo run -- --project examples/lantern_maze --export-web scene.json web
           mv examples/lantern_maze/web target/site/lantern_maze
+      - name: Export Waldwächter
+        run: |
+          cargo run -- --project examples/waldwaechter --export-web scene.json web
+          mv examples/waldwaechter/web target/site/waldwaechter
       - name: Add German landing page
         run: cp crates/engine-web/landing.html target/site/index.html && cp crates/engine-web/favicon.svg target/site/favicon.svg && touch target/site/.nojekyll
+      - name: Package opt-in on-device QA companion
+        run: node tools/device_qa/package.mjs target/site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

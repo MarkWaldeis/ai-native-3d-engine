@@ -67,6 +67,37 @@ fn rollback_replays_collisions_script_state_and_entity_lifecycle_bit_exactly() {
 }
 
 #[test]
+fn rollback_and_corrections_preserve_active_ragdoll_physics() {
+    let scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"target","kind":"box","size":[1,1,1],
+         "transform":{"position":[0,3,0]},"rigidbody":{"type":"kinematic"},
+         "props":{"ai_physics":{"ragdoll":{"preset":"humanoid","start_active":true}}}}
+    ]})).unwrap();
+    let mut sim = Simulation::from_sources(scene, BTreeMap::new()).unwrap();
+    sim.step(2, &[]).unwrap();
+    let checkpoint = sim.save_state();
+    let checkpoint_pose = sim.ragdoll_states();
+    assert!(sim.net_entity_states()[0].linvel[1] < 0.0);
+    let mut corrections = sim.net_entity_states();
+    corrections[0].position[0] += 4.0;
+    corrections[0].ragdoll = None;
+    sim.apply_net_entity_states(&corrections).unwrap();
+    let corrected = sim.ragdoll_states();
+    for (before, after) in checkpoint_pose[0]["parts"].as_array().unwrap().iter()
+        .zip(corrected[0]["parts"].as_array().unwrap()) {
+        let delta = after["position"][0].as_f64().unwrap() - before["position"][0].as_f64().unwrap();
+        assert!((delta - 4.0).abs() < 1e-5, "{before} -> {after}");
+    }
+    sim.restore_state(&checkpoint);
+    assert_eq!(sim.ragdoll_states(), checkpoint_pose);
+    sim.step(4, &[]).unwrap();
+    let expected = sim.ragdoll_states();
+    sim.restore_state(&checkpoint);
+    sim.step(4, &[]).unwrap();
+    assert_eq!(sim.ragdoll_states(), expected);
+}
+
+#[test]
 fn scoped_inputs_override_globals_and_helpers_use_hook_entity() {
     let source = r#"fn on_tick(ctx, dt) {
         ctx.state_set("input" + ctx.id().to_string(), ctx.input("move_x"));
@@ -89,9 +120,45 @@ fn scoped_inputs_override_globals_and_helpers_use_hook_entity() {
 }
 
 #[test]
+fn network_entity_insertion_replaces_definitions_preserves_ids_and_is_atomic() {
+    let mut sim = simulation();
+    let mut entity: shared::scene::Entity = serde_json::from_value(json!({
+        "id":100,"name":"replica","kind":"box","size":[1,1,1],
+        "transform":{"position":[10,5,0]},"collider":{"shape":"box"},"rigidbody":{"type":"dynamic"},
+        "script":{"source":"fn on_start(ctx) {ctx.state_set(\"should_not_restart\",true);} fn on_tick(ctx,dt) {ctx.state_set(\"replica_alive\",true);}"}
+    })).unwrap();
+    sim.insert_net_entity(entity.clone()).unwrap();
+    assert_eq!(sim.scene().entities.iter().find(|e|e.id==100),Some(&entity));
+    assert!(sim.net_script_state().get("should_not_restart").is_none());
+    sim.step(1,&[]).unwrap();
+    assert_eq!(sim.net_script_state()["replica_alive"],true);
+    assert!(sim.net_entity_states().iter().find(|e|e.id==100).unwrap().position[1]<5.0);
+    entity.name="replacement".into();
+    entity.transform.position=[15.0,8.0,0.0];
+    sim.insert_net_entity(entity.clone()).unwrap();
+    assert_eq!(sim.scene().entities.iter().filter(|e|e.id==100).count(),1);
+    assert_eq!(sim.net_entity_states().iter().find(|e|e.id==100).unwrap().position,[15.0,8.0,0.0]);
+    let scene=sim.scene();
+    let states=sim.net_entity_states();
+    entity.script=Some(shared::components::Script::Path("missing.rhai".into()));
+    assert!(sim.insert_net_entity(entity).is_err());
+    assert_eq!(sim.scene(),scene);
+    assert_eq!(sim.net_entity_states(),states);
+    sim.step(1,&[input(1,Some(2),"spawn",1.0)]).unwrap();
+    assert!(sim.scene().entities.iter().any(|e|e.id==101));
+    sim.remove_net_entity(100).unwrap();
+    sim.remove_net_entity(100).unwrap();
+    assert!(!sim.net_entity_states().iter().any(|e|e.id==100));
+    sim.step(1,&[input(2,Some(2),"spawn",0.0)]).unwrap();
+    sim.apply_net_script_state(json!({}));
+    sim.step(1,&[]).unwrap();
+    assert!(sim.net_script_state().get("replica_alive").is_none());
+}
+
+#[test]
 fn network_corrections_update_bodies_velocities_and_script_map() {
     let mut sim = simulation();
-    sim.apply_net_entity_states(&[]);
+    sim.apply_net_entity_states(&[]).unwrap();
     let mut states = sim.net_entity_states();
     assert_eq!(states.iter().map(|s| s.id).collect::<Vec<_>>(), vec![1,2,3]);
     let ball = &mut states[1];
@@ -99,11 +166,11 @@ fn network_corrections_update_bodies_velocities_and_script_map() {
     ball.rotation_deg = [10.0,20.0,30.0];
     ball.linvel = [2.0,0.0,0.0];
     ball.angvel = [0.0,1.0,0.0];
-    sim.apply_net_entity_states(&states);
+    sim.apply_net_entity_states(&states).unwrap();
     assert_eq!(sim.net_entity_states(), states);
     let mut unknown = states[1].clone();
     unknown.id = 999;
-    sim.apply_net_entity_states(&[unknown]);
+    sim.apply_net_entity_states(&[unknown]).unwrap();
     assert_eq!(sim.net_entity_states(), states);
     sim.apply_net_script_state(json!({"count":40,"server":true}));
     sim.apply_net_script_state(json!(null));

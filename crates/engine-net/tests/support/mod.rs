@@ -60,6 +60,10 @@ pub struct Harness {
 
 impl Harness {
     pub fn new(link: LinkConfig, lead: u64) -> Result<Self> {
+        Self::with_scene(scene(), link, lead)
+    }
+
+    pub fn with_scene(scene: Scene, link: LinkConfig, lead: u64) -> Result<Self> {
         let network = SimNetwork::new(0x123456, link);
         let authority = network.endpoint(0);
         let endpoints = vec![network.endpoint(1), network.endpoint(2)];
@@ -68,9 +72,9 @@ impl Harness {
             ..ClientConfig::default()
         };
         Ok(Self {
-            server: NetServer::new(scene(), BTreeMap::new(), ServerConfig::default())?,
+            server: NetServer::new(scene.clone(), BTreeMap::new(), ServerConfig::default())?,
             clients: (0..2)
-                .map(|_| NetClient::new(scene(), BTreeMap::new(), config.clone()))
+                .map(|_| NetClient::new(scene.clone(), BTreeMap::new(), config.clone()))
                 .collect::<Result<_>>()?,
             network,
             authority,

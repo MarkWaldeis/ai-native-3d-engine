@@ -1,4 +1,4 @@
-import { heading, minimapPoint } from './fps_core.js';
+import { defeated, heading, minimapPoint } from './fps_core.js';
 
 // DOM shooter HUD; reads only snapshot state/events, never game rules.
 const el = (tag, className, parent, text) => { const node = document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; parent?.append(node); return node; };
@@ -39,7 +39,7 @@ export class ShooterHud {
       this.healthFill.style.width = `${Math.max(0, Math.min(1, health / this.maxHealth)) * 100}%`;
       this.healthFill.classList.toggle('low', health / this.maxHealth < 0.3);
       this.healthLabel.textContent = Math.ceil(Math.max(0, health));
-      this.dead.classList.toggle('show', health <= 0);
+      this.dead.classList.toggle('show', defeated(state));
     }
     if (state.ammo !== undefined) {
       this.ammoMag.textContent = state.ammo; this.ammoReserve.textContent = state.ammo_reserve !== undefined ? ` / ${state.ammo_reserve}` : '';
