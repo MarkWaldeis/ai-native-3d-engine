@@ -146,6 +146,36 @@ fn rollback_across_ragdoll_activation_restores_bodies_joints_and_hitboxes() {
 }
 
 #[test]
+fn ragdoll_deactivation_restores_hitboxes_before_replayed_scripts() {
+    let mut scene = scene();
+    scene.entities[1].script = Some(serde_json::from_value(json!({"source":r#"
+        fn on_tick(ctx,dt) {
+            ctx.set_ragdoll(4, ctx.input("move_x") > 0.0);
+            let hit = ctx.raycast([0.0,3.75,-2.0],[0.0,0.0,1.0],4.0);
+            ctx.state_set("seen",hit.id);
+        }
+    "#})).unwrap());
+    let mut server = Simulation::from_sources(scene.clone(), BTreeMap::new()).unwrap();
+    let mut client = Simulation::from_sources(scene, BTreeMap::new()).unwrap();
+    activate(&mut server);
+    activate(&mut client);
+    let reset = Input { tick:1,entity:Some(2),action:"move_x".into(),value:0.0 };
+    server.step(1, std::slice::from_ref(&reset)).unwrap();
+    client.step(1, &[]).unwrap();
+    let ray = json!({"origin":[0,3.75,-2],"direction":[0,0,1],"distance":4});
+    assert_eq!(server.physics_query("raycast", &ray).unwrap()["id"],4);
+    client.apply_net_entity_states(&server.net_entity_states()).unwrap();
+    let hit = client.physics_query("raycast", &ray).unwrap();
+    assert_eq!(hit["id"],4);
+    assert_eq!(hit["hitbox"],"head");
+    let reset = Input { tick:2,..reset };
+    server.step(1, std::slice::from_ref(&reset)).unwrap();
+    client.step(1, &[reset]).unwrap();
+    assert_eq!(server.net_script_state()["seen"],4);
+    assert_eq!(client.net_script_state()["seen"],4);
+}
+
+#[test]
 fn authoritative_ragdoll_correction_updates_hitboxes_and_rejects_invalid_bones_atomically() {
     let mut server = sim();
     activate(&mut server);

@@ -46,6 +46,20 @@ struct Pair {
     sensor: bool,
 }
 
+fn set_body_enabled(body: &mut RigidBody, colliders: &mut ColliderSet, enabled: bool) {
+    body.set_enabled(enabled);
+    if enabled {
+        for handle in body.colliders() {
+            let collider = &mut colliders[*handle];
+            if !collider.is_enabled() {
+                // Clear Rapier's deferred DisabledByParent state before enabling.
+                collider.set_enabled(false);
+                collider.set_enabled(true);
+            }
+        }
+    }
+}
+
 #[derive(Clone, Serialize)]
 struct Collision {
     #[serde(rename = "type")]
@@ -98,7 +112,7 @@ impl Physics {
     pub(crate) fn apply_net_bones(&mut self, id: u64, state: &crate::NetRagdollState) {
         let rig = &self.gameplay.rigs[&id];
         if !state.active {
-            self.bodies[self.handles[&id]].set_enabled(state.enabled);
+            set_body_enabled(&mut self.bodies[self.handles[&id]], &mut self.colliders, state.enabled);
         }
         for ((handle, _), bone) in rig.parts.iter().zip(&state.parts) {
             let body = &mut self.bodies[*handle];
@@ -106,7 +120,7 @@ impl Physics {
             body.set_position(pose(&transform), false);
             body.set_linvel(bone.linvel.into(), false);
             body.set_angvel(bone.angvel.into(), false);
-            body.set_enabled(state.enabled);
+            set_body_enabled(body, &mut self.colliders, state.enabled);
             if bone.sleeping { body.sleep(); } else { body.wake_up(true); }
         }
         self.bodies.propagate_modified_body_positions_to_colliders(&mut self.colliders);
@@ -263,7 +277,7 @@ impl Physics {
             );
             root.set_linvel(Vector::zeros(), true);
             root.set_angvel(Vector::zeros(), true);
-            root.set_enabled(true);
+            set_body_enabled(root, &mut self.colliders, true);
             return Ok(());
         }
         ensure!(
