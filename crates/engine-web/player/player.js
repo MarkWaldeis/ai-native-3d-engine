@@ -18,6 +18,9 @@ import { replacesWater } from './nature-settings.js';
 import { HudLayout } from './hud-renderer.js';
 import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
 import { InputSettings } from './input-settings.js';
+import { parseTextConfig } from './sdf-font.js';
+import { SdfAtlas, SdfLabel } from './sdf-text.js';
+import { hudTemplate } from './hud-layout.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -50,6 +53,8 @@ window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const ragdolls = new Map();
+const textLabels = new Map();
+let textAtlas, textWarnings = [];
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain, occluder, hudLayout;
@@ -121,7 +126,7 @@ function createObject(entity) {
   if (replacesWater(entity, effects.graphics)) return;
   const config = entity.props?.ai_physics;
   const physics = typeof config === 'string' ? JSON.parse(config) : config;
-  if (!physics?.ragdoll && streaming?.batched(entity)) { streaming.add(entity); return; }
+  if (entity.props?.ai_text === undefined && !physics?.ragdoll && streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
   switch (entity.kind) {
@@ -179,6 +184,14 @@ function createObject(entity) {
   group.userData.color = entity.color;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
   effects.decorate(group);
+  if (entity.props?.ai_text !== undefined) {
+    const { config, warnings } = parseTextConfig(entity.props.ai_text);
+    textWarnings.push(...warnings);
+    textAtlas ||= new SdfAtlas();
+    const label = new SdfLabel(textAtlas, config);
+    if (!config.offset) label.boundsObject = object;
+    group.add(label); textLabels.set(entity.id, label);
+  }
   if (group.userData.tags.some(tag => ['player','portal','goal'].includes(tag)) || isCollectible(group.userData, ui.collectible_tag)) objectives.set(entity.id,group);
   streaming?.add(entity,group);
   if (group.userData.tags.includes('enemy')) enemies.set(entity.id, group);
@@ -193,13 +206,22 @@ function createObject(entity) {
   }
 }
 
+function followRagdollLabel(id, root, group) {
+  const label = textLabels.get(id);
+  if (!label || !root) return;
+  (group || root).add(label);
+  label.anchor = group?.children[0] || root;
+  label.boundsObject = label.config.offset ? null : group?.children[0] || root.children[0];
+}
+
 function applyRagdolls(states = []) {
   const active = new Set(states.map(rig => rig.id));
   for (const [id, group] of ragdolls) {
     if (active.has(id)) continue;
+    const root = objects.get(id);
+    followRagdollLabel(id, root);
     disposeObject(group);
     ragdolls.delete(id);
-    const root = objects.get(id);
     if (root) root.visible = root.userData.authoredVisible;
   }
   for (const rig of states) {
@@ -215,12 +237,13 @@ function applyRagdolls(states = []) {
       ragdolls.set(rig.id, group);
     }
     group.visible = root.userData.authoredVisible && rig.enabled;
-    root.visible = false;
+    root.visible = root.userData.authoredVisible && !rig.enabled;
     rig.parts.forEach((part, i) => {
       const object = group.children[i];
       object.position.fromArray(part.position);
       object.rotation.set(...part.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
     });
+    followRagdollLabel(rig.id, root, rig.enabled ? group : null);
   }
 }
 
@@ -233,6 +256,7 @@ function apply(result) {
     if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
+  for (const id of result.removed) { textLabels.get(id)?.dispose(); textLabels.delete(id); }
   for(const id of result.removed){animations.remove(id);animations.states.delete(id);}
   for (const id of result.removed) { enemies.delete(id); effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) {
@@ -249,6 +273,8 @@ function apply(result) {
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
   applyRagdolls(result.ragdolls);
+  for (const label of textLabels.values()) label.setText(hudTemplate(label.config.text, result.state, hudLayout.totals, hudLayout.left));
+  stats.sdfLabels = textLabels.size; stats.sdfGlyphs = textAtlas?.glyphs.size || 0;
   fps?.apply(result, objects.get(playerId));
   if (feedback.collect) {
     audio.play('collect');
@@ -279,7 +305,7 @@ function apply(result) {
   if (netEndpoint) {
     $('state').textContent = `${result.connected ? `Spieler ${result.player_number}` : 'Verbinde …'} · ${Math.round(result.stats?.rtt_ms || 0)} ms · ${result.players || 0} Spieler verbunden`;
   }
-  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
+  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...textWarnings, ...(textAtlas?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -385,6 +411,8 @@ async function restart(save = null) {
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   animations.clear();
   hudLayout?.reset(source.entities);
+  for (const label of textLabels.values()) label.dispose();
+  textLabels.clear(); textAtlas?.dispose(); textAtlas = null; textWarnings = [];
   applyRagdolls();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
@@ -597,15 +625,16 @@ function frame(now) {
     updateCamera(false, elapsed);
     occluder?.beginFrame();
     streaming?.update(camera);
-    for (const id of ragdolls.keys()) {
+    for (const [id, group] of ragdolls) {
       const root = objects.get(id);
-      if (root) root.visible = false;
+      if (root && group.visible) root.visible = false;
     }
     terrain?.update(camera, now);
     const streamedFocus = streaming && objects.get(playerId)?.position;
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
     if (fps) fps.frame(elapsed, fpsMarkers(), effects.level); else { updateShadows(); updateObjective(); }
+    for (const label of textLabels.values()) label.update(camera);
     if (gpuTimer) {
       gpuTimer.begin();
       const renderStart = performance.now();

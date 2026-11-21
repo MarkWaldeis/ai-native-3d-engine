@@ -95,6 +95,8 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "player.js",
         "hud-layout.js",
         "hud-renderer.js",
+        "sdf-font.js",
+        "sdf-text.js",
         "input.js",
         "input-settings.js",
         "nature.js",
