@@ -110,9 +110,10 @@ impl NetGame {
         Ok(())
     }
     fn tick_inner(&mut self, inputs_json: &str, now: f64) -> Result<String, String> {
-        if !now.is_finite() || self.last_now.is_some_and(|previous| now < previous) {
-            return Err("network time must be finite and monotonic".into());
+        if !now.is_finite() {
+            return Err("network time must be finite".into());
         }
+        let now = self.last_now.map_or(now, |previous| now.max(previous));
         let actions: Actions = serde_json::from_str(inputs_json).map_err(|e| e.to_string())?;
         if self
             .last_now
@@ -396,6 +397,32 @@ mod tests {
         assert!(result["outgoing"].as_array().unwrap().is_empty());
     }
     #[test]
+    fn stale_frame_timestamps_do_not_rewind_network_time_or_disconnect() {
+        let mut game = NetGame::new();
+        game.load_inner(&serde_json::to_string(&scene()).unwrap(), "{}")
+            .unwrap();
+        game.tick_inner("{}", 1000.0).unwrap();
+        let mut server = NetServer::new(scene(), BTreeMap::new(), ServerConfig::default()).unwrap();
+        let welcome = server
+            .receive(
+                1,
+                ClientMessage::Hello {
+                    name: "browser".into(),
+                },
+            )
+            .unwrap()
+            .unwrap();
+        game.receive_inner(&serde_json::to_string(&welcome).unwrap())
+            .unwrap();
+        for now in [995.0, 1000.0, 0.0, 1001.0] {
+            let result: Value = serde_json::from_str(&game.tick_inner("{}", now).unwrap()).unwrap();
+            assert_eq!(game.last_now, Some(now.max(1000.0)));
+            assert_eq!(result["connected"], true);
+            assert!(!game.closed);
+        }
+    }
+
+    #[test]
     fn network_bridge_rejects_bad_inputs_and_empty_lifecycle_is_explicit() {
         let mut game = NetGame::new();
         assert!(game.tick_inner("{}", 0.0).is_err());
@@ -404,8 +431,12 @@ mod tests {
         game.load_inner(&serde_json::to_string(&scene()).unwrap(), "{}")
             .unwrap();
         assert!(game.tick_inner("[]", 0.0).is_err());
-        assert!(game.tick_inner("{}", f64::NAN).is_err());
+        for now in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            assert_eq!(
+                game.tick_inner("{}", now).unwrap_err(),
+                "network time must be finite"
+            );
+        }
         game.tick_inner("{}", 1.0).unwrap();
-        assert!(game.tick_inner("{}", 0.0).is_err());
     }
 }

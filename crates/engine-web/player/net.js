@@ -13,8 +13,9 @@ export function netURL(pageURL, authored = null) {
 }
 
 export class BrowserNet {
-  constructor(game, url, onError, Socket = globalThis.WebSocket, {document = globalThis.document, onDisconnect = () => {}} = {}) {
+  constructor(game, url, onError, Socket = globalThis.WebSocket, {document = globalThis.document, onDisconnect = () => {}, clock = () => performance.now()} = {}) {
     this.game = game; this.socket = new Socket(url); this.socket.binaryType = 'arraybuffer';
+    this.clock = clock;
     this.status = {connected:false,my_entity:null,rtt:0,corrections:0,entity_count:0,players:0,positions:{},spawned:0,removed:0};
     this.socket.onmessage = event => {
       try { game.receive(typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data)); }
@@ -31,19 +32,19 @@ export class BrowserNet {
     this.socket.onopen = () => {
       try {
         this.setBackground(false);
-        this.tick({}, performance.now());
+        this.tick({});
         if (document) this.visibilityChanged();
       } catch (error) { this.close(); onError(error); }
     };
     this.socket.onclose = () => { this.close(); onDisconnect(); };
     this.socket.onerror = () => { this.status.connected = false; };
   }
-  tick(inputs, now) {
+  tick(inputs) {
     if (this.socket.readyState !== 1) return null;
     if (this.socket.bufferedAmount > 4 * 1024 * 1024) {
       this.close(); throw new Error('Multiplayer-Verbindung zu langsam. Bitte neu verbinden.');
     }
-    const result = JSON.parse(this.game.tick(JSON.stringify(inputs), now));
+    const result = JSON.parse(this.game.tick(JSON.stringify(inputs), this.clock()));
     for (const message of result.outgoing) this.socket.send(message);
     Object.assign(this.status, {
       connected:result.connected,my_entity:result.my_entity,rtt:result.stats.rtt_ms,

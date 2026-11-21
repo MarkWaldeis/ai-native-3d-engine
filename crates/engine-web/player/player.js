@@ -578,7 +578,7 @@ function frame(now) {
     }
     renderer.info.reset();
     if (net) {
-      const result = net.tick(running ? controls() : {}, now);
+      const result = net.tick(running ? controls() : {});
       if (result) apply(result);
       if (!net.status.connected && net.socket.readyState >= 2) showNetworkDisconnect();
     } else if (running) {

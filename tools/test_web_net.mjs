@@ -23,7 +23,7 @@ function fixture(options = {}) {
   const result={outgoing:['protocol bytes'],connected:true,my_entity:3,players:2,stats:{rtt_ms:12,corrections:4},
     transforms:[{id:3,transform:{position:[1,2,3]}}],spawned:[{id:3}],removed:[]};
   const game={receive:bytes=>received.push(bytes),tick:(inputs,now)=>{calls.push([JSON.parse(inputs),now]);return JSON.stringify(result);},set_background(){},disconnect(){this.closed=true;}};
-  return {game,received,calls,errors,result,net:new BrowserNet(game,'ws://localhost:7790',error=>errors.push(error),Socket,options)};
+  return {game,received,calls,errors,result,net:new BrowserNet(game,'ws://localhost:7790',error=>errors.push(error),Socket,{clock:()=>0,...options})};
 }
 
 test('visibility forwards the Rust pause packet and resumes without JS gameplay or timers', () => {
@@ -31,7 +31,7 @@ test('visibility forwards the Rust pause packet and resumes without JS gameplay 
   const {net,game,calls} = fixture({document});
   const background=[]; game.set_background=value=>{background.push(value);return value?'Rust pause bytes':'';};
   net.socket.readyState=1;
-  net.tick({move_x:1},0);
+  net.tick({move_x:1});
   document.hidden=true; document.dispatchEvent(new Event('visibilitychange'));
   assert.equal(calls.length,1);
   assert.equal(net.socket.sent.at(-1),'Rust pause bytes');
@@ -65,14 +65,27 @@ test('opening a socket while hidden sends the Rust handshake before suspending p
   assert.equal(net.socket.onopen,null);
 });
 
+test('socket opening and animation frames use the same clock even with a stale frame timestamp', () => {
+  let now=1000;
+  const {net,calls,errors}=fixture({clock:()=>now});
+  net.socket.readyState=1;
+  net.socket.onopen();
+  now=1001;
+  net.tick({},995);
+  assert.deepEqual(calls.map(call=>call[1]),[1000,1001]);
+  assert.deepEqual(errors,[]);
+  assert.equal(net.game.closed,undefined);
+  net.close();
+});
+
 test('transport preserves text/binary bytes and forwards only Rust-derived presentation data', () => {
-  const {net,game,received,calls}=fixture();
-  assert.equal(net.tick({},0),null);
+  const {net,game,received,calls}=fixture({clock:()=>100});
+  assert.equal(net.tick({}),null);
   net.socket.readyState=1;
   net.socket.onmessage({data:'text protocol'});
   net.socket.onmessage({data:new TextEncoder().encode('binary protocol').buffer});
   assert.deepEqual(received,['text protocol','binary protocol']);
-  net.tick({move_x:1},100);
+  net.tick({move_x:1});
   assert.deepEqual(calls,[[{move_x:1},100]]);
   assert.deepEqual(net.socket.sent,['protocol bytes']);
   assert.equal(net.status.my_entity,3);assert.equal(net.status.players,2);
@@ -87,7 +100,7 @@ test('malformed frames and slow consumers close rather than dropping protocol da
   net.socket.onmessage({data:'bad'});
   assert.equal(errors.length,1);assert.equal(game.closed,true);
   const slow=fixture();slow.net.socket.readyState=1;slow.net.socket.bufferedAmount=5*1024*1024;
-  assert.throws(()=>slow.net.tick({},10),/langsam/);
+  assert.throws(()=>slow.net.tick({}),/langsam/);
   assert.equal(slow.game.closed,true);assert.deepEqual(slow.net.socket.sent,[]);
 });
 
