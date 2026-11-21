@@ -57,7 +57,8 @@ impl Simulation {
         Self::create(scene, Default::default(), Some(scripts), terrains)
     }
     pub fn insert_terrain_tile(&mut self, path: &str, x: u32, z: u32, bytes: &[u8]) -> Result<()> {
-        let sources = self.physics.terrain_sources.borrow();
+        let sources = self.physics.borrow().terrain_sources.clone();
+        let sources = sources.borrow();
         let t = sources
             .get(path)
             .ok_or_else(|| anyhow::anyhow!("unknown terrain: {path}"))?;
@@ -67,14 +68,15 @@ impl Simulation {
     pub fn terrain_height(&self, x: f64, z: f64) -> f64 {
         height(
             &self.data.borrow().scene,
-            &self.physics.terrain_sources,
+            &self.physics.borrow().terrain_sources,
             x,
             z,
         )
     }
     pub fn terrain_tiles_wanted(&self, margin_m: f64) -> Vec<(String, u32, u32)> {
         let data = self.data.borrow();
-        let sources = self.physics.terrain_sources.borrow();
+        let sources = self.physics.borrow().terrain_sources.clone();
+        let sources = sources.borrow();
         let centers: Vec<_> = data
             .scene
             .entities
