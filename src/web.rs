@@ -12,6 +12,7 @@ use std::{
 };
 
 const PLAYER_FILES: &[(&str, &str)] = &[
+    ("terrain.js", include_str!("../crates/engine-web/player/terrain.js")),
     (
         "nature.js",
         include_str!("../crates/engine-web/player/nature.js"),
