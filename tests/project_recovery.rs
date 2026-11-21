@@ -334,6 +334,7 @@ fn project_config_is_stable_validated_and_overridden_without_global_test_env() {
                 Err(e) => panic!("{e}"),
             }
         };
+        stream.set_nonblocking(false).unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
             .unwrap();
