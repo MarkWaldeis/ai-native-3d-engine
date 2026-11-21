@@ -61,3 +61,24 @@ test('failed, superseded and reset rebuilds cannot replace a complete chunk', as
   assert.equal(scene.children.length,0);
   assert.equal(world.groups.size,0);
 });
+
+test('initial chunk preparation waits for templates, supports empty scenes and propagates failures', async () => {
+  const {world,key} = fixture();
+  const camera = new THREE.PerspectiveCamera();
+  camera.position.set(20.4,6.5,-1.4); camera.lookAt(13.4,0.5,-10.4); camera.updateMatrixWorld();
+  let ready;
+  const template = world.template.bind(world), gate = new Promise(resolve=>{ready=resolve;});
+  world.template = async (...args)=>{await gate; return template(...args);};
+  world.dirty.add(key);
+  const tasks = world.update(camera);
+  assert.equal(tasks.length,1);
+  assert.equal(world.groups.size,0);
+  ready(); await Promise.all(tasks);
+  assert.equal(world.groups.get(key).parent,world.scene);
+  world.reset();
+  assert.deepEqual(world.update(camera),[]);
+  const entity = {id:3,kind:'box',size:[1,1,1],transform:{position:[0,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
+  world.add(entity);
+  world.template = async ()=>{throw new Error('missing template');};
+  await assert.rejects(Promise.all(world.update(camera)),/missing template/);
+});

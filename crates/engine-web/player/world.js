@@ -116,6 +116,7 @@ export class StreamingWorld {
     this.dummy.updateMatrix(); mesh.setMatrixAt(index,this.matrix.copy(this.dummy.matrix).multiply(local));
   }
   update(camera) {
+    const tasks = [];
     const change = this.grid.update(camera.position.toArray());
     for (const key of change.unload) this.groups.get(key)?.removeFromParent();
     for (const key of change.load) { if (this.groups.has(key)) this.scene.add(this.groups.get(key)); else this.dirty.add(key); }
@@ -161,7 +162,8 @@ export class StreamingWorld {
         group.traverse(o => { if (o.userData.billboard) { o.userData.items.forEach((item,i) => this.setMatrix(o,i,item,undefined,camera)); o.instanceMatrix.needsUpdate = true; } });
       }
     }
-    for (const key of this.dirty) if (this.grid.loaded.has(key)) { this.dirty.delete(key); const task = this.rebuild(key); task.catch(error => { console.error(error); }); }
+    for (const key of this.dirty) if (this.grid.loaded.has(key)) { this.dirty.delete(key); const task = this.rebuild(key); tasks.push(task); task.catch(error => { console.error(error); }); }
+    return tasks;
   }
   support(position) {
     const result = [];
