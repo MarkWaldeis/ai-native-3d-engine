@@ -6,6 +6,16 @@ import vm from 'node:vm';
 const player = readFileSync(new URL('../crates/engine-web/player/player.js', import.meta.url), 'utf8');
 const helpers = player.slice(player.indexOf('const saveKey ='), player.indexOf('function startRunning()'));
 
+test('pause save controls share restart styling and accessible touch targets', () => {
+  const html = readFileSync(new URL('../crates/engine-web/player/index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../crates/engine-web/player/style.css', import.meta.url), 'utf8');
+  for (const id of ['restart', 'save-game', 'load-game']) {
+    assert.match(html, new RegExp(`id="${id}" class="pause-menu-button"`));
+  }
+  assert.match(css, /\.pause-menu-button\{[^}]*min-height:44px/);
+  assert.match(css, /\.pause-menu-button:disabled\{[^}]*background:#596268/);
+});
+
 function setup(pathname = '/game/') {
   const values = new Map();
   const loaded = [];
