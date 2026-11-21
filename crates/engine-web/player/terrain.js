@@ -61,11 +61,26 @@ async function fetchBytes(url) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
+export function terrainDetailTexture(THREE) {
+  const textureBytes = new Uint8Array(64 * 64 * 4);
+  let seed = 7331;
+  for (let i = 0; i < textureBytes.length; i += 4) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    textureBytes.fill(100 + (seed >>> 25), i, i + 3); textureBytes[i + 3] = 255;
+  }
+  const detail = new THREE.DataTexture(textureBytes, 64, 64);
+  detail.wrapS = detail.wrapT = THREE.RepeatWrapping; detail.magFilter = THREE.LinearFilter;
+  detail.minFilter = THREE.LinearMipmapLinearFilter; detail.generateMipmaps = true; detail.needsUpdate = true;
+  return detail;
+}
+
+
 export async function createTerrain(THREE, entities, game, world, engineStats, onError) {
   const terrainEntities = entities.filter(e => typeof e.props?.ai_terrain === 'string');
   if (!terrainEntities.length) return null;
-  const queue = new TileQueue(fetchBytes), maps = new Map(), chunks = [], decoded = new Map(), indices = new Map();
+  const queue = new TileQueue(fetchBytes), maps = new Map(), chunks = [], decoded = new Map(), indices = new Map(), layers = [];
   const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
+  let occluder, occludedTerrainTiles=0;
   let lastPoll = -Infinity, lastRender = -Infinity;
   let visualsTarget, visualsSetter;
   function connectVisuals() {
@@ -75,6 +90,14 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       visualsTarget = visuals; visualsSetter = visuals.setHeightSampler;
     }
   }
+  const graphics = entities.find(e => e.tags?.includes('player'))?.props?.ai_graphics;
+  let authored = graphics;
+  if (typeof authored === 'string') {
+    try { authored = JSON.parse(authored); } catch { authored = null; }
+  }
+  const water = Number.isFinite(authored?.water?.level) ? authored.water.level : 0.6;
+  const detail = terrainEntities.some(e => Number.isFinite(e.props.ai_terrain_detail) && e.props.ai_terrain_detail > 0)
+    ? terrainDetailTexture(THREE) : null;
   for (const entity of terrainEntities) {
     const path = entity.props.ai_terrain;
     if (!maps.has(path)) {
@@ -86,17 +109,16 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       maps.set(path, {path, manifest, base, coarse: decodeHeights(coarseBytes, 'AITC', manifest.coarse.dims, manifest.height_range)});
     }
     const map = maps.get(path), c = map.manifest.config;
-    const material = new THREE.MeshStandardMaterial({roughness: 0.96});
-    const graphics=entities.find(e=>e.tags?.includes('player'))?.props?.ai_graphics;
-    let authored=graphics;
-    if(typeof authored==='string') {try {authored=JSON.parse(authored);} catch {authored=null;}}
-    terrainSurface(THREE,material,Number.isFinite(authored?.water?.level)?authored.water.level:0.6);
     const offset = entity.transform?.position || [0, 0, 0];
+    const layer = {map, offset, visible: entity.visible !== false, chunks: []};
+    const material = new THREE.MeshStandardMaterial({roughness: 0.96});
+    terrainSurface(THREE, material, water, detail, entity.props.ai_terrain_detail);
     for (let z = 0; z < map.manifest.grid[1]; z++) for (let x = 0; x < map.manifest.grid[0]; x++) {
-      const chunk = {map, x, z, offset, material, visible: entity.visible !== false, mesh: null, stride: null};
+      const chunk = {map, x, z, offset, material, visible: layer.visible, mesh: null, stride: null};
       if(chunk.visible) {chunk.coarse = buildMesh(chunk, null, 1); world.add(chunk.coarse);}
-      chunks.push(chunk);
+      chunks.push(chunk); layer.chunks.push(chunk);
     }
+    if (layer.visible) layers.push(layer);
   }
 
   function coarseHeight(map, x, z) {
@@ -178,7 +200,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       indices.set(indexKey,new THREE.BufferAttribute(new Uint32Array(list),1));
     }
     const geometry=new THREE.BufferGeometry();
-    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3)); geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3)); geometry.setIndex(indices.get(indexKey)); geometry.computeBoundingSphere();
+    geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3)); geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3)); geometry.setIndex(indices.get(indexKey)); geometry.computeBoundingSphere(); geometry.computeBoundingBox();
     const mesh=new THREE.Mesh(geometry,material); mesh.position.set(offset[0]+x*c.tile_m,offset[1],offset[2]+z*c.tile_m); mesh.receiveShadow=true;
     return mesh;
   }
@@ -245,16 +267,21 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     }
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+    occludedTerrainTiles=0;
     for(const chunk of chunks) {
       if(!chunk.visible) {chunk.inView=false; continue;}
       const mesh=chunk.mesh||chunk.coarse;
+      const c=chunk.map.manifest.config;
+      mesh.visible=!!chunk.mesh || Math.hypot(camera.position.x-chunk.offset[0]-(chunk.x+0.5)*c.tile_m,camera.position.z-chunk.offset[2]-(chunk.z+0.5)*c.tile_m)<4800;
       mesh.updateMatrixWorld(); chunk.inView=mesh.visible && frustum.intersectsObject(mesh);
+      const box=mesh.geometry.boundingBox.clone().translate(mesh.position);
+      if(chunk.inView && occluder?.occluded(chunk,camera.position,box)) {mesh.visible=false;chunk.inView=false;occludedTerrainTiles++;}
     }
     Object.assign(engineStats,stats());
   }
   function stats() {
     const visible=chunks.filter(c=>c.inView);
-    return {terrainTilesLoaded:decoded.size,terrainTilesVisible:visible.length,terrainTriangles:visible.reduce((n,c)=>n+(c.mesh||c.coarse).geometry.index.count/3,0),terrainPendingFetches:queue.pending.size,terrainBytesFetched:queue.bytes};
+    return {occludedTerrainTiles,terrainTilesLoaded:decoded.size,terrainTilesVisible:visible.length,terrainTriangles:visible.reduce((n,c)=>n+(c.mesh||c.coarse).geometry.index.count/3,0),terrainPendingFetches:queue.pending.size,terrainBytesFetched:queue.bytes};
   }
   function heightAt(x,z) {
     for(const chunk of chunks) {
@@ -266,7 +293,19 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     const first=chunks[0];
     return first ? first.offset[1]+coarseHeight(first.map,x-first.offset[0],z-first.offset[2]) : 0;
   }
-  const api={preload:physicsTiles,update,heightAt,stats,physicsHeightAt:(x,z)=>game.terrain_height(x,z)};
+  function occluderHeightAt(x,z) {
+    let best=NaN;
+    for(const layer of layers) {
+      const c=layer.map.manifest.config,lx=x-layer.offset[0],lz=z-layer.offset[2];
+      if(!(lx>=0 && lz>=0 && lx<=c.size_m[0] && lz<=c.size_m[1])) continue;
+      const grid=layer.map.manifest.grid,tx=Math.min(grid[0]-1,Math.floor(lx/c.tile_m)),tz=Math.min(grid[1]-1,Math.floor(lz/c.tile_m));
+      const chunk=layer.chunks[tz*grid[0]+tx],data=decoded.get(key(layer.map,tx,tz));
+      const h=layer.offset[1]+(data ? sampleTile(data,c,tx,tz,lx,lz) : coarseHeight(layer.map,lx,lz));
+      if(chunk.visible && !(h<=best)) best=h;
+    }
+    return best;
+  }
+  const api={occluderHeightAt,setOcclusion:value=>{occluder=value;},preload:physicsTiles,update,heightAt,stats,physicsHeightAt:(x,z)=>game.terrain_height(x,z)};
   await initialTiles();
   window.__aiTerrain=api; connectVisuals(); return api;
 }

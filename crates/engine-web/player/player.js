@@ -6,9 +6,10 @@ import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
 import { GpuTimer } from './gpu-timer.js';
 import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
-import { StreamingWorld, WebAssets } from './world.js';
+import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
+import { TerrainOcclusion } from './occlusion.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
@@ -29,9 +30,9 @@ let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
-let terrain;
+let terrain, occluder;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -88,7 +89,7 @@ function fail(error) {
 }
 
 function mesh(geometry, entity) {
-  const result = new THREE.Mesh(geometry, primitiveMaterial(entity));
+  const result = new THREE.Mesh(geometry, primitiveMaterial(entity, assets));
   return Object.assign(result, sunShadowSettings(entity.props?.ai_sun_shadow));
 }
 
@@ -147,19 +148,6 @@ function createObject(entity) {
     }));
     shadow.renderOrder = 2; shadow.visible = false; world.add(shadow); shadows.set(entity.id, shadow);
   }
-}
-
-function disposeObject(object) {
-  object.removeFromParent();
-  object.traverse(child => {
-    if (child.userData.sharedAsset) return;
-    child.geometry?.dispose();
-    for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
-      if (!mat) continue;
-      for (const value of Object.values(mat)) if (value?.isTexture && !value.userData.shared) value.dispose();
-      mat.dispose();
-    }
-  });
 }
 
 function apply(result) {
@@ -477,6 +465,7 @@ function frame(now) {
       }
     }
     updateCamera(false, elapsed);
+    occluder?.beginFrame();
     streaming?.update(camera);
     terrain?.update(camera, now);
     const streamedFocus = streaming && objects.get(playerId)?.position;
@@ -496,13 +485,14 @@ function frame(now) {
     fps?.renderOverlay();
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
+    stats.occludedChunks=streaming?.occludedChunks || 0; stats.occlusionTests=occluder?.tests || 0;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
-      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
@@ -540,12 +530,6 @@ async function boot() {
   });
   const context = $('game').getContext('webgl2', { antialias: true, alpha: false });
   if (!context) throw new Error('WebGL 2 ist nicht verfügbar. Bitte Safari oder Chrome aktualisieren.');
-  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true });
-  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
-  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.info.autoReset = false;
-  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
-  world = new THREE.Scene();
   [[source, scripts]] = await Promise.all([
     Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json')]).then(result => { mark('sceneFetched'); return result; }),
     init().then(result => { mark('wasmInitialized'); return result; }),
@@ -555,9 +539,18 @@ async function boot() {
   const authoredUI = props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   const preset = new URLSearchParams(location.search).get('quality');
-  effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
-  await effects.prepareEnvironment();
+  const graphics = graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render);
+  renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true, logarithmicDepthBuffer: graphics?.logarithmicDepth });
+  renderer.domElement.dataset.depth = renderer.capabilities.logarithmicDepthBuffer ? 'logarithmic' : 'standard';
+  renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.info.autoReset = false;
+  renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
+  world = new THREE.Scene();
+  effects = new GameEffects(renderer, world, ui.sky_color, graphics);
+  effects.nature?.setExclusions(source.entities);
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
+  await Promise.all([effects.prepareEnvironment(), assets.preloadMaterialMaps(source.entities)]);
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config,assets);
@@ -572,6 +565,10 @@ async function boot() {
   }
   game = new WebGame();
   terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
+  if(terrain) {
+    occluder=new TerrainOcclusion(terrain.occluderHeightAt,{enabled:config?.occlusion ?? true,margin:config?.occlusion_margin ?? 2});
+    streaming?.setOcclusion(occluder); terrain.setOcclusion(occluder);
+  }
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);
   if (config) camera.far = config.draw_distance;
   cameraOffset.fromArray(source.camera.position).sub(new THREE.Vector3(...source.camera.target));

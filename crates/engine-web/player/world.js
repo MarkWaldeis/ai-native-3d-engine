@@ -3,13 +3,68 @@ import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
 import { isCollectible } from './presentation.js';
 import { primitiveMaterial, tuneAssetTextures } from './materials.js';
-import { sunShadowSettings } from './graphics-settings.js';
+import { materialMapSettings, sunShadowSettings } from './graphics-settings.js';
+
+function disposeChunk(group) {
+  if (!group) return;
+  group.removeFromParent();
+  for (const child of group.children) if (child.isInstancedMesh) child.dispose();
+  group.clear();
+}
+
+export function disposeObject(object) {
+  object.removeFromParent();
+  object.traverse(child => {
+    if (child.isInstancedMesh) child.dispose();
+    if (child.userData.sharedAsset) return;
+    child.geometry?.dispose();
+    for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
+      if (!mat) continue;
+      for (const value of Object.values(mat)) if (value?.isTexture && !value.userData.shared) value.dispose();
+      mat.dispose();
+    }
+  });
+}
+
+function impostorMaterial(texture, center, views) {
+  const material = new THREE.MeshBasicMaterial({map:texture, transparent:true, alphaTest:0.1, side:THREE.DoubleSide});
+  material.customProgramCacheKey = () => `impostor:${views}`;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.impostorCenter = {value:center};
+    shader.vertexShader = 'uniform vec3 impostorCenter;\n' + shader.vertexShader;
+    const atlas = views === 4 ? `
+      vec3 toEye = cameraPosition - (billboardModel * vec4(impostorCenter, 1.0)).xyz;
+      vec3 xAxis = billboardModel[0].xyz, zAxis = billboardModel[2].xyz;
+      vec2 localEye = vec2(dot(toEye, xAxis) / max(dot(xAxis, xAxis), 1e-8),
+                           dot(toEye, zAxis) / max(dot(zAxis, zAxis), 1e-8));
+      float yaw = dot(localEye, localEye) > 1e-8 ? atan(localEye.x, localEye.y) : 0.0;
+      float cell = mod(floor(yaw * 0.63661977 + 0.5), 4.0);
+      vec2 tile = vec2(mod(cell, 2.0), floor(cell * 0.5));
+      vMapUv = (tile + mix(vec2(0.5 / 64.0), vec2(63.5 / 64.0), vMapUv)) * 0.5;
+    ` : '';
+    shader.vertexShader = shader.vertexShader.replace('#include <project_vertex>', `
+      mat4 billboardModel = modelMatrix;
+      #ifdef USE_INSTANCING
+        billboardModel *= instanceMatrix;
+      #endif
+      mat4 billboardView = viewMatrix * billboardModel;
+      vec4 mvPosition = billboardView * vec4(impostorCenter, 1.0);
+      mvPosition.xy += (transformed.xy - impostorCenter.xy)
+        * vec2(length(billboardView[0].xyz), length(billboardView[1].xyz));
+      gl_Position = projectionMatrix * mvPosition;
+      ${atlas}
+    `);
+  };
+  return material;
+}
 
 export class WebAssets {
   constructor(anisotropy = 1) {
     this.anisotropy = anisotropy;
     this.cache = new Map();
     this.loader = new GLTFLoader();
+    this.materialSources = new Map();
+    this.materialVariants = new Map();
   }
   load(path) {
     if (!this.cache.has(path)) this.cache.set(path, this.loader.loadAsync(path).then(gltf => {
@@ -18,6 +73,36 @@ export class WebAssets {
     }));
     return this.cache.get(path);
   }
+  async preloadMaterialMaps(entities, loader = new THREE.TextureLoader()) {
+    const paths = new Set();
+    for (const entity of entities) {
+      if (entity.kind === 'gltf') continue;
+      const maps = materialMapSettings(entity.props?.ai_material);
+      if (maps) for (const path of [maps.map, maps.normalMap, maps.ormMap]) {
+        if (path) paths.add(path);
+      }
+    }
+    await Promise.all([...paths].map(async path => {
+      try { this.materialSources.set(path, await loader.loadAsync(path)); }
+      catch (error) { console.warn(`Material texture unavailable: ${path}`, error); }
+    }));
+  }
+  materialTexture(path, repeat, colorSpace = THREE.NoColorSpace) {
+    const source = this.materialSources.get(path);
+    if (!source) return null;
+    const key = JSON.stringify([path, repeat, colorSpace]);
+    if (!this.materialVariants.has(key)) {
+      const texture = source.clone();
+      texture.colorSpace = colorSpace;
+      texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+      texture.repeat.fromArray(repeat);
+      texture.anisotropy = this.anisotropy;
+      texture.userData.shared = true;
+      texture.needsUpdate = true;
+      this.materialVariants.set(key, texture);
+    }
+    return this.materialVariants.get(key);
+  }
 }
 
 export class StreamingWorld {
@@ -25,8 +110,9 @@ export class StreamingWorld {
     this.scene = scene; this.renderer = renderer; this.config = config;
     this.assets = assets;
     this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
-    this.frustum = new THREE.Frustum(); this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
+    this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
+  setOcclusion(occluder) { this.occluder=occluder; }
   async template(e, level) {
     const key = `${batchKey(e)}:${level}`;
     if (this.templates.has(key)) return this.templates.get(key);
@@ -49,7 +135,7 @@ export class StreamingWorld {
         case 'cylinder': geometry = new THREE.CylinderGeometry(e.radius,e.radius,e.height,segments); break;
         default: return [];
       }
-      return [{geometry,material:primitiveMaterial(e),matrix:new THREE.Matrix4()}];
+      return [{geometry,material:primitiveMaterial(e,this.assets),matrix:new THREE.Matrix4()}];
     })();
     this.templates.set(key,promise); return promise;
   }
@@ -58,14 +144,34 @@ export class StreamingWorld {
     const bounds = new THREE.Box3().setFromObject(model), center = bounds.getCenter(new THREE.Vector3()), size = bounds.getSize(new THREE.Vector3());
     const span = Math.max(size.x,size.y,size.z) * 1.1;
     const camera = new THREE.OrthographicCamera(-span/2,span/2,span/2,-span/2,0.01,span*5);
-    camera.position.copy(center).add(new THREE.Vector3(0,0,span*2)); camera.lookAt(center);
     scene.add(new THREE.HemisphereLight(0xffffff,0x888888,3));
-    const target = new THREE.WebGLRenderTarget(128,128);
-    const previous = this.renderer.getRenderTarget(), color = this.renderer.getClearColor(new THREE.Color()), alpha = this.renderer.getClearAlpha();
-    this.renderer.setRenderTarget(target); this.renderer.setClearColor(0,0); this.renderer.render(scene,camera);
-    this.renderer.setRenderTarget(previous); this.renderer.setClearColor(color,alpha);
+    const views = this.config.impostor_views ?? 1, tileSize = views === 4 ? 64 : 128;
+    const target = new THREE.WebGLRenderTarget(128,128), renderer = this.renderer;
+    const previous = renderer.getRenderTarget(), face = renderer.getActiveCubeFace(), mip = renderer.getActiveMipmapLevel();
+    const color = renderer.getClearColor(new THREE.Color()), alpha = renderer.getClearAlpha(), autoClear = renderer.autoClear;
+    target.scissorTest = views > 1;
+    try {
+      renderer.setClearColor(0,0);
+      renderer.autoClear = false;
+      for (let i = 0; i < views; i++) {
+        const angle = i * Math.PI / 2;
+        camera.position.set(Math.sin(angle),0,Math.cos(angle)).multiplyScalar(span * 2).add(center);
+        camera.lookAt(center);
+        target.viewport.set((i % 2) * tileSize, Math.floor(i / 2) * tileSize, tileSize, tileSize);
+        target.scissor.copy(target.viewport);
+        renderer.setRenderTarget(target);
+        renderer.clear();
+        renderer.render(scene,camera);
+      }
+    } catch (error) {
+      target.dispose();
+      throw error;
+    } finally {
+      renderer.setRenderTarget(previous,face,mip); renderer.setClearColor(color,alpha);
+      renderer.autoClear = autoClear;
+    }
     const geometry = new THREE.PlaneGeometry(span,span); geometry.translate(center.x,center.y,center.z);
-    return [{geometry,material:new THREE.MeshBasicMaterial({map:target.texture,transparent:true,alphaTest:0.1,side:THREE.DoubleSide}),matrix:new THREE.Matrix4(),billboard:true}];
+    return [{geometry,material:impostorMaterial(target.texture,center,views),matrix:new THREE.Matrix4(),billboard:true}];
   }
   add(e, object) {
     object?.removeFromParent();
@@ -89,7 +195,9 @@ export class StreamingWorld {
     if (old !== item.key || !item.object) { this.dirty.add(old); this.dirty.add(item.key); }
   }
   async rebuild(key) {
-    const old = this.groups.get(key), group = new THREE.Group(); this.builds.set(key,group);
+    const old = this.groups.get(key), group = new THREE.Group();
+    disposeChunk(this.builds.get(key));
+    this.builds.set(key,group);
     const buckets = new Map(), objects = [];
     for (const {id} of this.grid.chunks.get(key)?.values() || []) {
       const item = this.entities.get(id); if (!item) continue;
@@ -103,7 +211,7 @@ export class StreamingWorld {
         const parts = await this.template(items[0].e,items[0].level || 0);
         if (this.builds.get(key) !== group) return;
         for (const part of parts) {
-          const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.billboard = part.billboard; mesh.userData.items = items;
+          const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map();
           mesh.castShadow = items[0].shadows.castShadow && !part.billboard;
           mesh.receiveShadow = items[0].shadows.receiveShadow;
           mesh.userData.support = !!items[0].e.collider;
@@ -113,28 +221,30 @@ export class StreamingWorld {
       }
       if (this.builds.get(key) !== group) return;
       for (const object of objects) group.add(object);
-      group.userData.bounds = new THREE.Box3().setFromObject(group);
-      old?.removeFromParent(); old?.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+      disposeChunk(old);
       this.groups.set(key,group);
+      // Three.js culls meshes per pass; offscreen chunks can still cast shadows.
       if (this.grid.loaded.has(key)) this.scene.add(group);
     } finally {
       if (this.builds.get(key) === group) this.builds.delete(key);
-      if (this.groups.get(key) !== group) group.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+      if (this.groups.get(key) !== group) disposeChunk(group);
     }
   }
-  setMatrix(mesh,index,item,local = new THREE.Matrix4(),camera) {
+  setMatrix(mesh,index,item,local) {
     const t = item.e.transform;
     this.dummy.position.fromArray(t.position); this.dummy.scale.fromArray(t.scale);
     this.dummy.rotation.set(...t.rotation_deg.map(THREE.MathUtils.degToRad),'ZYX');
-    if (camera) this.dummy.quaternion.copy(camera.quaternion);
     this.dummy.updateMatrix(); mesh.setMatrixAt(index,this.matrix.copy(this.dummy.matrix).multiply(local));
   }
   update(camera) {
-    const tasks = [];
+    const tasks = []; this.occludedChunks=0;
     const change = this.grid.update(camera.position.toArray());
-    for (const key of change.unload) this.groups.get(key)?.removeFromParent();
-    for (const key of change.load) { if (this.groups.has(key)) this.scene.add(this.groups.get(key)); else this.dirty.add(key); }
-    this.frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+    for (const key of change.unload) {
+      disposeChunk(this.groups.get(key));
+      disposeChunk(this.builds.get(key));
+      this.groups.delete(key); this.builds.delete(key); this.dirty.delete(key);
+    }
+    for (const key of change.load) this.dirty.add(key);
     for (const key of this.grid.loaded) {
       for (const {id,position,radius} of this.grid.chunks.get(key)?.values() || []) {
         const item = this.entities.get(id); if (!item) continue;
@@ -157,7 +267,9 @@ export class StreamingWorld {
             if (!item.lodTasks.has(lodPath)) {
               const task = this.assets.load(lodPath).then(gltf => {
                 if (this.entities.get(id) !== item) return;
-                const lod = gltf.scene.clone(true); item.lods.set(lodPath,lod); item.object.add(lod);
+                const lod = gltf.scene.clone(true), shadows = sunShadowSettings(item.e.props?.ai_sun_shadow);
+                lod.traverse(child => { if (child.isMesh) Object.assign(child, shadows); });
+                item.lods.set(lodPath,lod); item.object.add(lod);
               });
               item.lodTasks.set(lodPath,task); tasks.push(task); task.catch(error => console.error(error));
             }
@@ -176,20 +288,14 @@ export class StreamingWorld {
             item.impostorTask.catch(error => console.error(error));
           }
           item.object.children[0].visible = level !== 2 || !item.impostor;
-          if (item.impostor) {
-            item.impostor.visible = level === 2;
-            item.impostor.quaternion.copy(item.object.quaternion).invert().multiply(camera.quaternion);
-          }
+          if (item.impostor) item.impostor.visible = level === 2;
         }
       }
       const group = this.groups.get(key);
       if (group) {
-        for (const {id} of this.grid.chunks.get(key)?.values() || []) {
-          const item = this.entities.get(id);
-          if (item?.object && group.userData.bounds) group.userData.bounds.expandByPoint(item.object.position);
-        }
-        group.visible = !group.userData.bounds || this.frustum.intersectsBox(group.userData.bounds);
-        group.traverse(o => { if (o.userData.billboard) { o.userData.items.forEach((item,i) => this.setMatrix(o,i,item,undefined,camera)); o.instanceMatrix.needsUpdate = true; } });
+        const bounds = this.occluder ? new THREE.Box3().setFromObject(group) : null;
+        group.visible = !this.occluder?.occluded(`chunk:${key}`,camera.position,bounds);
+        if (!group.visible) this.occludedChunks++;
       }
     }
     for (const key of this.dirty) if (this.grid.loaded.has(key)) { this.dirty.delete(key); const task = this.rebuild(key); tasks.push(task); task.catch(error => { console.error(error); }); }
@@ -220,5 +326,9 @@ export class StreamingWorld {
     }
     return result;
   }
-  reset() { for (const group of this.groups.values()) { group.removeFromParent(); group.traverse(o => { if (o.isInstancedMesh) o.dispose(); }); } this.groups.clear(); this.builds.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.config); this.dirty.clear(); }
+  reset() {
+    for (const group of this.groups.values()) disposeChunk(group);
+    for (const group of this.builds.values()) disposeChunk(group);
+    this.groups.clear(); this.builds.clear(); this.entities.clear(); this.grid = new ChunkGrid(this.config); this.dirty.clear();
+  }
 }

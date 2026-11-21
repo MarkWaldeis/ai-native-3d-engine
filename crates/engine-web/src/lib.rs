@@ -108,7 +108,7 @@ impl WebGame {
         let simulation = self.simulation.as_mut().ok_or("load a scene before tick")?;
         let inputs: Vec<_> = values
             .into_iter()
-            .map(|(action, value)| Input {
+            .map(|(action, value)| Input { entity: None,
                 tick: simulation.tick,
                 action,
                 value,

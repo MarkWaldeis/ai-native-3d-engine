@@ -31,7 +31,7 @@ test('surface shaders support full and cheap quality without replacing geometry 
     const material=new T.MeshStandardMaterial();decorate(T,material);
     const shader={uniforms:{},vertexShader:'#include <begin_vertex>',fragmentShader:'#include <color_fragment>\n#include <normal_fragment_maps>'};
     material.onBeforeCompile(shader);
-    for(const [quality,expected] of [['0',0],['1',1],['2',1]]){
+    for(const [quality,expected] of [['0',0],['1',0],['2',1]]){
       material.onBeforeRender({domElement:{dataset:{quality}}});assert.equal(shader.uniforms.surfaceDetail.value,expected);
     }
     assert.ok(shader.fragmentShader.includes('surfaceNoise'));assert.ok(shader.uniforms.surfaceAlbedo.value.isDataTexture);

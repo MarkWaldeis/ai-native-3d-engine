@@ -5,6 +5,7 @@ import { applySky, loadEnvironment } from './sky.js';
 import { LocalLights } from './local-lights.js';
 import { NatureVisuals } from './nature.js';
 import { adaptQuality } from './nature-settings.js';
+import { Atmosphere } from './atmosphere.js';
 
 export class ShadowGrid {
   constructor(sunOffset, up) {
@@ -71,6 +72,7 @@ export class GameEffects {
     this.configure();
     if (graphics?.fogDensity !== undefined) scene.fog = new THREE.FogExp2(graphics.horizon, graphics.fogDensity);
     if (graphics?.foliage || graphics?.water) this.nature = new NatureVisuals(scene, graphics, this.level);
+    if (graphics?.haze || graphics?.clouds) this.atmosphere = new Atmosphere(scene, graphics, this.level);
   }
   async prepareEnvironment() {
     if (!this.hdr?.supported) return;
@@ -84,7 +86,12 @@ export class GameEffects {
   }
   configure() {
     const settings = qualitySettings(this.level, devicePixelRatio);
-    const shadowSize = this.graphics ? Math.min(this.renderer.capabilities.maxTextureSize, 512 << this.level) : settings.shadowSize;
+    const shadowSize = this.graphics ? Math.min(this.renderer.capabilities.maxTextureSize, this.graphics.shadowMapSizes[this.level]) : settings.shadowSize;
+    if(this.graphics) {
+      const extent=this.graphics.shadowExtents[this.level],scale=extent/24;
+      Object.assign(this.sun.shadow.camera,{left:-extent/2,right:extent/2,top:extent/2,bottom:-extent/2,near:0.5*scale,far:55*scale});
+      this.sun.shadow.camera.updateProjectionMatrix();this.sunOffset.setLength(20*scale);
+    }
     if (this.hdr) this.hdr.resize(this.level, innerWidth, innerHeight, settings.pixelRatio);
     else { this.renderer.setPixelRatio(settings.pixelRatio); this.renderer.setSize(innerWidth,innerHeight,false); }
     if (this.sun.shadow.mapSize.x !== shadowSize) {
@@ -95,9 +102,10 @@ export class GameEffects {
     this.renderer.domElement.dataset.graphics = this.hdr?.sceneTarget ? 'hdr' : this.graphics ? 'standard' : 'legacy';
     this.renderer.shadowMap.needsUpdate = true;
     if (this.nature && this.nature.level !== this.level) this.nature.setQuality(this.level);
+    this.atmosphere?.setQuality(this.level);
   }
   render(camera) {
-    if (this.hdr) this.hdr.render(this.scene, camera);
+    if (this.hdr) this.hdr.render(this.scene, camera, this.frameDelta);
     else this.renderer.render(this.scene, camera);
   }
   decorate(group) {
@@ -113,11 +121,13 @@ export class GameEffects {
     this.particles = this.particles.slice(-96);
   }
   reset() {
+    this.hdr?.resetExposure();
     this.localLights?.reset();
     this.nature?.clearTiles();
     this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = this.fast = 0;
   }
   update(elapsed, objects, camera, active, frameElapsed = elapsed, shadowTarget) {
+    this.frameDelta = Math.min(frameElapsed, 0.25);
     this.time += elapsed;
     if (this.level > 0 || ++this.shadowFrame % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
     for (const [id, group] of objects) {
@@ -134,6 +144,7 @@ export class GameEffects {
     this.shadowGrid?.align(this.sun.target.position, this.sun.shadow.camera, this.sun.shadow.mapSize);
     this.sun.position.copy(this.sun.target.position).add(this.sunOffset);
     this.nature?.update(elapsed, camera);
+    this.atmosphere?.update(elapsed);
     this.particles = this.particles.filter(p => p.age < 0.85);
     this.particles.forEach((p,i) => {
       p.age += elapsed; p.velocity.y -= elapsed*3; p.position.addScaledVector(p.velocity,elapsed);

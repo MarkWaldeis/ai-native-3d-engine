@@ -1,6 +1,6 @@
-import { materialSettings } from './graphics-settings.js';
+import { materialMapSettings, materialSettings } from './graphics-settings.js';
 
-const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true};
+const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true, impostor_views:1, occlusion:true, occlusion_margin:2};
 
 export function worldConfig(entities) {
   const authored = entities.find(e => e.tags?.includes('player'))?.props?.ai_world;
@@ -8,6 +8,9 @@ export function worldConfig(entities) {
   const large = entities.length > 1000 || entities.some(e => Math.max(...(e.transform?.position || []).map(Math.abs)) > 1000);
   if (!value && !large) return null;
   const config = {...defaults, ...value};
+  if (typeof config.occlusion !== 'boolean') throw new RangeError('Invalid ai_world.occlusion');
+  if (!Number.isFinite(config.occlusion_margin) || config.occlusion_margin < 0) throw new RangeError('Invalid ai_world.occlusion_margin');
+  if (config.impostor_views !== 1 && config.impostor_views !== 4) throw new RangeError('Invalid ai_world.impostor_views (use 1 or 4)');
   if (config.camera_distance !== undefined && (!(config.camera_distance > 0) || !Number.isFinite(config.camera_distance))) throw new RangeError('Invalid ai_world.camera_distance');
   for (const key of ['chunk_size','stream_radius','draw_distance','hysteresis','sim_radius','sim_hysteresis']) if (!(config[key] > 0) || !Number.isFinite(config[key])) throw new RangeError(`Invalid ai_world.${key}`);
   if (!Array.isArray(config.lod_distances) || config.lod_distances.length !== 2 || !(config.lod_distances[0] > 0 && config.lod_distances[1] > config.lod_distances[0])) throw new RangeError('Invalid LOD distances');
@@ -16,7 +19,10 @@ export function worldConfig(entities) {
 
 export function batchKey(e) {
   if (e.kind === 'gltf') return JSON.stringify(['gltf',e.path,e.props?.web_lods]);
-  return JSON.stringify([e.kind,e.size,e.radius,e.height,e.width,e.door_width,e.door_height,e.color,e.segments,materialSettings(e.props?.ai_material),e.kind==='box'&&!!e.tags?.includes('road')]);
+  const authored = e.props?.ai_material, maps = materialMapSettings(authored);
+  const settings = materialSettings(authored);
+  const orm = maps?.ormMap ? materialSettings(authored, true) : null;
+  return JSON.stringify([e.kind,e.size,e.radius,e.height,e.width,e.door_width,e.door_height,e.color,e.segments,settings,maps,orm && [orm.roughness,orm.metalness], e.kind === 'box' && !!e.tags?.includes('road')]);
 }
 
 export function entityRadius(e) {
@@ -31,7 +37,10 @@ export function isStatic(e) {
 
 export function canInstance(e) {
   const scale = e.transform?.scale || [1,1,1];
-  return !e.animator && !e.nav_agent && isStatic(e) && scale[0]*scale[1]*scale[2] > 0 && ['box','plane','sphere','cylinder','gltf'].includes(e.kind);
+  if (e.animator || e.nav_agent || !isStatic(e) || !(scale[0]*scale[1]*scale[2] > 0)) return false;
+  // The transmission shader derives optical thickness from modelMatrix, not instanceMatrix.
+  return e.kind === 'gltf' || (['box','plane','sphere','cylinder'].includes(e.kind)
+    && !materialSettings(e.props?.ai_material).transmission);
 }
 
 export function selectLOD(distance, previous, config) {

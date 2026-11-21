@@ -1,6 +1,6 @@
 import * as T from 'three';
 import { mergeGeometries } from './vendor/addons/utils/BufferGeometryUtils.js';
-import { foliagePlacements, foliageSettings, bakeWaterDepth } from './nature-settings.js';
+import { foliagePlacements, foliageSettings, foliageExclusion, bakeWaterDepth } from './nature-settings.js';
 
 function merge(parts) {
   const geometry=mergeGeometries(parts);
@@ -10,12 +10,12 @@ function merge(parts) {
 
 function vegetationGeometry() {
   const blades=[], crowns=[], branches=[];
-  for(let i=0;i<7;i++) {
-    const height=0.5+(i%3)*0.16, blade=new T.PlaneGeometry(0.07,height,1,4);
+  for(let i=0;i<9;i++) {
+    const height=0.22+(i%3)*0.055, blade=new T.PlaneGeometry(0.035,height,1,2);
     blade.translate(0,height/2,0);
     const p=blade.attributes.position;
     for(let j=0;j<p.count;j++){const y=p.getY(j);p.setX(j,p.getX(j)*Math.max(0,1-y/height)+y*y*0.28);}
-    blade.rotateY(i*2.4);blade.translate(Math.sin(i*2.4)*0.2,0,Math.cos(i*2.4)*0.2);blade.computeVertexNormals();blades.push(blade);
+    blade.rotateY(i*2.4);blade.translate(Math.sin(i*2.4)*0.12,0,Math.cos(i*2.4)*0.12);blade.computeVertexNormals();blades.push(blade);
   }
   const trunk=new T.CylinderGeometry(0.13,0.32,4.5,8);trunk.translate(0,2.25,0);branches.push(trunk);
   for(let i=0;i<11;i++) {
@@ -23,7 +23,30 @@ function vegetationGeometry() {
     const crown=new T.IcosahedronGeometry(1.1,1);crown.scale(1.1,0.52,0.8);crown.rotateY(angle);crown.translate(x,y,z);crowns.push(crown);
     if(i<5){const end=new T.Vector3(x,y-0.2,z),start=new T.Vector3(0,3,0),direction=end.clone().sub(start);const branch=new T.CylinderGeometry(0.045,0.12,direction.length(),5);branch.applyQuaternion(new T.Quaternion().setFromUnitVectors(new T.Vector3(0,1,0),direction.normalize()));branch.translate(...start.add(end).multiplyScalar(0.5).toArray());branches.push(branch);}
   }
-  return [merge(blades),merge(crowns),merge(branches)];
+  const ferns=[],flowers=[],cards=[];
+  for(let i=0;i<7;i++) {
+    for(let j=0;j<3;j++) {
+      const leaf=new T.PlaneGeometry(0.12,0.24);
+      const p=leaf.attributes.position;for(let k=0;k<p.count;k++)p.setX(k,p.getX(k)*(p.getY(k)>0?0.12:1));
+      leaf.rotateX(-0.6-j*0.22);leaf.translate(0,0.15+j*0.055,0.09+j*0.09);leaf.rotateY(i*2.4);ferns.push(leaf);
+    }
+    const petal=new T.CircleGeometry(0.035,5);petal.rotateX(-Math.PI/2);petal.translate(Math.sin(i)*0.05,0.24,Math.cos(i)*0.05);flowers.push(petal);
+  }
+  const stem=new T.CylinderGeometry(0.005,0.008,0.24,3);stem.translate(0,0.12,0);flowers.push(stem);
+  for(let i=0;i<4;i++) {
+    const card=new T.BufferGeometry();card.setAttribute('position',new T.Float32BufferAttribute([-0.16,0,0,0.16,0,0,0.05,0.32,0],3));card.rotateY(i*2.4);card.computeVertexNormals();cards.push(card);
+  }
+  const geometries=[merge(blades),merge(crowns),merge(branches),merge(ferns),merge(flowers),merge(cards)];
+  for(const index of [0,3,4,5]) {
+    const geometry=geometries[index],p=geometry.attributes.position,colors=[];
+    for(let i=0;i<p.count;i++) {
+      const t=T.MathUtils.clamp(p.getY(i)/0.35,0,1);
+      const color=index===4&&t>0.6?new T.Color(0xffd78b):new T.Color().lerpColors(new T.Color(0x344d16),new T.Color(0x92bd4e),t);
+      colors.push(color.r,color.g,color.b);
+    }
+    geometry.setAttribute('color',new T.Float32BufferAttribute(colors,3));
+  }
+  return geometries;
 }
 
 export class NatureVisuals {
@@ -31,7 +54,8 @@ export class NatureVisuals {
     Object.assign(this,{scene,config,tiles:new Map(),time:{value:0},viewer:{value:new T.Vector3()},fade:{value:64}});
     this.root=new T.Group();scene.add(this.root);
     this.geometries=vegetationGeometry();
-    this.materials=[this.material(0x72b63c,false),this.material(0x438b38,true),this.material(0x796047,true)];
+    this.materials=[this.material(0xffffff,false),this.material(0x438b38,true),this.material(0x796047,true),this.material(0xffffff,false),this.material(0xffffff,false),this.material(0xffffff,false)];
+    for(const i of [0,3,4,5])this.materials[i].vertexColors=true;
     this.depths=this.materials.map(m=>{const depth=new T.MeshDepthMaterial({depthPacking:T.RGBADepthPacking,side:T.DoubleSide});depth.onBeforeCompile=m.onBeforeCompile;return depth;});
     this.ray=new T.Raycaster();this.ray.ray.direction.set(0,-1,0);
     this.sampler=(x,z)=>this.groundHeight(x,z);
@@ -64,8 +88,9 @@ export class NatureVisuals {
   }
   setHeightSampler(sample) {
     if(typeof sample!=='function') throw new TypeError('Height sampler must be a function');
-    this.sampler=sample;this.waterRefresh=-Infinity;this.clearTiles();
+    this.sampler=sample;this.customSampler=true;this.waterRefresh=-Infinity;this.clearTiles();
   }
+  setExclusions(entities) {this.exclude=foliageExclusion(entities);this.clearTiles();}
   createWater() {
     const data=new Uint8Array(64*64*4);
     for(let y=0;y<64;y++) for(let x=0;x<64;x++){const i=(y*64+x)*4;data[i]=128+Math.sin(x*0.7+y*0.3)*30;data[i+1]=128+Math.cos(y*0.8+x*0.2)*30;data[i+2]=250;data[i+3]=255;}
@@ -100,20 +125,22 @@ export class NatureVisuals {
       this.normal.repeat.setScalar([24,48,80][level]);this.water.material.normalScale.setScalar([0.18,0.3,0.4][level]);
       this.waterLayers.value=level>0?1:0;this.water.material.clearcoat=level>0?1:0;
       this.water.material.needsUpdate=true;
-      const n=[64,128,256][level];this.depthTexture?.dispose();
+      const n=[32,64,128][level];this.depthTexture?.dispose();
       this.depthTexture=new T.DataTexture(new Uint8Array(n*n*4),n,n);
       this.depthTexture.minFilter=this.depthTexture.magFilter=T.LinearFilter;
       this.waterDepth.value=this.depthTexture;this.waterRefresh=-Infinity;
     }
     this.clearTiles();
   }
-  tile(x,z) {
-    const placements=foliagePlacements(x,z,{density:this.settings.density,sample:this.sample,water:this.water?.position.y ?? -Infinity});
-    const trees=placements.filter(p=>p.tree),group=new T.Group(),dummy=new T.Object3D();
-    for(let type=0;type<3;type++) {
-      const items=type?trees:placements,mesh=new T.InstancedMesh(this.geometries[type],this.materials[type],items.length);
-      items.forEach((p,i)=>{dummy.position.set(p.x,p.y,p.z);dummy.rotation.set(0,p.rotation,0);dummy.scale.setScalar(p.scale);dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);mesh.setColorAt(i,new T.Color().setHSL(type===2?0.08:0.25+(i%7)*0.006,0.18,0.72+(i%5)*0.035));});
-      mesh.castShadow=type>0;mesh.receiveShadow=true;mesh.customDepthMaterial=this.depths[type];group.add(mesh);
+  tile(x,z,far=false) {
+    const placements=foliagePlacements(x,z,{density:this.settings.density*(far?0.22:1),trees:this.settings.trees,sample:this.sample,exclude:this.exclude,water:this.water?.position.y ?? -Infinity});
+    const trees=placements.filter(p=>p.tree),group=new T.Group(),dummy=new T.Object3D();group.userData.far=far;
+    for(const type of far?[5]:[0,1,2,3,4]) {
+      const items=type===1||type===2?trees:type===3?placements.filter(p=>p.kind<0.08):type===4?placements.filter(p=>p.kind>0.985):type===0?placements.filter(p=>p.kind>=0.08&&p.kind<=0.985):placements;
+      if(!items.length)continue;
+      const mesh=new T.InstancedMesh(this.geometries[type],this.materials[type],items.length);
+      items.forEach((p,i)=>{dummy.position.set(p.x,p.y,p.z);dummy.rotation.set(0,p.rotation,0);dummy.scale.set(p.scale*(far?1.8:1),p.scale*(0.8+p.hue*0.4),p.scale*(far?1.8:1));dummy.updateMatrix();mesh.setMatrixAt(i,dummy.matrix);mesh.setColorAt(i,new T.Color().setHSL(type===2?0.08:0.20+p.hue*0.10,0.12+p.hue*0.18,0.62+p.hue*0.25));});
+      mesh.castShadow=type===1||type===2;mesh.receiveShadow=true;mesh.customDepthMaterial=this.depths[type];group.add(mesh);
     }
     this.root.add(group);this.tiles.set(`${x},${z}`,group);
   }
@@ -132,9 +159,9 @@ export class NatureVisuals {
     }
     if(!this.config.foliage || this.settings.density===0) return;
     const cx=Math.floor(camera.position.x/16),cz=Math.floor(camera.position.z/16),r=Math.ceil(this.settings.distance/16);
-    for(const [key,group] of this.tiles){const [x,z]=key.split(',').map(Number);if(Math.hypot(x-cx,z-cz)>r)this.removeTile(key,group);}
+    for(const [key,group] of this.tiles){const [x,z]=key.split(',').map(Number),d=Math.hypot(x-cx,z-cz);if(d>r||group.userData.far!==(d>2.5))this.removeTile(key,group);}
     for(let d=0;d<=r;d++)for(let x=cx-d;x<=cx+d;x++)for(let z=cz-d;z<=cz+d;z++)if(Math.hypot(x-cx,z-cz)<=r&&!this.tiles.has(`${x},${z}`)){
-      this.collectGrounds();this.tile(x,z);return;
+      if(!this.customSampler)this.collectGrounds();this.tile(x,z,Math.hypot(x-cx,z-cz)>2.5);return;
     }
   }
   collectGrounds() {this.grounds=[];this.scene.updateMatrixWorld(true);this.scene.traverse(o=>{if(o.userData.support)this.grounds.push(o);});}
