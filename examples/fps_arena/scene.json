@@ -1,0 +1,851 @@
+{
+ "name": "FPS-Arena",
+ "camera": {
+  "position": [
+   0,
+   8,
+   34
+  ],
+  "target": [
+   0,
+   0,
+   0
+  ],
+  "fov_deg": 70
+ },
+ "light_dir": [
+  -0.4,
+  1,
+  0.3
+ ],
+ "ambient": 0.45,
+ "entities": [
+  {
+   "name": "floor",
+   "kind": "box",
+   "size": [
+    120,
+    1,
+    120
+   ],
+   "transform": {
+    "position": [
+     0,
+     -0.5,
+     0
+    ]
+   },
+   "color": [
+    0.24,
+    0.33,
+    0.2,
+    1
+   ],
+   "tags": [
+    "ground"
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static",
+    "friction": 0.8
+   },
+   "id": 1
+  },
+  {
+   "name": "player",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 16,
+   "transform": {
+    "position": [
+     0,
+     0.9,
+     20
+    ]
+   },
+   "color": [
+    0.2,
+    0.5,
+    0.9,
+    1
+   ],
+   "tags": [
+    "player"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 80,
+    "friction": 0.0,
+    "restitution": 0
+   },
+   "script": "examples/fps_arena/scripts/fps_player.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_friction_combine": "min",
+    "ai_fps": {
+     "eye_height": 0.75,
+     "move_speed": 5.0,
+     "sprint_speed": 8.5,
+     "jump_speed": 5.5,
+     "mouse_sens": 0.0022
+    },
+    "ai_ui": {
+     "title": "FPS-Arena",
+     "badge": "SHOOTER-RUNTIME",
+     "mission": "Alle Gegner ausschalten",
+     "intro_title": "Feuergefecht",
+     "intro_text": "Klicke ins Bild f\u00fcr Maussteuerung. WASD laufen, Shift sprinten, Leertaste springen, Linksklick feuern, R nachladen. Touch: links bewegen, rechts ziehen zum Zielen, Feuer-Knopf.",
+     "win_text": "Alle Gegner ausgeschaltet.",
+     "win_badge": "GEBIET GESICHERT",
+     "sky_color": "#9fb8c9",
+     "hud_keys": []
+    }
+   },
+   "id": 2
+  },
+  {
+   "name": "crate-0",
+   "kind": "box",
+   "size": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "transform": {
+    "position": [
+     -6,
+     1.0,
+     8
+    ],
+    "rotation_deg": [
+     0,
+     0,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 3
+  },
+  {
+   "name": "crate-1",
+   "kind": "box",
+   "size": [
+    2.6,
+    2.6,
+    2.6
+   ],
+   "transform": {
+    "position": [
+     5,
+     1.3,
+     10
+    ],
+    "rotation_deg": [
+     0,
+     17,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 4
+  },
+  {
+   "name": "crate-2",
+   "kind": "box",
+   "size": [
+    3.2,
+    3.2,
+    3.2
+   ],
+   "transform": {
+    "position": [
+     -12,
+     1.6,
+     -4
+    ],
+    "rotation_deg": [
+     0,
+     34,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 5
+  },
+  {
+   "name": "crate-3",
+   "kind": "box",
+   "size": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "transform": {
+    "position": [
+     10,
+     1.0,
+     -6
+    ],
+    "rotation_deg": [
+     0,
+     51,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 6
+  },
+  {
+   "name": "crate-4",
+   "kind": "box",
+   "size": [
+    2.6,
+    2.6,
+    2.6
+   ],
+   "transform": {
+    "position": [
+     0,
+     1.3,
+     -14
+    ],
+    "rotation_deg": [
+     0,
+     68,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 7
+  },
+  {
+   "name": "crate-5",
+   "kind": "box",
+   "size": [
+    3.2,
+    3.2,
+    3.2
+   ],
+   "transform": {
+    "position": [
+     -18,
+     1.6,
+     12
+    ],
+    "rotation_deg": [
+     0,
+     85,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 8
+  },
+  {
+   "name": "crate-6",
+   "kind": "box",
+   "size": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "transform": {
+    "position": [
+     16,
+     1.0,
+     14
+    ],
+    "rotation_deg": [
+     0,
+     102,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 9
+  },
+  {
+   "name": "crate-7",
+   "kind": "box",
+   "size": [
+    2.6,
+    2.6,
+    2.6
+   ],
+   "transform": {
+    "position": [
+     20,
+     1.3,
+     -18
+    ],
+    "rotation_deg": [
+     0,
+     119,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 10
+  },
+  {
+   "name": "crate-8",
+   "kind": "box",
+   "size": [
+    3.2,
+    3.2,
+    3.2
+   ],
+   "transform": {
+    "position": [
+     -22,
+     1.6,
+     -20
+    ],
+    "rotation_deg": [
+     0,
+     136,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 11
+  },
+  {
+   "name": "crate-9",
+   "kind": "box",
+   "size": [
+    2.0,
+    2.0,
+    2.0
+   ],
+   "transform": {
+    "position": [
+     3,
+     1.0,
+     2
+    ],
+    "rotation_deg": [
+     0,
+     153,
+     0
+    ]
+   },
+   "color": [
+    0.45,
+    0.33,
+    0.2,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 12
+  },
+  {
+   "name": "wall-0",
+   "kind": "box",
+   "size": [
+    40,
+    3,
+    1
+   ],
+   "transform": {
+    "position": [
+     0,
+     1.5,
+     -30
+    ]
+   },
+   "color": [
+    0.55,
+    0.55,
+    0.52,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 13
+  },
+  {
+   "name": "wall-1",
+   "kind": "box",
+   "size": [
+    1,
+    3,
+    40
+   ],
+   "transform": {
+    "position": [
+     -30,
+     1.5,
+     0
+    ]
+   },
+   "color": [
+    0.55,
+    0.55,
+    0.52,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 14
+  },
+  {
+   "name": "wall-2",
+   "kind": "box",
+   "size": [
+    1,
+    3,
+    40
+   ],
+   "transform": {
+    "position": [
+     30,
+     1.5,
+     0
+    ]
+   },
+   "color": [
+    0.55,
+    0.55,
+    0.52,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 15
+  },
+  {
+   "name": "wall-3",
+   "kind": "box",
+   "size": [
+    8,
+    3,
+    1
+   ],
+   "transform": {
+    "position": [
+     -8,
+     1.5,
+     -2
+    ]
+   },
+   "color": [
+    0.55,
+    0.55,
+    0.52,
+    1
+   ],
+   "collider": {
+    "shape": "box"
+   },
+   "rigidbody": {
+    "type": "static"
+   },
+   "id": 16
+  },
+  {
+   "name": "enemy-0",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 12,
+   "transform": {
+    "position": [
+     -10,
+     0.9,
+     -12
+    ]
+   },
+   "color": [
+    0.75,
+    0.18,
+    0.14,
+    1
+   ],
+   "tags": [
+    "enemy"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 70,
+    "friction": 0.0
+   },
+   "script": "examples/fps_arena/scripts/fps_enemy.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_health": 100,
+    "ai_friction_combine": "min"
+   },
+   "id": 17
+  },
+  {
+   "name": "enemy-1",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 12,
+   "transform": {
+    "position": [
+     8,
+     0.9,
+     -16
+    ]
+   },
+   "color": [
+    0.75,
+    0.18,
+    0.14,
+    1
+   ],
+   "tags": [
+    "enemy"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 70,
+    "friction": 0.0
+   },
+   "script": "examples/fps_arena/scripts/fps_enemy.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_health": 100,
+    "ai_friction_combine": "min"
+   },
+   "id": 18
+  },
+  {
+   "name": "enemy-2",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 12,
+   "transform": {
+    "position": [
+     14,
+     0.9,
+     0
+    ]
+   },
+   "color": [
+    0.75,
+    0.18,
+    0.14,
+    1
+   ],
+   "tags": [
+    "enemy"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 70,
+    "friction": 0.0
+   },
+   "script": "examples/fps_arena/scripts/fps_enemy.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_health": 100,
+    "ai_friction_combine": "min"
+   },
+   "id": 19
+  },
+  {
+   "name": "enemy-3",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 12,
+   "transform": {
+    "position": [
+     -16,
+     0.9,
+     4
+    ]
+   },
+   "color": [
+    0.75,
+    0.18,
+    0.14,
+    1
+   ],
+   "tags": [
+    "enemy"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 70,
+    "friction": 0.0
+   },
+   "script": "examples/fps_arena/scripts/fps_enemy.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_health": 100,
+    "ai_friction_combine": "min"
+   },
+   "id": 20
+  },
+  {
+   "name": "enemy-4",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 12,
+   "transform": {
+    "position": [
+     2,
+     0.9,
+     -24
+    ]
+   },
+   "color": [
+    0.75,
+    0.18,
+    0.14,
+    1
+   ],
+   "tags": [
+    "enemy"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 70,
+    "friction": 0.0
+   },
+   "script": "examples/fps_arena/scripts/fps_enemy.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_health": 100,
+    "ai_friction_combine": "min"
+   },
+   "id": 21
+  },
+  {
+   "name": "enemy-5",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 12,
+   "transform": {
+    "position": [
+     -24,
+     0.9,
+     -26
+    ]
+   },
+   "color": [
+    0.75,
+    0.18,
+    0.14,
+    1
+   ],
+   "tags": [
+    "enemy"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 70,
+    "friction": 0.0
+   },
+   "script": "examples/fps_arena/scripts/fps_enemy.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_health": 100,
+    "ai_friction_combine": "min"
+   },
+   "id": 22
+  },
+  {
+   "name": "enemy-6",
+   "kind": "cylinder",
+   "radius": 0.4,
+   "height": 1.8,
+   "segments": 12,
+   "transform": {
+    "position": [
+     24,
+     0.9,
+     -24
+    ]
+   },
+   "color": [
+    0.75,
+    0.18,
+    0.14,
+    1
+   ],
+   "tags": [
+    "enemy"
+   ],
+   "collider": {
+    "shape": "capsule",
+    "radius": 0.4,
+    "half_height": 0.5
+   },
+   "rigidbody": {
+    "type": "dynamic",
+    "mass": 70,
+    "friction": 0.0
+   },
+   "script": "examples/fps_arena/scripts/fps_enemy.rhai",
+   "props": {
+    "ai_lock_rotation": true,
+    "ai_health": 100,
+    "ai_friction_combine": "min"
+   },
+   "id": 23
+  }
+ ]
+}
