@@ -3,9 +3,9 @@ import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame } from './controls.js';
 import { GameEffects } from './effects.js';
 import { graphicsConfig } from './graphics-settings.js';
-import { primitiveMaterial } from './materials.js';
+import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
-import { StreamingWorld, loadAsset } from './world.js';
+import { StreamingWorld, WebAssets } from './world.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 
 const $ = id => document.getElementById(id);
@@ -16,7 +16,7 @@ const actionInput = new ActionLatch();
 let running = false, ready = false, mode = 'start';
 let game, source, scripts, latest, renderer, camera, world;
 let ui = {};
-let effects, lastFeedback, lastHUD = '';
+let effects, assets, lastFeedback, lastHUD = '';
 const audio = new GameAudio();
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
@@ -110,7 +110,7 @@ function createObject(entity) {
     }
     case 'gltf': {
       object = new THREE.Group();
-      const task = loadAsset(entity.path).then(gltf => {
+      const task = assets.load(entity.path).then(gltf => {
         gltf.scene.traverse(child => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
         object.add(gltf.scene.clone(true));
       });
@@ -476,9 +476,10 @@ async function boot() {
   const preset = new URLSearchParams(location.search).get('quality');
   effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color, props?.ai_render));
   await effects.prepareEnvironment();
+  assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
   const config = worldConfig(source.entities);
   if (config) {
-    streaming = new StreamingWorld(world,renderer,config);
+    streaming = new StreamingWorld(world,renderer,config,assets);
     if (world.fog?.isFog) { world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance; }
   }
   if (new URLSearchParams(location.search).get('stats') === '1') {

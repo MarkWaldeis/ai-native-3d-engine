@@ -3,10 +3,9 @@
   "camera": {"position": [0, 5, 8], "target": [0, 1, -2], "fov_deg": 48},
   "entities": [
     {
-      "id": 1, "name": "gallery-floor", "kind": "box", "size": [13, 0.4, 11],
-      "transform": {"position": [0, -0.2, -1]}, "color": [0.033, 0.047, 0.067, 1],
-      "collider": {"shape": "box"}, "rigidbody": {"type": "static"},
-      "props": {"ai_material": {"metalness": 0.27, "roughness": 0.48}}
+      "id": 1, "name": "gallery-floor", "kind": "gltf", "path": "examples/material_studio/slate-floor.glb",
+      "transform": {"position": [0, -0.2, -1]},
+      "collider": {"shape": "mesh"}, "rigidbody": {"type": "static"}
     },
     {
       "id": 2, "name": "visitor", "kind": "sphere", "radius": 0.3, "segments": 48,

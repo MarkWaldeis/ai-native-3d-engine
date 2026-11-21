@@ -10,7 +10,7 @@ const THREE = await import('three');
 const { graphicsConfig, hdrSettings, pointLightSettings } = await import('../crates/engine-web/player/graphics-settings.js');
 const { ShadowGrid } = await import('../crates/engine-web/player/effects.js');
 const { LocalLights } = await import('../crates/engine-web/player/local-lights.js');
-const { primitiveMaterial } = await import('../crates/engine-web/player/materials.js');
+const { primitiveMaterial, textureAnisotropy, tuneAssetTextures } = await import('../crates/engine-web/player/materials.js');
 const { environmentLighting, skyTexture } = await import('../crates/engine-web/player/sky.js');
 const { RGBELoader } = await import('../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js');
 const { batchKey } = await import('../crates/engine-web/player/streaming.js');
@@ -146,6 +146,30 @@ test('material settings control real Three.js materials and normalized instancin
   assert.equal(batchKey(legacy), batchKey({ ...legacy, props: { ai_material: 'invalid' } }));
   assert.equal(primitiveMaterial(legacy).isMeshPhysicalMaterial, undefined);
   for (const props of [entity.props, legacy.props]) assert.equal(batchKey({ kind: 'gltf', path: 'a.glb', props }), batchKey({ kind: 'gltf', path: 'a.glb' }));
+});
+
+test('GLB texture sampling respects the GPU and existing texture filters', () => {
+  assert.deepEqual([0,1,2].map(level => textureAnisotropy(level, 16)), [1,4,8]);
+  assert.equal(textureAnisotropy(2, 2), 2);
+  assert.equal(textureAnisotropy(2, 0), 1);
+  const map = new THREE.Texture();
+  const nearest = new THREE.Texture();
+  nearest.magFilter = THREE.NearestFilter;
+  const noMips = new THREE.Texture();
+  noMips.generateMipmaps = false;
+  const linear = new THREE.Texture();
+  linear.minFilter = THREE.LinearFilter;
+  const material = new THREE.MeshStandardMaterial({ map, normalMap: nearest, roughnessMap: noMips, metalnessMap: linear });
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(), material);
+  const group = new THREE.Group();
+  group.add(mesh, mesh.clone());
+  tuneAssetTextures(group, 1);
+  assert.equal(map.version, 0, 'legacy and low quality keep the original textures');
+  tuneAssetTextures(group, 8);
+  assert.equal(map.anisotropy, 8);
+  assert.equal(map.version, 1, 'a shared texture is uploaded only once');
+  assert.ok(group.children.every(child => child.userData.sharedAsset));
+  for (const texture of [nearest, noMips, linear]) assert.equal(texture.version, 0);
 });
 
 test('procedural sky stores linear HDR radiance and moves the solar highlight with the authored sun', () => {

@@ -8,6 +8,15 @@ export async function verifyGraphics(browser, base, errors, shots) {
     if (message.type() === 'error' && /THREE|WebGL/.test(message.text())) errors.push(`graphics: ${message.text()}`);
   });
   await page.addInitScript(installClock);
+  await page.addInitScript(() => {
+    const proto = WebGL2RenderingContext.prototype;
+    const setParameter = proto.texParameterf;
+    window.textureAnisotropy = [];
+    proto.texParameterf = function(target, parameter, value) {
+      if (parameter === 0x84fe) window.textureAnisotropy.push(value);
+      return setParameter.call(this, target, parameter, value);
+    };
+  });
   const ready = async () => {
     await page.waitForFunction(() => !document.getElementById('start').disabled || document.getElementById('modal').dataset.screen === 'error', null, { polling: 50 });
     assert.equal(await page.locator('#start').isEnabled(), true, await page.locator('#modal-text').textContent());
@@ -108,13 +117,29 @@ export async function verifyGraphics(browser, base, errors, shots) {
         copy.width = 40; copy.height = 28;
         const ctx = copy.getContext('2d');
         ctx.drawImage(game, 0, 0, copy.width, copy.height);
-        return { pixels: Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data), error: gl.getError(), title: document.getElementById('title').textContent };
+        const ext = gl.getExtension('EXT_texture_filter_anisotropic');
+        return {
+          pixels: Array.from(ctx.getImageData(0, 0, copy.width, copy.height).data),
+          error: gl.getError(), title: document.getElementById('title').textContent,
+          maximumAnisotropy: ext ? gl.getParameter(ext.MAX_TEXTURE_MAX_ANISOTROPY_EXT) : 1,
+          sampledAnisotropy: window.textureAnisotropy,
+        };
       });
     };
-    const [loaded, reflected] = await Promise.all([page.waitForResponse(map), render()]);
+    const [loaded, floor, reflected] = await Promise.all([
+      page.waitForResponse(map), page.waitForResponse(response => response.url().startsWith(studio) && response.url().endsWith('.glb')), render(),
+    ]);
     assert.equal(loaded.status(), 200, 'the exported panorama is loaded from its bundle');
+    assert.equal(floor.status(), 200, 'the textured floor loads from a bundled GLB');
     assert.equal(reflected.title, 'Materiallabor');
     assert.equal(reflected.error, 0);
+    if (reflected.maximumAnisotropy > 1) {
+      assert.ok(reflected.sampledAnisotropy.includes(Math.min(8, reflected.maximumAnisotropy)), 'the Ultra studio applies anisotropy to its WebGL sampler');
+      console.log('PASS GLB textures: bundled textured floor applies the supported Ultra anisotropy');
+    } else {
+      assert.deepEqual(reflected.sampledAnisotropy, [], 'unsupported GPUs retain ordinary sampling');
+      console.log('PASS GLB textures: bundled textured floor renders without anisotropy support');
+    }
     const before = await page.evaluate(() => window.__engineStats.playerPosition);
     await page.keyboard.down('KeyD');
     await page.evaluate(() => advanceFrames(20));

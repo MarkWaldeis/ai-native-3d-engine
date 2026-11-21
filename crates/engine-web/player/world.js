@@ -2,20 +2,27 @@ import * as THREE from 'three';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
 import { isCollectible } from './presentation.js';
-import { primitiveMaterial } from './materials.js';
+import { primitiveMaterial, tuneAssetTextures } from './materials.js';
 
-const assets = new Map();
-export function loadAsset(path) {
-  if (!assets.has(path)) assets.set(path,new GLTFLoader().loadAsync(path).then(gltf => {
-    gltf.scene.traverse(o => { if (o.isMesh) o.userData.sharedAsset = true; });
-    return gltf;
-  }));
-  return assets.get(path);
+export class WebAssets {
+  constructor(anisotropy = 1) {
+    this.anisotropy = anisotropy;
+    this.cache = new Map();
+    this.loader = new GLTFLoader();
+  }
+  load(path) {
+    if (!this.cache.has(path)) this.cache.set(path, this.loader.loadAsync(path).then(gltf => {
+      tuneAssetTextures(gltf.scene, this.anisotropy);
+      return gltf;
+    }));
+    return this.cache.get(path);
+  }
 }
 
 export class StreamingWorld {
-  constructor(scene, renderer, config) {
+  constructor(scene, renderer, config, assets = new WebAssets()) {
     this.scene = scene; this.renderer = renderer; this.config = config;
+    this.assets = assets;
     this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.frustum = new THREE.Frustum(); this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
@@ -25,7 +32,7 @@ export class StreamingWorld {
     const promise = (async () => {
       if (e.kind === 'gltf') {
         const lodPath = e.props?.web_lods?.[level];
-        const gltf = await loadAsset(lodPath || e.path);
+        const gltf = await this.assets.load(lodPath || e.path);
         if (level === 2 && !lodPath) return this.impostor(gltf.scene);
         gltf.scene.updateMatrixWorld(true);
         const parts = [];

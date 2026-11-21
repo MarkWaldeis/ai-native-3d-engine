@@ -38,7 +38,8 @@ needed. If the asset fails to load, the player uses the procedural sky.
 
 **Try it:** Export the material studio to compare chrome, copper, clearcoat and
 neon under the same studio lighting. Its HDR map can be regenerated with
-`python3 examples/material_studio/make_studio_map.py`.
+`python3 examples/material_studio/make_studio_map.py` and its glazed slate floor
+with `python3 examples/material_studio/make_studio_floor.py`.
 
 ```sh
 cargo run -- --export-web examples/material_studio/scene.json target/site/material_studio
@@ -69,6 +70,10 @@ multiplier (0–32). Emissive materials above the bloom threshold can glow witho
 adding a light to the scene. The existing entity `color` is the linear base color.
 Authored GLB textures and material parameters are not overridden, and streamed
 primitive instances only share a draw when their resolved materials match.
+For mipmapped GLB textures, balanced and ultra sharpen shallow viewing angles
+with up to 4× and 8× anisotropic filtering respectively, within GPU limits.
+The filtering is fixed at the starting tier so automatic quality changes don't
+re-upload textures. Nearest-filtered, low and legacy assets keep their sampling.
 
 To light nearby surfaces (rather than just glow), give an entity a point light
 with `props.ai_light` (object or JSON string) in an enhanced scene:
