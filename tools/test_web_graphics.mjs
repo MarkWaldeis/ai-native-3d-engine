@@ -7,7 +7,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier === 'three' ? new URL('../crates/engine-web/player/vendor/three.module.js', import.meta.url).href : specifier, context);
 } });
 const THREE = await import('three');
-const { graphicsConfig, hdrSettings, pointLightSettings } = await import('../crates/engine-web/player/graphics-settings.js');
+const { graphicsConfig, hdrSettings, localLightSettings } = await import('../crates/engine-web/player/graphics-settings.js');
 const { ShadowGrid } = await import('../crates/engine-web/player/effects.js');
 const { LocalLights } = await import('../crates/engine-web/player/local-lights.js');
 const { primitiveMaterial, textureAnisotropy, tuneAssetTextures } = await import('../crates/engine-web/player/materials.js');
@@ -88,10 +88,10 @@ test('studio HDRI decodes HDR colors and lighting intensity does not alter the b
 });
 
 test('point lights resolve flexible props and remain bounded as emitters move or disappear', () => {
-  assert.equal(pointLightSettings('invalid'), null);
-  assert.equal(pointLightSettings({intensity:0}), null);
-  assert.deepEqual(pointLightSettings('{"color":"#ffAA00","intensity":1200,"range":-2,"offset":[1,0,0]}'), {
-    color:'#ffaa00', intensity:1000, range:0.25, offset:[1,0,0],
+  assert.equal(localLightSettings('invalid'), null);
+  assert.equal(localLightSettings({intensity:0}), null);
+  assert.deepEqual(localLightSettings('{"color":"#ffAA00","intensity":1200,"range":-2,"offset":[1,0,0]}'), {
+    type:'point', color:'#ffaa00', intensity:1000, range:0.25, offset:[1,0,0],
   });
   const scene = new THREE.Scene(), pool = new LocalLights(scene);
   const transform = x => ({position:[x,0,0], scale:[2,1,1], rotation_deg:[0,0,90]});
@@ -123,6 +123,40 @@ test('point lights resolve flexible props and remain bounded as emitters move or
   assert.equal(pool.cells.size, 2);
   pool.remove(1);
   assert.equal(pool.cells.size, 1);
+  pool.reset();
+  assert.equal(scene.children.length, 0);
+});
+
+test('spot lights keep an independent budget, follow local orientation, and remove their targets', () => {
+  const config = localLightSettings({type:'spot', outer_angle:200, inner_angle:200, direction:[0,-3,0]});
+  assert.deepEqual(config.axis, [0,-1,0]);
+  assert.equal(config.angle, 89 * Math.PI / 180);
+  assert.ok(config.penumbra > 0 && config.penumbra < 0.01);
+  assert.deepEqual(localLightSettings({type:'spot', direction:[0,0,0]}).axis, [0,0,-1]);
+  assert.equal(localLightSettings({type:'unknown'}), null);
+
+  const scene = new THREE.Scene(), pool = new LocalLights(scene);
+  const transform = (x, yaw) => ({position:[x,1,0], scale:[1,2,3], rotation_deg:[0,yaw,0]});
+  for (let id = 7; id >= 2; id--) {
+    pool.register({id, transform:transform(2, 90), props:{ai_light:{type:'spot', intensity:id, offset:[0,1,0]}}});
+  }
+  pool.register({id:1, transform:transform(3, 0), props:{ai_light:{}}});
+  const focus = new THREE.Vector3();
+  pool.update(focus, 2);
+  assert.deepEqual(pool.slots.spot.map(light => light.intensity), [2,3,4,5]);
+  assert.equal(pool.slots.point.length, 1);
+  const spot = pool.slots.spot[0];
+  assert.deepEqual(spot.position.toArray(), [2,3,0]);
+  assert.ok(spot.target.position.distanceTo(new THREE.Vector3(1,3,0)) < 1e-10);
+  assert.equal(spot.target.parent, scene);
+  pool.move(2, transform(2, -90));
+  pool.update(focus, 0);
+  assert.deepEqual(pool.slots.spot, [spot]);
+  assert.ok(spot.target.position.distanceTo(new THREE.Vector3(3,3,0)) < 1e-10);
+  assert.equal(scene.children.length, 3);
+  pool.register({id:2, transform:transform(2, 0), props:{ai_light:{type:'spot', intensity:0}}});
+  pool.update(focus, 0);
+  assert.equal(spot.intensity, 3);
   pool.reset();
   assert.equal(scene.children.length, 0);
 });

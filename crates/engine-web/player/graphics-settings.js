@@ -17,10 +17,10 @@ function hex(value, fallback) {
 
 const defaultSun = [-6, 16, 9];
 
-function direction(value) {
-  if (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite)) return defaultSun;
+function direction(value, fallback = defaultSun) {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(Number.isFinite)) return fallback;
   const length = Math.hypot(...value);
-  return length > 0 && Number.isFinite(length) ? value.map(v => v / length) : defaultSun;
+  return length > 0 && Number.isFinite(length) ? value.map(v => v / length) : fallback;
 }
 
 export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
@@ -78,20 +78,29 @@ export function materialSettings(authored) {
   };
 }
 
-export const MAX_POINT_LIGHT_RANGE = 64;
+export const MAX_LOCAL_LIGHT_RANGE = 64;
 
-export function pointLightSettings(authored) {
+export function localLightSettings(authored) {
   const value = object(authored);
   if (!value) return null;
   const intensity = bounded(value.intensity, 16, 0, 1000);
   if (intensity === 0) return null;
+  const type = value.type ?? 'point';
+  if (type !== 'point' && type !== 'spot') return null;
   const offset = Array.isArray(value.offset) && value.offset.length === 3 && value.offset.every(Number.isFinite)
     ? value.offset.map(component => bounded(component, 0, -32, 32))
     : [0, 0, 0];
+  const angle = bounded(value.outer_angle, 35, 1, 89);
   return {
+    type,
     color: hex(value.color, '#ffffff').toLowerCase(),
     intensity,
-    range: bounded(value.range, 8, 0.25, MAX_POINT_LIGHT_RANGE),
+    range: bounded(value.range, 8, 0.25, MAX_LOCAL_LIGHT_RANGE),
     offset,
+    ...(type === 'spot' ? {
+      axis: direction(value.direction, [0, 0, -1]),
+      angle: angle * Math.PI / 180,
+      penumbra: 1 - bounded(value.inner_angle, angle * 0.65, 0, angle * 0.999) / angle,
+    } : {}),
   };
 }

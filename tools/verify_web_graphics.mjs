@@ -170,6 +170,41 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.deepEqual([contact.half, contact.draws, contact.released, contact.fallback, contact.glError], [97, 4, true, true, 0]);
     console.log('PASS contact occlusion: local grounding, unchanged open surfaces and sky, and GPU/tier fallback');
 
+    const spot = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { LocalLights } = await import('./local-lights.js');
+      const scene = new THREE.Scene(), lights = new LocalLights(scene);
+      const camera = new THREE.OrthographicCamera(-4, 4, 4, -4, 0.1, 20);
+      camera.position.z = 10;
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(8, 8), new THREE.MeshStandardMaterial({color: 0xffffff}));
+      scene.add(plane);
+      const transform = yaw => ({position:[-2,0,5], rotation_deg:[0,yaw,0], scale:[1,1,1]});
+      lights.register({id:1, transform:transform(0), props:{ai_light:{
+        type:'spot', intensity:80, range:12, inner_angle:8, outer_angle:17,
+      }}});
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      try {
+        renderer.setSize(128, 128, false);
+        const sample = (yaw, points) => {
+          lights.move(1, transform(yaw));
+          lights.update(camera.position, 0);
+          renderer.render(scene, camera);
+          return points.map(x => {
+            gl.readPixels(x, 64, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+            return pixel[0];
+          });
+        };
+        return {straight: sample(0, [32, 48, 96]), turned: sample(-39, [32, 96]), error: gl.getError()};
+      } finally {
+        lights.reset(); plane.geometry.dispose(); plane.material.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(spot.straight[0] > spot.straight[1] + 20 && spot.straight[1] > spot.straight[2] + 20, JSON.stringify(spot));
+    assert.ok(spot.turned[1] > spot.turned[0] + 40 && spot.error === 0, JSON.stringify(spot));
+    console.log('PASS spotlights: rendered soft cone edge follows an emitter rotation');
+
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
     await page.setViewportSize({ width: 1100, height: 750 });
@@ -251,20 +286,27 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(agxStudio.error, 0);
     assert.notDeepEqual(agxStudio.pixels, reflected.pixels, 'the exported ai_graphics setting selects AgX');
     console.log('PASS filmic output: authored AgX on WebGL, direct/HDR parity and bloom-free Ultra compositing');
-    const noLights = patchScene(scene => {
-      for (const entity of scene.entities) delete entity.props?.ai_light;
+    const without = type => patchScene(scene => {
+      for (const entity of scene.entities) {
+        const light = entity.props?.ai_light;
+        if (light && (light.type ?? 'point') === type) delete entity.props.ai_light;
+      }
     });
-    await page.route(background, noLights);
-    const unlit = await render();
-    await page.unroute(background, noLights);
+    const noPoints = without('point'), noSpots = without('spot');
+    await page.route(background, noPoints);
+    const noPointLighting = await render();
+    await page.unroute(background, noPoints);
+    await page.route(background, noSpots);
+    const noSpotLighting = await render();
+    await page.unroute(background, noSpots);
     const streamed = async lit => {
       const settings = patchScene(scene => {
         const player = scene.entities.find(entity => entity.tags.includes('player'));
         player.props.ai_world = {};
         player.props.ai_graphics.fog_density = 0;
         for (const entity of scene.entities) {
-          if (entity.props?.ai_light) entity.props.ai_light.range = 6;
-          if (!lit) delete entity.props?.ai_light;
+          if (!lit || entity.props?.ai_light?.type === 'spot') delete entity.props?.ai_light;
+          else if (entity.props?.ai_light) entity.props.ai_light.range = 6;
         }
       });
       await page.route(background, settings);
@@ -284,15 +326,21 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.equal(fallback.error, 0, 'a missing panorama falls back without WebGL errors');
     const delta = (a, b) => a.reduce((sum, color, i) => sum + Math.abs(color - b[i]), 0);
     const top = 40 * 2 * 4;
-    assert.equal(unlit.error, 0);
-    assert.deepEqual(reflected.pixels.slice(0, top), unlit.pixels.slice(0, top), 'point lights leave the procedural sky unchanged');
-    assert.ok(delta(reflected.pixels.slice(top), unlit.pixels.slice(top)) > 800, 'point lights illuminate nearby surfaces in the exported studio');
+    const sky = ({pixels}) => [0, 40].flatMap(row => [
+      ...pixels.slice(row * 4, (row + 8) * 4), ...pixels.slice((row + 32) * 4, (row + 40) * 4),
+    ]);
+    assert.equal(noPointLighting.error, 0);
+    assert.equal(noSpotLighting.error, 0);
+    assert.deepEqual(sky(reflected), sky(noPointLighting), 'point lights leave the procedural sky unchanged');
+    assert.ok(delta(reflected.pixels.slice(top), noPointLighting.pixels.slice(top)) > 800, 'point lights illuminate nearby surfaces in the exported studio');
+    assert.deepEqual(sky(reflected), sky(noSpotLighting), 'spotlights leave the procedural sky unchanged');
+    assert.ok(delta(reflected.pixels.slice(top), noSpotLighting.pixels.slice(top)) > 300, 'the authored spotlight illuminates the exported studio');
     assert.ok(streamedLit.cameraDistance > 46, 'the streaming camera is outside the lights’ selection margin');
     assert.equal(streamedLit.error, 0);
     assert.equal(streamedUnlit.error, 0);
     assert.ok(delta(streamedLit.pixels.slice(top), streamedUnlit.pixels.slice(top)) > 100, 'short-range lights illuminate the streamed play area');
-    assert.ok(delta(panorama.pixels.slice(0, top), reflected.pixels.slice(0, top)) > 300, 'the panorama can be visible behind the scene');
-    assert.deepEqual(reflected.pixels.slice(0, top), fallback.pixels.slice(0, top), 'reflection-only HDRI preserves the procedural background');
+    assert.ok(delta(sky(panorama), sky(reflected)) > 300, 'the panorama can be visible behind the scene');
+    assert.deepEqual(sky(reflected), sky(fallback), 'reflection-only HDRI preserves the procedural background');
     assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
     console.log('PASS HDRI: offline panorama, reflection-only mode, visible background, movement and missing-map fallback');
     console.log('PASS point lights: exported fixtures light nearby surfaces without altering the sky');

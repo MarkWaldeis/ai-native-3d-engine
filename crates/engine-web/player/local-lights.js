@@ -1,11 +1,12 @@
 import * as THREE from 'three';
-import { MAX_POINT_LIGHT_RANGE, pointLightSettings } from './graphics-settings.js';
+import { MAX_LOCAL_LIGHT_RANGE, localLightSettings } from './graphics-settings.js';
 
-const SLOT_BUDGET = [2, 4, 8];
+const SLOT_BUDGET = { point: [2, 4, 8], spot: [1, 2, 4] };
+const TYPES = Object.keys(SLOT_BUDGET);
 const NEAR_MARGIN = 24;
 const FADE_DISTANCE = 16;
 const CELL_SIZE = 64;
-const SEARCH_RADIUS = MAX_POINT_LIGHT_RANGE + NEAR_MARGIN + FADE_DISTANCE;
+const SEARCH_RADIUS = MAX_LOCAL_LIGHT_RANGE + NEAR_MARGIN + FADE_DISTANCE;
 const cell = value => Math.floor(value / CELL_SIZE);
 const cellKey = (x, z) => `${x},${z}`;
 
@@ -14,20 +15,23 @@ export class LocalLights {
     this.scene = scene;
     this.sources = new Map();
     this.cells = new Map();
-    this.slots = [];
-    this.chosen = [];
+    this.slots = { point: [], spot: [] };
+    this.chosen = { point: [], spot: [] };
+    this.counts = { point: 0, spot: 0 };
     this.scale = new THREE.Vector3();
     this.offset = new THREE.Vector3();
     this.rotation = new THREE.Euler(0, 0, 0, 'ZYX');
   }
   register(entity) {
-    const config = pointLightSettings(entity.props?.ai_light);
+    const config = localLightSettings(entity.props?.ai_light);
+    this.remove(entity.id);
     if (config && entity.visible !== false) {
-      this.remove(entity.id);
       this.sources.set(entity.id, {
         id: entity.id, config, position: new THREE.Vector3(), color: new THREE.Color(config.color),
+        direction: config.type === 'spot' ? new THREE.Vector3().fromArray(config.axis) : null,
         key: null, distanceSq: 0,
       });
+      this.counts[config.type]++;
       if (entity.transform) this.move(entity.id, entity.transform);
     }
   }
@@ -35,10 +39,11 @@ export class LocalLights {
     const source = this.sources.get(id);
     if (!source) return;
     source.position.fromArray(position);
-    if (source.config.offset.some(Boolean)) {
+    if (source.direction || source.config.offset.some(Boolean)) {
       const { degToRad } = THREE.MathUtils;
       this.rotation.set(degToRad(rotation_deg[0]), degToRad(rotation_deg[1]), degToRad(rotation_deg[2]));
       source.position.add(this.offset.fromArray(source.config.offset).multiply(this.scale.fromArray(scale)).applyEuler(this.rotation));
+      source.direction?.fromArray(source.config.axis).applyEuler(this.rotation);
     }
     const key = cellKey(cell(source.position.x), cell(source.position.z));
     if (key === source.key) return;
@@ -56,34 +61,46 @@ export class LocalLights {
   }
   remove(id) {
     const source = this.sources.get(id);
-    if (source) this.detach(source);
+    if (source) {
+      this.detach(source);
+      this.counts[source.config.type]--;
+    }
     this.sources.delete(id);
   }
   reset() {
     this.sources.clear();
     this.cells.clear();
-    this.chosen.length = 0;
-    this.resize(0);
-  }
-  resize(count) {
-    while (this.slots.length < count) {
-      const light = new THREE.PointLight(0xffffff, 0);
-      this.scene.add(light);
-      this.slots.push(light);
+    for (const type of TYPES) {
+      this.chosen[type].length = 0;
+      this.counts[type] = 0;
+      this.resize(type, 0);
     }
-    while (this.slots.length > count) this.slots.pop().removeFromParent();
+  }
+  resize(type, count) {
+    const slots = this.slots[type];
+    while (slots.length < count) {
+      const light = type === 'spot' ? new THREE.SpotLight(0xffffff, 0) : new THREE.PointLight(0xffffff, 0);
+      this.scene.add(light);
+      if (light.target) this.scene.add(light.target);
+      slots.push(light);
+    }
+    while (slots.length > count) {
+      const light = slots.pop();
+      light.target?.removeFromParent();
+      light.removeFromParent();
+    }
   }
   update(focus, level) {
-    const budget = Math.min(SLOT_BUDGET[level], this.sources.size);
-    this.resize(budget);
-    const chosen = this.chosen;
-    chosen.length = 0;
-    if (!budget) return;
+    for (const type of TYPES) {
+      this.resize(type, Math.min(SLOT_BUDGET[type][level], this.counts[type]));
+      this.chosen[type].length = 0;
+    }
+    if (!this.sources.size) return;
     const { x, z } = focus;
     const minX = cell(x - SEARCH_RADIUS), minZ = cell(z - SEARCH_RADIUS);
     const maxX = cell(x + SEARCH_RADIUS), maxZ = cell(z + SEARCH_RADIUS);
     if (![minX, minZ, maxX, maxZ].every(Number.isSafeInteger)) {
-      for (const light of this.slots) light.intensity = 0;
+      for (const type of TYPES) for (const light of this.slots[type]) light.intensity = 0;
       return;
     }
     for (let cx = minX; cx <= maxX; cx++) {
@@ -91,6 +108,9 @@ export class LocalLights {
         const bucket = this.cells.get(cellKey(cx, cz));
         if (!bucket) continue;
         for (const source of bucket) {
+          const { type } = source.config;
+          const budget = this.slots[type].length;
+          const chosen = this.chosen[type];
           const reach = source.config.range + NEAR_MARGIN + FADE_DISTANCE;
           const distanceSq = source.position.distanceToSquared(focus);
           if (distanceSq >= reach * reach) continue;
@@ -103,8 +123,8 @@ export class LocalLights {
         }
       }
     }
-    this.slots.forEach((light, index) => {
-      const source = chosen[index];
+    for (const type of TYPES) this.slots[type].forEach((light, index) => {
+      const source = this.chosen[type][index];
       if (!source) { light.intensity = 0; return; }
       const { range, intensity } = source.config;
       light.intensity = intensity * (1 - THREE.MathUtils.smoothstep(
@@ -113,6 +133,11 @@ export class LocalLights {
       light.color.copy(source.color);
       light.distance = range;
       light.position.copy(source.position);
+      if (light.isSpotLight) {
+        light.angle = source.config.angle;
+        light.penumbra = source.config.penumbra;
+        light.target.position.copy(source.position).add(source.direction);
+      }
     });
   }
 }
