@@ -41,6 +41,8 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
   if (skyPresets[value?.sky]) config.sky = skyDefaults.sky;
   const foliage = object(config.foliage), water = object(config.water), clouds = object(config.sky_clouds);
   const atmosphere = object(config.sky_atmosphere);
+  const fog = object(config.height_fog);
+  const horizon = hex(config.horizon, hex(skyColor, '#b8cddd'));
   return {
     quality,
     sky: hex(config.sky, '#4d88cb'),
@@ -50,7 +52,13 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
       opacity: bounded(clouds?.opacity, 0.85, 0, 1),
       seed: Math.trunc(bounded(clouds?.seed, 0, 0, 65535)),
     } : null,
-    horizon: hex(config.horizon, hex(skyColor, '#b8cddd')),
+    horizon,
+    heightFog: config.height_fog === true || fog ? {
+      density: bounded(fog?.density, 0.018, 0, 0.2),
+      baseHeight: bounded(fog?.base_height, 0, -10000, 10000),
+      falloff: bounded(fog?.falloff, 18, 1, 1000),
+      color: hex(fog?.color, horizon),
+    } : null,
     skyAtmosphere: config.sky_atmosphere === true || atmosphere ? {
       strength: bounded(atmosphere?.strength, 1, 0, 1),
       haze: bounded(atmosphere?.haze, 0.35, 0, 1),
@@ -69,6 +77,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     exposure: bounded(config.exposure, 1, 0.1, 4),
     autoExposure: autoExposureSettings(config.auto_exposure),
     toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
+    colorGrade: colorGradeSettings(config.color_grade),
     logarithmicDepth: config.logarithmic_depth === true,
     renderScale: bounded(config.render_scale, 1, 0.5, 1),
     hdrAntialias: config.hdr_antialias !== false,
@@ -101,10 +110,18 @@ function autoExposureSettings(authored) {
   };
 }
 
-export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false, autoExposure = false) {
+function colorGradeSettings(authored) {
+  const value = object(authored);
+  if (!value) return null;
+  const saturation = bounded(value.saturation, 1, 0, 2);
+  const contrast = bounded(value.contrast, 1, 0, 2);
+  return saturation !== 1 || contrast !== 1 ? {saturation, contrast} : null;
+}
+
+export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false, resolveEffects = false) {
   const bloom = level > 0 && supported && strength > 0;
   const contact = level === 2 && supported && contactOcclusion;
-  const enabled = bloom || contact || (supported && ((level === 2 && antialias) || (level > 0 && autoExposure)));
+  const enabled = bloom || contact || (supported && ((level === 2 && antialias) || (level > 0 && resolveEffects)));
   return {
     enabled, bloom, contact,
     pixelRatio: enabled ? Math.min(pixelRatio, Math.sqrt(2_600_000 / (width * height))) : pixelRatio,

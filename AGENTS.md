@@ -136,6 +136,16 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- HLOD: `ai_world.hlod` (true), `hlod_distance` (1600 m, größer als
+  `draw_distance`), `hlod_cluster` (4×4 Chunks), `hlod_min_radius` (1,5 m).
+  Statische Fernobjekte werden mit Welttransforms/Farben zusammengeführt,
+  GLBs durch lokale Bounds ersetzt. Ein Cluster-Aufbau pro Frame, gemeinsame
+  Materialien und zusammenhängende Chunk-Indexbereiche sparen Draw Calls.
+  Chunkweiser Wechsel mit Hysterese; bei asynchroner Nah-LOD bleibt der Proxy
+  bis zur Bereitschaft erhalten. `hlod:false` erhält den bisherigen Renderpfad.
+  Nebel/Kamera reichen bis `hlod_distance`; Stats/Bench: `hlodClusters`,
+  `hlodDrawCalls`, `hlodTriangles`. Optionaler Occluder über `setHlodOcclusion`.
+
 - `ai_world.occlusion` (Default true), `occlusion_margin` (Default 2 m): Terrain-
   Strahlproben blenden verdeckte Chunks und Terrain-Kacheln konservativ aus.
   Neun obere Boxpunkte, zwei verdeckte Ergebnisse vor Ausblenden, sofort sichtbar
@@ -210,6 +220,16 @@ WASM-Tick liefert zusätzlich `fx`/`events`. JS rendert nur (fps.js, fx.js, hud.
 Doku: `docs/SHOOTER.md`; Beispiel `examples/fps_arena`; Tests
 `cargo test -p engine-tests --test shooter`, `node --test tools/test_web_fps.mjs`.
 
+## Rapier-Physik
+
+- `props.ai_physics`: Compound-/Convex-Hull-/Trimesh-Collider, Gruppenmasken,
+  Sensoren, Dämpfung/CCD, Gelenke, benannte Hitboxes und Humanoid-Ragdoll.
+  Die bestehenden `collider`/`rigidbody`-Felder bleiben kompatibel.
+- MCP und Rhai: `raycast`, `shape_cast`, `overlap`; Rhai zusätzlich
+  `ctx.collision_events()`, `ctx.set_ragdoll(...)` und `ctx.damage(hit, amount)`.
+  Native/WASM verwenden dieselbe Simulation. Siehe `docs/PHYSICS.md` und
+  `examples/physics_lab`; Tests: `cargo test -p engine-tests --test physics`.
+
 ## Swarm-Server
 
 `ai-engine --serve 127.0.0.1:7777`: JSON-RPC per `POST /mcp`, eine gemeinsame
@@ -270,6 +290,15 @@ Noch keine Texturen/Multi-Material-Darstellung; eine Grundfarbe pro Objekt.
 E2E: `cargo test -p engine-tests --test blender_bridge -- --nocapture` (SKIP ohne Blender).
 Demo: `blender/sync_demo.py`; Vergleichsbilder in `docs/blender_sync_demo.png`
 und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt gültig).
+
+## Persistente Spielstände
+
+`save_game {path?}` speichert die aktive Simulation; `load_game {path?|save?}`
+startet sie nach `stop` aus der Autorenszene. Pfade: projektgebundene `.json`.
+Version 1 speichert Entity-Deltas, Tick, Zustand, Flags, Inventar und Geschwindigkeiten.
+Rhai: `flag_set/flag`, `inventory_add/remove/count`; fehlende Flags liefern `()`.
+Beim Laden nur `on_load(ctx)`, nicht `on_start`; `base_changed` meldet Basisänderungen.
+Web: F5/F9 oder `window.__aiSaveGame/__aiLoadGame`, lokal pro Spielpfad.
 
 ## Gameplay / M3
 

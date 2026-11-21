@@ -67,6 +67,36 @@ fn rollback_replays_collisions_script_state_and_entity_lifecycle_bit_exactly() {
 }
 
 #[test]
+fn rollback_and_corrections_preserve_active_ragdoll_physics() {
+    let scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"target","kind":"box","size":[1,1,1],
+         "transform":{"position":[0,3,0]},"rigidbody":{"type":"kinematic"},
+         "props":{"ai_physics":{"ragdoll":{"preset":"humanoid","start_active":true}}}}
+    ]})).unwrap();
+    let mut sim = Simulation::from_sources(scene, BTreeMap::new()).unwrap();
+    sim.step(2, &[]).unwrap();
+    let checkpoint = sim.save_state();
+    let checkpoint_pose = sim.ragdoll_states();
+    assert!(sim.net_entity_states()[0].linvel[1] < 0.0);
+    let mut corrections = sim.net_entity_states();
+    corrections[0].position[0] += 4.0;
+    sim.apply_net_entity_states(&corrections);
+    let corrected = sim.ragdoll_states();
+    for (before, after) in checkpoint_pose[0]["parts"].as_array().unwrap().iter()
+        .zip(corrected[0]["parts"].as_array().unwrap()) {
+        let delta = after["position"][0].as_f64().unwrap() - before["position"][0].as_f64().unwrap();
+        assert!((delta - 4.0).abs() < 1e-5, "{before} -> {after}");
+    }
+    sim.restore_state(&checkpoint);
+    assert_eq!(sim.ragdoll_states(), checkpoint_pose);
+    sim.step(4, &[]).unwrap();
+    let expected = sim.ragdoll_states();
+    sim.restore_state(&checkpoint);
+    sim.step(4, &[]).unwrap();
+    assert_eq!(sim.ragdoll_states(), expected);
+}
+
+#[test]
 fn scoped_inputs_override_globals_and_helpers_use_hook_entity() {
     let source = r#"fn on_tick(ctx, dt) {
         ctx.state_set("input" + ctx.id().to_string(), ctx.input("move_x"));
