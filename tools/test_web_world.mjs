@@ -9,6 +9,17 @@ globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this
 const THREE = await import('three');
 const {disposeObject, StreamingWorld, WebAssets} = await import('../crates/engine-web/player/world.js');
 const {worldConfig} = await import('../crates/engine-web/player/streaming.js');
+test('chunk rebuild starts are nearest first with two starts and two in flight, retaining dirty work',async()=>{
+  const world=new StreamingWorld(new THREE.Scene(),{},worldConfig([{tags:['player'],props:{ai_world:{chunk_size:32,stream_radius:512}}}]));
+  for(const [id,x] of [[1,200],[2,20],[3,80],[4,140]])world.add({id,kind:'box',size:[1,1,1],transform:{position:[x,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}});
+  const camera=new THREE.PerspectiveCamera(),template=world.template.bind(world),releases=[];
+  world.template=(...args)=>new Promise(resolve=>releases.push(async()=>resolve(await template(...args))));
+  const tasks=world.update(camera);assert.equal(tasks.length,2);assert.equal(world.activeBuilds,2);
+  assert.deepEqual([...world.builds.keys()],['0,0','2,0']);assert.equal(world.update(camera).length,0);assert.equal(world.dirty.size,2);
+  await Promise.all(releases.splice(0).map(f=>f()));await Promise.all(tasks);
+  const next=world.update(camera);assert.equal(next.length,2);await Promise.all(releases.splice(0).map(f=>f()));await Promise.all(next);
+  assert.equal(world.activeBuilds,0);assert.equal(world.dirty.size,0);assert.equal(world.groups.size,4);
+});
 const {batchKey} = await import('../crates/engine-web/player/streaming.js');
 const {TerrainOcclusion} = await import('../crates/engine-web/player/occlusion.js');
 
