@@ -161,6 +161,9 @@ test('streamed sun shadow flags split instance batches without duplicating templ
     id:10+index, kind:'gltf', path, props,
     transform:{position:[-128,-0.2,-128],scale:[1,1,1],rotation_deg:[0,0,0]},
   });
+  world.assetStream.update(new Map([[path,0]]));
+  await new Promise(resolve=>setImmediate(resolve));
+  world.assetStream.update(new Map([[path,0]]));
   await world.rebuild(key);
   const meshes = world.groups.get(key).children;
   const find = id => meshes.find(mesh=>mesh.userData.ids.has(id));

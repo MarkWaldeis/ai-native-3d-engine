@@ -1,6 +1,6 @@
 import { materialMapSettings, materialSettings } from './graphics-settings.js';
 
-const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true, impostor_views:1, occlusion:true, occlusion_margin:2};
+const defaults = {chunk_size:128, stream_radius:512, draw_distance:480, lod_distances:[100,260], hysteresis:16, sim_radius:256, sim_hysteresis:32, instancing:true, impostor_views:1, occlusion:true, occlusion_margin:2, asset_concurrency:4, texture_uploads_per_frame:2, asset_cache_mb:256};
 
 export function worldConfig(entities) {
   const authored = entities.find(e => e.tags?.includes('player'))?.props?.ai_world;
@@ -8,6 +8,8 @@ export function worldConfig(entities) {
   const large = entities.length > 1000 || entities.some(e => Math.max(...(e.transform?.position || []).map(Math.abs)) > 1000);
   if (!value && !large) return null;
   const config = {...defaults, ...value};
+  for(const key of ['asset_concurrency','texture_uploads_per_frame']) if(!Number.isInteger(config[key]) || config[key]<1) throw new RangeError(`Invalid ai_world.${key}`);
+  if(!Number.isFinite(config.asset_cache_mb) || config.asset_cache_mb<=0) throw new RangeError('Invalid ai_world.asset_cache_mb');
   if (typeof config.occlusion !== 'boolean') throw new RangeError('Invalid ai_world.occlusion');
   if (!Number.isFinite(config.occlusion_margin) || config.occlusion_margin < 0) throw new RangeError('Invalid ai_world.occlusion_margin');
   if (config.impostor_views !== 1 && config.impostor_views !== 4) throw new RangeError('Invalid ai_world.impostor_views (use 1 or 4)');

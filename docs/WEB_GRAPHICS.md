@@ -1,5 +1,25 @@
 # Browser graphics
 
+## Hintergrund-Assets
+
+Nur mit Welt-Streaming lädt die pfadbasierte GLB-Warteschlange nach nächster
+Chunk-Distanz, pro Frame neu sortiert (`asset_concurrency:4`). Chunks bauen ohne
+Netzwerkwarten: Bounds-Boxen dienen als Platzhalter, fehlende Bounds bleiben leer.
+Autoren-LODs laden zuerst in der gröbsten Stufe, danach in der gewünschten Stufe.
+Ohne Autoren-Fern-LOD werden die bisherigen Billboards erst nach Texturfreigabe
+erstellt und mit dem Quellasset wieder verworfen.
+`texture_uploads_per_frame:2` begrenzt explizite GPU-Texturinitialisierungen;
+erst danach wird das Modell sichtbar. Ein einzelner Upload/GLB-Decode kann dennoch
+teuer sein; dies ist kein Worker-Decoder oder Byte-Budget.
+
+`asset_cache_mb:256` ist ein geschätztes LRU-Ziel aus Geometriepuffern und
+Bildgrößen. Nicht mehr geladene Chunks geben ihre Pins frei; Überbudget-Assets
+werden inklusive Geometrien, Materialien und Texturen entsorgt und bei Bedarf
+erneut geladen. Aktive Assets dürfen das Ziel überschreiten. Fehler behalten den
+Platzhalter bis zum erneuten Anfordern nach Freigabe. Kleine Demos ohne Streaming
+bleiben unverändert. Stats, Overlay und Benchmark melden `assetsQueued`,
+`assetsLoading`, `assetsLoaded`, `assetMB`, `textureUploadsPending`, `assetEvictions`.
+
 Terrain-Verdeckung: `ai_world.occlusion` aktiviert standardmäßig gemeinsame
 Höhenfeldproben für Chunk-Gruppen und Terrain-Kacheln (auch ohne Chunk-Streaming).
 `occlusion_margin` (2 m) toleriert Höhenfehler; nahe Boxen und Kameras unter dem

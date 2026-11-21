@@ -84,6 +84,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "streaming.js",
         "world.js",
         "occlusion.js",
+        "asset-streaming.js",
         "effects.js",
         "presentation.js",
         "graphics-settings.js",
