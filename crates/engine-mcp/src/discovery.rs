@@ -5,11 +5,15 @@ use shared::mcp_protocol::builtin_tools;
 pub(crate) fn tools() -> Value {
     let mut tools = serde_json::to_value(builtin_tools()).unwrap();
     tools.as_array_mut().unwrap().extend(crate::terrain::tools());
+    tools.as_array_mut().unwrap().extend(crate::animation::tools());
+    tools.as_array_mut().unwrap().extend(crate::navigation::tools());
     for tool in tools.as_array_mut().unwrap() {
         let name = tool["name"].as_str().unwrap();
         let read_only = matches!(
             name,
             "validate_scene"
+                | "nav_query_path" | "nav_lint"
+                | "animation_clips" | "animator_validate"
                 | "get_sim_state"
                 | "simulate"
                 | "query"
@@ -61,6 +65,12 @@ pub fn agent_guide() -> String {
             tool["name"].as_str().unwrap(),
             tool["description"].as_str().unwrap()
         ));
+    }
+    for tool in crate::animation::tools() {
+        guide.push_str(&format!("- **{}**: {}\n", tool["name"].as_str().unwrap(), tool["description"].as_str().unwrap()));
+    }
+    for tool in crate::navigation::tools() {
+        guide.push_str(&format!("- **{}**: {}\n", tool["name"].as_str().unwrap(), tool["description"].as_str().unwrap()));
     }
     guide
 }

@@ -183,6 +183,33 @@ impl Physics {
         self.query.update(&self.colliders);
     }
 
+    pub(crate) fn nav_bounds(&self) -> Vec<(u64, [f32; 3], [f32; 3])> {
+        self.colliders.iter().map(|(_, c)| {
+            let a=c.compute_aabb();
+            let id=c.parent().and_then(|p|self.owners.get(&p).copied()).unwrap_or(0);
+            (id,[a.mins.x,a.mins.y,a.mins.z],[a.maxs.x,a.maxs.y,a.maxs.z])
+        }).collect()
+    }
+
+    pub(crate) fn nav_surfaces(&self, x:f32,z:f32,top:f32,bottom:f32,slope:f32) -> Vec<(f32,ColliderHandle)> {
+        let ray=Ray::new(point![x,top,z],vector![0.0,-1.0,0.0]);
+        let mut hits=vec![];
+        self.query.intersections_with_ray(&self.bodies,&self.colliders,&ray,top-bottom,true,QueryFilter::new().exclude_sensors(),|handle,hit|{
+            if hit.normal.y >= slope { hits.push((top-hit.time_of_impact,handle)); } true
+        });
+        hits.sort_by(|a,b|a.0.total_cmp(&b.0).then_with(||a.1.into_raw_parts().cmp(&b.1.into_raw_parts())));
+        hits
+    }
+
+    pub(crate) fn nav_clear(&self,x:f32,y:f32,z:f32,half:f32,height:f32,supports:&[ColliderHandle]) -> bool {
+        let shape=Cuboid::new(vector![half,height*0.5,half]);
+        let pose=Isometry::translation(x,y+height*0.5+0.025,z);
+        let allowed=|h:ColliderHandle,_:&Collider|!supports.contains(&h);
+        let mut clear=true;
+        self.query.intersections_with_shape(&self.bodies,&self.colliders,&pose,&shape,QueryFilter::new().exclude_sensors().predicate(&allowed),|_|{clear=false;false});
+        clear
+    }
+
     /// Casts a ray against enabled, non-sensor colliders. `id` 0 means terrain/unowned.
     pub(crate) fn raycast(&self, origin: [f32; 3], dir: [f32; 3], max_dist: f32, exclude: Option<u64>) -> Option<RayHit> {
         let length = (dir[0] * dir[0] + dir[1] * dir[1] + dir[2] * dir[2]).sqrt();

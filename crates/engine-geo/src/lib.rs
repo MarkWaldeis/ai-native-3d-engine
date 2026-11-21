@@ -5,6 +5,29 @@ use shared::mesh::{MeshData, Vertex};
 use shared::scene::PrimitiveKind;
 use std::f32::consts::{PI, TAU};
 
+pub fn animation_clips(path: &std::path::Path) -> anyhow::Result<Vec<shared::animation::AnimationClip>> {
+    let document = gltf::Gltf::open(path)?;
+    let blob = document.blob.as_deref().ok_or_else(|| anyhow::anyhow!("animation inspection requires a self-contained GLB"))?;
+    anyhow::ensure!(document.buffers().all(|b| matches!(b.source(), gltf::buffer::Source::Bin)), "external animation buffers are not allowed");
+    let mut clips = Vec::new();
+    let mut names = std::collections::BTreeSet::new();
+    for animation in document.animations() {
+        let name = animation.name().map(str::to_owned).unwrap_or_else(|| format!("animation_{}", animation.index()));
+        anyhow::ensure!(names.insert(name.clone()), "duplicate animation clip name {name}");
+        let mut duration = 0.0_f64;
+        for channel in animation.channels() {
+            let reader = channel.reader(|_| Some(blob));
+            for time in reader.read_inputs().ok_or_else(|| anyhow::anyhow!("missing animation input"))? {
+                anyhow::ensure!(time.is_finite() && time >= 0.0, "invalid animation timestamp");
+                duration = duration.max(time as f64);
+            }
+        }
+        anyhow::ensure!(duration > 0.0, "clip {name} has no positive duration");
+        clips.push(shared::animation::AnimationClip { name, duration });
+    }
+    Ok(clips)
+}
+
 pub fn generate(kind: &PrimitiveKind) -> MeshData {
     match kind {
         PrimitiveKind::Box { size } => box_mesh(*size),

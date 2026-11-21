@@ -150,7 +150,7 @@ export class StreamingWorld {
           }
         }
         if (item.object) item.object.visible = item.e.visible !== false && level !== 3;
-        if (item.object && item.e.kind === 'gltf') {
+        if (item.object && item.e.kind === 'gltf' && !item.e.animator) {
           const lodPath = item.e.props?.web_lods?.[level];
           if (lodPath) {
             item.lods ??= new Map(); item.lodTasks ??= new Map();

@@ -3,6 +3,7 @@ import bpy
 import json
 import math
 import random
+import importlib.util
 from mathutils import Vector
 
 random.seed(17)
@@ -179,6 +180,19 @@ for n, (x, y, z, scale) in enumerate(((-4, 5, -2.8, 1.7), (4, 7, -3.3, 2.2),
     parts = [ico((dx * scale, 0, dz * scale), (sx * scale, 0.55 * scale, sz * scale), cloud, 2)
              for dx, dz, sx, sz in ((-0.6, 0, 0.8, 0.45), (0, 0.2, 0.85, 0.62), (0.7, 0, 0.75, 0.4))]
     entity("Wolkeninsel-%d" % n, parts, (x, y, z))
+
+recipe = Path(PROJECT_ROOT) / "rigged_character.py"
+if not recipe.is_file():
+    recipe = Path(PROJECT_ROOT) / "tools/sky_garden/rigged_character.py"
+spec = importlib.util.spec_from_file_location("milo_builder", recipe)
+builder = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(builder)
+player_props = dict(player.items())
+bpy.data.objects.remove(player, do_unlink=True)
+player = builder.build(clear=False)
+player.find_armature().location = (0, 0, .81)
+for key, value in player_props.items():
+    player[key] = value
 
 bpy.ops.wm.save_as_mainfile(filepath=str(Path(PROJECT_ROOT) / "examples/sky_garden/sky_garden.blend"))
 result = {"meshes": len([o for o in bpy.context.scene.objects if o.type == "MESH"]), "player": player.name}

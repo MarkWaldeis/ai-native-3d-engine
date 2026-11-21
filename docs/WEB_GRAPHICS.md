@@ -27,6 +27,9 @@ a prefiltered environment map for diffuse and specular lighting on PBR
 materials, including existing GLBs. Zero environment intensity disables
 the environment lighting. Zero bloom strength skips all bloom passes and
 allocates no bloom targets; Ultra can still run edge smoothing.
+Set `bloom_scatter` (0–1, default 0) to spread some of the Ultra bloom into
+a softer, wider halo. This uses one extra pass at one-eighth resolution per
+axis; it has no cost when bloom is off or on lower presets.
 
 For scenes with both bright and dark areas, set `"auto_exposure": true` in
 `ai_graphics`. Balanced and Ultra adjust exposure from the rendered HDR image

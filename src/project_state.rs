@@ -286,6 +286,7 @@ impl Engine {
             || !matches!(
                 name,
                 "claim_entities"
+                    | "nav_bake"
                     | "prefab_create" | "prefab_update" | "prefab_instantiate" | "prefab_set_overrides" | "prefab_remove_instance"
                     | "release_entities"
                     | "task_create"

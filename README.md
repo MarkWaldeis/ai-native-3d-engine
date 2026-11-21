@@ -1,5 +1,9 @@
 # ai-native-3d-engine
 
+Charakteranimation (Blender-Armature/Actions, deterministische State-Machine,
+Rhai-Parameter, MCP-Lint und sim-getriebene Web-Crossfades):
+[Pipeline und reproduzierbarer Milo-Rig](docs/CHARACTER_ANIMATION.md).
+
 44-km²-Web-Baseline (FPS, Speicher, Ladezeiten; Desktop/Mobile):
 [Benchmark-Anleitung und Referenzwerte](docs/BENCHMARK.md).
 
@@ -797,6 +801,7 @@ Tests: `cargo test -p engine-tests --test terrain`; Messung bei Standardauflösu
 
 - [x] deterministic conflict resolution (`expected_revision` CAS + rollback)
 - [x] glTF/GLB mesh import (`spawn_primitive kind:"gltf"` → `assets/*.glb` → GPU)
+- [x] [deterministic tiled NPC navigation](docs/NAVIGATION.md): collider bake, incremental regions, A*, Rhai agents, MCP lint and QA overlays
 - [ ] windowed mode + interactive camera (winit)
 - [ ] richer primitive/CSG set (real boolean ops in `engine-geo`)
 - [ ] multi-agent session support (named worlds / command queue per agent)

@@ -23,6 +23,8 @@ fn components(e: &Entity) -> Vec<&'static str> {
     if e.script.is_some() {
         c.push("script");
     }
+    if e.animator.is_some() { c.push("animator"); }
+    if e.nav_agent.is_some() { c.push("nav_agent"); }
     if e.props.get("_prefab").is_some() {
         c.push("prefab");
     }
@@ -111,7 +113,7 @@ impl Engine {
         }
         if let Some(c) = args["component"].as_str() {
             ensure!(
-                ["mesh", "collider", "rigidbody", "script", "prefab"].contains(&c),
+                ["mesh", "collider", "rigidbody", "script", "prefab", "animator", "nav_agent"].contains(&c),
                 "unknown component {c}"
             );
         }

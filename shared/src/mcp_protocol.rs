@@ -213,7 +213,7 @@ pub fn builtin_tools() -> Vec<ToolDef> {
             name: "get_screenshot",
             description: "Render a PNG. Optional views produces a labelled auto-framed contact sheet (width/height per tile, default 480x320); overlay_ids labels projected visible entity centers. Without options, rendering is unchanged.",
             input_schema: schema(
-                json!({"width": {"type": "integer"}, "height": {"type": "integer"}, "views":{"type":"array","minItems":1,"maxItems":7,"items":{"type":"string","enum":["current","front","back","left","right","top","iso"]}},"overlay_ids":{"type":"boolean","default":false}}),
+                json!({"width": {"type": "integer"}, "height": {"type": "integer"}, "views":{"type":"array","minItems":1,"maxItems":7,"items":{"type":"string","enum":["current","front","back","left","right","top","iso"]}},"overlay_ids":{"type":"boolean","default":false},"overlay_navigation":{"type":"boolean","default":false}}),
                 &[],
             ),
         },

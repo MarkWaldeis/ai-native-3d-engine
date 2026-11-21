@@ -30,6 +30,9 @@ test('graphics is opt-in, ignores malformed props, and accepts explicit quality 
   assert.equal(graphicsConfig({tone_mapping:'unknown'}, 'ultra').toneMapping, 'aces');
   assert.equal(graphicsConfig('{"tone_mapping":"agx"}', 'ultra').toneMapping, 'agx');
   assert.equal(config.bloomStrength, 0);
+  assert.equal(config.bloomScatter, 0);
+  assert.equal(graphicsConfig({bloom_scatter:0.55}, 'ultra').bloomScatter, 0.55);
+  assert.equal(graphicsConfig({bloom_scatter:9}, 'ultra').bloomScatter, 1);
   assert.equal(config.hdrAntialias, true);
   assert.equal(graphicsConfig({hdr_antialias:false}, 'ultra').hdrAntialias, false);
   assert.equal(config.contactStrength, 0);

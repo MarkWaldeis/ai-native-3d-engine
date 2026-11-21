@@ -1,5 +1,7 @@
 //! Deterministic, isolated gameplay runtime.
 mod combat;
+pub mod animation;
+pub mod navigation;
 mod physics;
 mod terrain_stream;
 pub mod report;
@@ -178,6 +180,11 @@ impl Simulation {
             bail!("simulation supports at most {MAX_ENTITIES} entities");
         }
         scene.entities.sort_by_key(|e| e.id);
+        if let Some(mesh)=&scene.navmesh {
+            navigation::validate(mesh)?;
+            if sources.is_none(){scene.navmesh=Some(navigation::bake(&scene,&root,mesh.params.clone())?.0);}
+        }
+        if scene.entities.iter().filter(|e|e.nav_agent.is_some()).count()>128 { bail!("at most 128 navigation agents are supported"); }
         for entity in &mut scene.entities {
             if sources.is_none() {
                 if let shared::scene::PrimitiveKind::Gltf{path}=&mut entity.mesh {
@@ -185,6 +192,13 @@ impl Simulation {
                 }
             }
             validate_entity(entity)?;
+            if let Some(agent)=&mut entity.nav_agent {
+                if scene.navmesh.is_none(){bail!("nav_agent requires a baked scene navmesh");}
+                agent.path.clear();agent.next=0;agent.planned_target=None;agent.status="idle".into();
+            }
+            if let Some(animator) = &mut entity.animator {
+                animation::reset(animator);
+            }
         }
         if scene.entities.windows(2).any(|e| e[0].id == e[1].id) {
             bail!("scene contains duplicate entity ids");
@@ -259,6 +273,17 @@ impl Simulation {
         json!({"tick":self.tick,"failed":self.failed,"state":data.state,"logs":data.logs})
     }
 
+    pub fn animator_states(&self) -> Value {
+        json!(self.data.borrow().scene.entities.iter().filter_map(|e| e.animator.as_ref().map(|a| json!({"id":e.id,"state":{
+            "current_state":a.current_state,"time":a.time,"previous_state":a.previous_state,"previous_time":a.previous_time,
+            "blend_time":a.blend_time,"blend_elapsed":a.blend_elapsed,"sequence":a.sequence,"values":a.values
+        }}))).collect::<Vec<_>>())
+    }
+
+    pub fn nav_agent_states(&self)->Value {
+        json!(self.data.borrow().scene.entities.iter().filter_map(|e|e.nav_agent.as_ref().map(|a|json!({"id":e.id,"position":e.transform.position,"agent":a}))).collect::<Vec<_>>())
+    }
+
     pub fn set_active_region(&mut self, x: f32, z: f32, radius: f32, hysteresis: f32) -> Result<()> {
         if ![x,z,radius,hysteresis].iter().all(|v| v.is_finite()) || radius <= 0.0 || hysteresis < 0.0 {
             bail!("active region needs finite coordinates, positive radius and nonnegative hysteresis");
@@ -308,7 +333,7 @@ impl Simulation {
         let data = self.data.borrow();
         json!({"tick":self.tick, "failed":self.failed,
             "entities": data.scene.entities.iter().map(|e| json!({"id":e.id, "name":e.name, "tags":e.tags, "transform":e.transform})).collect::<Vec<_>>(),
-            "state":data.state, "logs":data.logs})
+            "state":data.state, "logs":data.logs, "animators":self.animator_states(),"nav_agents":self.nav_agent_states()})
     }
 
     fn source(&self, script: &Script, name: &str) -> Result<(String, String)> {
@@ -480,6 +505,13 @@ impl Simulation {
                 physics.step(&mut data.scene, &dirty, forces, &self.inactive)?;
                 let (velocities, grounded) = physics.motion();
                 data.velocities=velocities; data.grounded=grounded;
+                for entity in &mut data.scene.entities {
+                    if !self.inactive.contains(&entity.id) {
+                        if let Some(animator) = &mut entity.animator { animation::step(animator, DT as f64); }
+                    }
+                }
+                let nav_dirty=navigation::step(&mut data.scene,&self.inactive,DT)?;
+                if !nav_dirty.is_empty(){physics.apply_poses(&data.scene,&nav_dirty);physics.refresh_queries();}
                 self.tick += 1;
             }
             Ok(())
@@ -499,7 +531,15 @@ fn script_error_line(error: &rhai::EvalAltResult) -> usize {
 }
 
 fn validate_entity(entity: &shared::scene::Entity) -> Result<()> {
+    if let Some(a)=&entity.nav_agent {
+        if !a.speed.is_finite() || !(0.0..=100.0).contains(&a.speed) || !a.offset_y.is_finite() || a.offset_y.abs()>100.0 || a.target.is_some_and(|v|v.iter().any(|n|!n.is_finite() || n.abs()>1e6)) {bail!("invalid nav_agent speed, offset or target");}
+        if entity.rigidbody.as_ref().is_some_and(|b|b.kind!=shared::components::BodyType::Kinematic){bail!("nav_agent requires a kinematic rigidbody or no rigidbody");}
+    }
     use shared::scene::PrimitiveKind;
+    if let Some(animator) = &entity.animator {
+        anyhow::ensure!(matches!(entity.mesh, PrimitiveKind::Gltf { .. }), "animator requires a gltf entity");
+        animation::validate(animator)?;
+    }
     if entity.id > i64::MAX as u64
         || entity
             .transform

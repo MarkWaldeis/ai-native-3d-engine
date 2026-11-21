@@ -70,6 +70,18 @@ impl Renderer {
             };
             let mut tile =
                 self.render_rgba_camera(&tile_scene, revision, w, h, near, far, views.is_some())?;
+            if let Some(mesh)=&scene.navmesh {
+                let matrix=inspection::matrix(&tile_scene.camera,w as f32/h as f32,near,far,views.is_some());
+                let project=|p:[f32;3]|->Option<[i32;2]>{let p=inspection::transform(matrix,p);if p[3]<=0.0 || p[2]<0.0 || p[2]>p[3]{return None;}Some([((p[0]/p[3]+1.0)*0.5*w as f32) as i32,((1.0-p[1]/p[3])*0.5*h as f32) as i32])};
+                for poly in mesh.tiles.iter().flat_map(|t|&t.polygons).take(8192){
+                    let x=poly.cell[0] as f32*mesh.params.cell_size;let z=poly.cell[1] as f32*mesh.params.cell_size;let s=mesh.params.cell_size;
+                    let points=[[x,poly.corners[0]+0.03,z],[x+s,poly.corners[1]+0.03,z],[x+s,poly.corners[2]+0.03,z+s],[x,poly.corners[3]+0.03,z+s]];
+                    for i in 0..4{if let(Some(a),Some(b))=(project(points[i]),project(points[(i+1)%4])){nav_line(&mut tile,w,h,a,b,[40,240,130,255]);}}
+                }
+                for a in scene.entities.iter().filter_map(|e|e.nav_agent.as_ref()){
+                    for pair in a.path.windows(2){if let(Some(a),Some(b))=(project(pair[0]),project(pair[1])){nav_line(&mut tile,w,h,a,b,[255,90,220,255]);}}
+                }
+            }
             if overlay_ids {
                 let matrix = inspection::matrix(
                     &tile_scene.camera,
@@ -141,6 +153,13 @@ impl Renderer {
         }
         Ok(STANDARD.encode(encode_png(&sheet, columns * w, rows * h)?))
     }
+}
+
+fn nav_line(pixels:&mut [u8],w:u32,h:u32,a:[i32;2],b:[i32;2],color:[u8;4]){
+    if (a[0]<0 && b[0]<0)||(a[1]<0 && b[1]<0)||(a[0]>=w as i32 && b[0]>=w as i32)||(a[1]>=h as i32 && b[1]>=h as i32){return;}
+    let a=[a[0].clamp(0,w as i32-1),a[1].clamp(0,h as i32-1)];let b=[b[0].clamp(0,w as i32-1),b[1].clamp(0,h as i32-1)];
+    let n=(a[0]-b[0]).abs().max((a[1]-b[1]).abs()).max(1);
+    for i in 0..=n{put(pixels,w,h,a[0]+(b[0]-a[0])*i/n,a[1]+(b[1]-a[1])*i/n,color);}
 }
 
 fn text(pixels: &mut [u8], w: u32, h: u32, x: i32, y: i32, label: &str, scale: i32) {
