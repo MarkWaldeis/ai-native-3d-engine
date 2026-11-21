@@ -1,0 +1,17 @@
+{
+  "name": "Coin collector",
+  "camera": {"position": [7, 6, 9], "target": [0, 0.4, 0], "fov_deg": 48},
+  "light_dir": [-0.4, 1, 0.5],
+  "ambient": 0.4,
+  "entities": [
+    {"id": 1, "name": "floor", "kind": "box", "size": [11, 0.4, 5], "transform": {"position": [0, -0.2, 0]}, "color": [0.12, 0.25, 0.29, 1], "tags": ["ground"], "collider": {"shape": "box"}, "rigidbody": {"type": "static", "friction": 0.7}},
+    {"id": 2, "name": "player", "kind": "sphere", "radius": 0.45, "segments": 24, "transform": {"position": [-3, 0.45, 0]}, "color": [0.06, 0.55, 0.95, 1], "tags": ["player"], "collider": {"shape": "sphere", "radius": 0.45}, "rigidbody": {"type": "kinematic", "mass": 1}, "script": "examples/coin_game/scripts/player.rhai"},
+    {"id": 3, "name": "coin-a", "kind": "cylinder", "radius": 0.26, "height": 0.12, "segments": 24, "transform": {"position": [-1.5, 0.55, 0], "rotation_deg": [90, 0, 0]}, "color": [1, 0.65, 0.04, 1], "tags": ["coin"], "script": "examples/coin_game/scripts/coin.rhai"},
+    {"id": 4, "name": "coin-b", "kind": "cylinder", "radius": 0.26, "height": 0.12, "segments": 24, "transform": {"position": [0, 0.55, 0], "rotation_deg": [90, 0, 0]}, "color": [1, 0.65, 0.04, 1], "tags": ["coin"], "script": "examples/coin_game/scripts/coin.rhai"},
+    {"id": 5, "name": "coin-c", "kind": "cylinder", "radius": 0.26, "height": 0.12, "segments": 24, "transform": {"position": [1.5, 0.55, 0], "rotation_deg": [90, 0, 0]}, "color": [1, 0.65, 0.04, 1], "tags": ["coin"], "script": "examples/coin_game/scripts/coin.rhai"},
+    {"id": 6, "name": "goal-pad", "kind": "cylinder", "radius": 0.7, "height": 0.06, "segments": 32, "transform": {"position": [3.2, 0.03, 0]}, "color": [0.15, 0.8, 0.3, 1], "tags": ["goal"]},
+    {"id": 7, "name": "goal-post-a", "kind": "box", "size": [0.16, 1.6, 0.16], "transform": {"position": [3.5, 0.8, -0.8]}, "color": [0.5, 0.2, 0.85, 1]},
+    {"id": 8, "name": "goal-post-b", "kind": "box", "size": [0.16, 1.6, 0.16], "transform": {"position": [3.5, 0.8, 0.8]}, "color": [0.5, 0.2, 0.85, 1]},
+    {"id": 9, "name": "goal-beam", "kind": "box", "size": [0.16, 0.16, 1.76], "transform": {"position": [3.5, 1.6, 0]}, "color": [0.5, 0.2, 0.85, 1]}
+  ]
+}

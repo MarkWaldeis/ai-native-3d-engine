@@ -36,6 +36,7 @@ crates/
   engine-core/           World state, command queue, save/load (flat Vec ECS, revision counter)
   engine-render/         wgpu headless renderer → PNG readback → base64
   engine-geo/            procedural mesh generation (box, plane, sphere, cylinder, wall_with_door)
+  engine-runtime/        deterministic Rapier physics, sandboxed Rhai hooks, assertions/query
   engine-mcp/            JSON-RPC framing + MCP lifecycle (initialize, ping, tools/list, tools/call)
   asset-pipeline/        finds Blender, runs `blender --background --factory-startup --python`,
                          watches assets/ for changed files
@@ -208,6 +209,110 @@ scene is in `blender/sync_demo.py`; comparison images:
 - **Graceful degradation**: MCP world-editing tools work with no GPU; only
   `get_screenshot` requires one (renderer is lazily initialized).
 
+## Gameplay runtime (M3)
+
+Author gameplay in scene JSON (old scenes still load) or Blender custom properties:
+
+```json
+{"id":1,"name":"ball","kind":"sphere","radius":0.5,"segments":24,
+ "tags":["player"],"transform":{"position":[0,3,0]},
+ "collider":{"shape":"sphere","radius":0.5},
+ "rigidbody":{"type":"dynamic","mass":1,"friction":0.5,"restitution":0},
+ "script":{"source":"fn on_tick(ctx, dt) { if ctx.input(\"jump\") > 0.0 { ctx.apply_impulse([0.0, 0.1, 0.0]); } }"}}
+```
+
+| Tool | Purpose |
+|---|---|
+| `play {}` | Snapshot authoring into a separate simulation; run `on_start` |
+| `step {ticks, inputs?}` | Advance the active simulation at fixed 60 Hz |
+| `get_sim_state {}` | Tick, transforms/tags, global state, logs and failed flag |
+| `stop {}` | Discard simulation; unchanged authoring scene/revision reappears |
+| `simulate {ticks, inputs?, asserts?, screenshot?}` | Fresh isolated run, per-assert `passed`/`actual`, final state; optional final PNG content block |
+| `query {tag?, name?, near?:{point,radius}}` | Compact matching entities; filters AND together; exact name |
+
+There is one shared live play session per Engine. Authoring edits are rejected
+while playing (stop before editing); `get_scene_state` always reads authoring,
+while `query`/`get_screenshot` use the active simulation if present. Simulation
+does not mutate authoring snapshots, locks, journal or revisions. `simulate`
+always starts from authoring, without replacing a live play session. An error
+stops the current play session's advancement; inspect it, then stop/play to reset.
+
+Inputs are zero-based **absolute simulation tick** events, applied before that
+tick's hooks and held until changed. `step` accepts events only within its tick
+range. For example, `{"ticks":120,"inputs":[{"tick":0,"action":"move_x","value":1},
+{"tick":60,"action":"move_x","value":0}]}` moves for one second, then stops.
+Each call allows 0–36000 ticks and at most 4096 input events.
+
+Rapier 0.22 with `enhanced-determinism` uses fixed 1/60 s integration and sorted
+entity/script order. Identical inputs produce bitwise-identical transforms on
+the same build/platform (tested each tick); cross-platform bit equality is not
+promised. Bodies are `static` (default), `dynamic`, or velocity-based `kinematic`.
+Colliders can be `{"shape":"box","half_extents":[0.5,0.5,0.5]}`,
+`{"shape":"sphere","radius":0.5}`, `{"shape":"capsule","radius":0.3,
+"half_height":0.5}`, or `{"shape":"mesh"}` (also `mesh-from-entity-bounds`).
+Omitted dimensions derive from scaled entity bounds. Mesh means an AABB-based
+collider, **not** a triangle mesh; planes get a minimum 0.05 thickness. Capsule
+axis is local Y; explicit dimensions are local units scaled by the entity.
+A collider without a rigidbody is static. A rigidbody may have no collider.
+
+`script` accepts a relative `.rhai` string, `{"path":"file.rhai"}`, or
+`{"source":"..."}`. Paths resolve under project root, then `assets/`; absolute
+paths and symlink escapes are rejected. Hooks are optional; top-level script
+statements are not executed. Keep persistent values in the global state map:
+
+```rhai
+fn on_start(ctx) { ctx.state_set("score", 0); ctx.log("ready"); }
+fn on_tick(ctx, dt) {
+    let p = ctx.position();
+    p[0] += ctx.input("move_x") * 2.0 * dt;
+    ctx.set_position(p);
+}
+```
+
+Context methods (vectors are three-number arrays; rotations are Euler degrees):
+`id()`, `position()`, `rotation()`, `set_position(v)`, `set_rotation(v)`,
+`apply_impulse(v)`, `set_velocity(v)`, `find_by_name(name)` (ID or -1),
+`find_by_tag(tag)` (IDs), `entity_position(id)`, `input(action)` (number, default 0),
+`spawn_entity(entity_map)` (new ID, primitive only; `spawn` is reserved by Rhai), `remove(id)`, `log(text)`,
+`state_get(key)` (unit if absent), `state_set(key,value)` (JSON-compatible).
+Spawn maps use the entity JSON format but ID/name default if omitted. Newly
+spawned scripts start on the next tick. No modules/filesystem/time/eval APIs are
+exposed. Rhai limits each hook to 50000 operations plus stack/string/collection
+limits; simulation caps entities at 1024 and logs at 1024 entries. Errors report
+script path (or inline label), line and message.
+
+Blender: `ai_tags` accepts a string array/JSON array or comma-separated string;
+`ai_collider` accepts e.g. `"box"` or JSON `{"shape":"sphere","radius":0.5}`;
+`ai_rigidbody` accepts `"dynamic"` or JSON with `type`, `mass`, `friction`,
+`restitution`; `ai_script` accepts a relative path or JSON `{"source":"..."}`.
+Use JSON strings for nested properties in Blender. Sync maps these into typed
+components while retaining the original `ai_*` properties.
+
+### Coin collector example
+
+Load `examples/coin_game/scene.json`, then call `simulate` with the arguments in
+`examples/coin_game/validation.json`: 180 ticks with `move_x=1` collect three
+coins, set `score=3`, and move the player to the green goal. Assertions support:
+
+```json
+{"entity":"player","position_near":[3,0.45,0],"tolerance":0.05,"at_tick":180}
+{"entity":"player","y_greater_than":0}
+{"state":"score","equals":3}
+{"entities_with_tag":"coin","count":0}
+```
+
+`at_tick` checks the state **after N steps** (0 = after `on_start`); omitted means
+final tick. Position tolerance defaults to 0.5. Missing entities fail with
+`actual:null`; an empty assertion list passes. Set `screenshot:true` to append
+a final 960×540 PNG image. GPU initialization errors are returned normally.
+Re-render the example's initial scene with:
+
+```bash
+cargo run -- --demo docs/coin_game.png examples/coin_game/scene.json
+```
+
+![Coin collector](docs/coin_game.png)
+
 ## Roadmap
 
 - [x] deterministic conflict resolution (`expected_revision` CAS + rollback)
@@ -216,4 +321,4 @@ scene is in `blender/sync_demo.py`; comparison images:
 - [ ] richer primitive/CSG set (real boolean ops in `engine-geo`)
 - [ ] multi-agent session support (named worlds / command queue per agent)
 - [ ] textures + materials, HDR lighting
-- [ ] physics + gameplay scripting layer
+- [x] deterministic physics + sandboxed Rhai gameplay scripting + simulation assertions

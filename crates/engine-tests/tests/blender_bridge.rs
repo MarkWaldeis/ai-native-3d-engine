@@ -63,6 +63,7 @@ fn real_blender_sync_preserves_ids_props_locks_and_journal() {
         .find(|o| o["name"] == "BridgeCube")
         .unwrap()["ai_uid"]
         .clone();
+    call(&mut engine, "blender_exec", json!({"code": "import json\ncube = bpy.data.objects['BridgeCube']\ncube['ai_tags'] = json.dumps(['player', 'test'])\ncube['ai_collider'] = 'box'\ncube['ai_rigidbody'] = json.dumps({'type': 'kinematic', 'mass': 2, 'friction': 0.6, 'restitution': 0.1})\ncube['ai_script'] = json.dumps({'source': 'fn on_start(ctx) { ctx.log(\"from Blender\"); }'})"}));
     call(&mut engine, "blender_sync", json!({"agent":"artist"}));
     let whole = engine
         .blender
@@ -94,6 +95,11 @@ fn real_blender_sync_preserves_ids_props_locks_and_journal() {
         .clone();
     assert_eq!(cube.source_uid.as_deref(), cube_uid.as_str());
     assert_eq!(cube.props["ai_role"], "movable");
+    assert_eq!(cube.tags, vec!["player", "test"]);
+    assert!(matches!(cube.collider, Some(shared::components::Collider::Box { half_extents: None })));
+    assert_eq!(cube.rigidbody.as_ref().unwrap().kind, shared::components::BodyType::Kinematic);
+    assert_eq!(cube.rigidbody.as_ref().unwrap().mass, 2.0);
+    assert!(matches!(cube.script, Some(shared::components::Script::Inline { .. })));
     let monkey = engine
         .world
         .scene

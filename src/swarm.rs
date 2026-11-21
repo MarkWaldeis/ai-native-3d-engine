@@ -134,6 +134,9 @@ impl Engine {
         args: &Value,
         agent: &str,
     ) -> Result<Value, String> {
+        if self.simulation.is_some() && matches!(name, "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera" | "load_scene" | "rollback" | "blender_sync") {
+            return Err("authoring edits are disabled during play; call stop before editing the scene".into());
+        }
         let global = matches!(name, "load_scene" | "rollback");
         let targeted = matches!(name, "set_transform" | "set_color" | "remove_entity");
         for (id, (owner, _)) in &self.swarm.locks {

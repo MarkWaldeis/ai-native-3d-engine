@@ -88,6 +88,32 @@ E2E: `cargo test -p engine-tests --test blender_bridge -- --nocapture` (SKIP ohn
 Demo: `blender/sync_demo.py`; Vergleichsbilder in `docs/blender_sync_demo.png`
 und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt gültig).
 
+## Gameplay / M3
+
+- `engine-runtime`: separate Rapier-0.22/Rhai-1.20.1-Simulation, 60 Hz,
+  `enhanced-determinism`; identische Inputs → bitgleiche Transform-Werte auf
+  gleichem Build/Plattform. Physik/Script-Reihenfolge nach Entity-ID sortiert.
+- Entity-Felder mit serde-Defaults: `tags`, `collider`, `rigidbody`, `script`.
+  Kollidertypen: box/sphere/capsule/mesh (Bounds, kein Dreiecksmesh).
+  Blender `ai_tags`, `ai_collider`, `ai_rigidbody`, `ai_script` werden gemappt;
+  verschachtelte Properties am einfachsten als JSON-String setzen.
+- MCP `play`, `step`, `stop`, `get_sim_state`, `simulate`, `query`.
+  Autorenszene/Revision bleiben unverändert. Während play keine Autoren-Edits;
+  `query`/Screenshot lesen Simulation, `get_scene_state` bleibt Autorenszene.
+  `simulate` startet immer frisch, verändert eine laufende play-Session nicht.
+- Inputs `{tick,action,value}`: absolute Ticks, vor Hooks angewendet, persistent
+  bis zum nächsten Wert. `at_tick:N` prüft nach N Schritten (0 nach on_start).
+  Assertions und Kontext-API sind vollständig in README dokumentiert.
+- Script-Hooks `on_start(ctx)`, `on_tick(ctx,dt)`; Pfade relativ Projekt/assets
+  oder inline `{source:"..."}`. Keine Top-Level-Ausführung/Imports/Zeit/eval.
+  50000 Operationen pro Hook, begrenzte Daten/Logs/Entities; Fehler mit Datei/Zeile.
+  Script-Spawn nur Primitive. Zustand über `ctx.state_get/state_set`, nicht
+  über Top-Level-Variablen. Nach Laufzeitfehler stop/play zum Neustart.
+- Tests: `cargo test -p engine-tests --test gameplay -- --nocapture`.
+  Beispiel: `examples/coin_game/{scene.json,validation.json,scripts/}`;
+  `cargo run -- --demo docs/coin_game.png examples/coin_game/scene.json`.
+  Beispiel-PNG auf macOS: `docs/coin_game.png` (Windows-QA-Pfad bleibt gültig).
+
 ## Crates (Übersicht)
 
 | Crate | Aufgabe |
@@ -97,6 +123,7 @@ und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt
 | `crates/engine-render` | wgpu Headless-Renderer → RGBA/PNG/base64 |
 | `crates/engine-mcp` | JSON-RPC-Framing + Tool-Dispatch (ToolHandler-Trait) |
 | `crates/engine-geo` | Primitive-Meshes inkl. Wand-mit-Tür (CSG-lite) |
+| `crates/engine-runtime` | Isolierte Rapier-Physik, Rhai-Hooks, Assertions/Query |
 | `crates/asset-pipeline` | Blender-Runner (Timeout 120s), Asset-Watcher (mtime-Polling) |
 | `crates/engine-tests` | E2E-Integrationstests über den MCP-Pfad |
 

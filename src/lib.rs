@@ -14,6 +14,7 @@ use std::time::Duration;
 mod swarm;
 pub mod http;
 mod blender;
+mod runtime;
 
 pub struct Engine {
     pub world: World,
@@ -22,6 +23,8 @@ pub struct Engine {
     pub assets_dir: PathBuf,
     swarm: swarm::Swarm,
     pub blender: asset_pipeline::bridge::BlenderBridge,
+    simulation: Option<engine_runtime::Simulation>,
+    render_revision: u64,
 }
 
 impl Engine {
@@ -36,6 +39,8 @@ impl Engine {
             assets_dir,
             swarm: swarm::Swarm::default(),
             blender: asset_pipeline::bridge::BlenderBridge::default(),
+            simulation: None,
+            render_revision: 0,
         }
     }
 
@@ -167,6 +172,7 @@ impl Engine {
         let expected = expected_rev(args);
         let r = (|| -> anyhow::Result<Value> {
             match name {
+                "play" | "step" | "stop" | "get_sim_state" | "simulate" | "query" => self.runtime_tool(name, args),
                 "blender_status" => {
                     Ok(text_result(match self.blender.request(json!({"command":"ping"})) {
                         Ok(info) => json!({"connected":true, "info":info}),
@@ -248,12 +254,8 @@ impl Engine {
                 "get_screenshot" => {
                     let w = args.get("width").and_then(|v| v.as_u64()).unwrap_or(960) as u32;
                     let h = args.get("height").and_then(|v| v.as_u64()).unwrap_or(540) as u32;
-                    let rev = self.world.revision;
-                    let scene = self.world.scene.clone();
-                    let b64 = self
-                        .renderer()
-                        .map_err(anyhow::Error::msg)?
-                        .screenshot_base64(&scene, rev, w, h)?;
+                    let scene = self.simulation.as_ref().map(|s| s.scene()).unwrap_or_else(|| self.world.scene.clone());
+                    let b64 = self.render_scene_base64(&scene, w, h)?;
                     Ok(image_result(b64))
                 }
                 "save_scene" => {

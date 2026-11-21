@@ -1,0 +1,12 @@
+{
+  "ticks": 180,
+  "inputs": [{"tick": 0, "action": "move_x", "value": 1}],
+  "asserts": [
+    {"entity": "player", "position_near": [-3, 0.45, 0], "tolerance": 0.001, "at_tick": 0},
+    {"entity": "player", "position_near": [0, 0.45, 0], "tolerance": 0.05, "at_tick": 90},
+    {"entity": "player", "position_near": [3, 0.45, 0], "tolerance": 0.05},
+    {"entity": "player", "y_greater_than": 0},
+    {"state": "score", "equals": 3},
+    {"entities_with_tag": "coin", "count": 0}
+  ]
+}

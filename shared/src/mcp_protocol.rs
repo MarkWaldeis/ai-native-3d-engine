@@ -79,6 +79,21 @@ pub fn builtin_tools() -> Vec<ToolDef> {
         json!({"type": "integer", "description": "optimistic concurrency: apply only if world.revision still equals this value"})
     };
     vec![
+        ToolDef { name: "play", description: "Start a separate simulation from an authoring snapshot. Hooks on_start run at tick 0; authoring edits are disabled until stop. One shared play session per Engine.", input_schema: schema(json!({}), &[]) },
+        ToolDef {
+            name: "step", description: "Advance the active simulation at fixed 60 Hz. Inputs are zero-based absolute tick events, applied before that tick's hooks and held until changed. No authoring revisions are changed.",
+            input_schema: schema(json!({"ticks":{"type":"integer", "minimum":0, "maximum":36000}, "inputs":{"type":"array", "maxItems":4096, "items":{"type":"object", "properties":{"tick":{"type":"integer", "minimum":0}, "action":{"type":"string"}, "value":{"type":"number"}}, "required":["tick","action","value"]}}}), &["ticks"]),
+        },
+        ToolDef { name: "stop", description: "Discard the play session and return to unchanged authoring state. Idempotent.", input_schema: schema(json!({}), &[]) },
+        ToolDef { name: "get_sim_state", description: "Read active simulation tick, transforms, tags, global state map, bounded logs and failed flag.", input_schema: schema(json!({}), &[]) },
+        ToolDef {
+            name: "simulate", description: "Run a fresh isolated authoring snapshot. Assertions: entity+position_near+tolerance?, entity+y_greater_than, state+equals, or entities_with_tag+count. Optional at_tick N checks after N steps (0 = after on_start); otherwise check final tick. Returns passed/actual per assertion. screenshot appends a final PNG image content block. Does not replace active play state.",
+            input_schema: schema(json!({"ticks":{"type":"integer", "minimum":0, "maximum":36000}, "inputs":{"type":"array", "maxItems":4096, "items":{"type":"object", "properties":{"tick":{"type":"integer", "minimum":0}, "action":{"type":"string"}, "value":{"type":"number"}}, "required":["tick","action","value"]}}, "asserts":{"type":"array", "maxItems":1024, "items":{"type":"object", "properties":{"entity":{"type":"string"}, "position_near":{"type":"array", "items":{"type":"number"}, "minItems":3,"maxItems":3}, "tolerance":{"type":"number", "minimum":0}, "y_greater_than":{"type":"number"}, "state":{"type":"string"}, "equals":{}, "entities_with_tag":{"type":"string"}, "count":{"type":"integer","minimum":0}, "at_tick":{"type":"integer","minimum":0}}}}, "screenshot":{"type":"boolean", "default":false}}), &["ticks"]),
+        },
+        ToolDef {
+            name: "query", description: "Compact entity query over active simulation, or authoring scene when stopped. Filters combine with AND; name is exact, near is a sphere in world coordinates.",
+            input_schema: schema(json!({"tag":{"type":"string"}, "name":{"type":"string"}, "near":{"type":"object", "properties":{"point":{"type":"array", "items":{"type":"number"}, "minItems":3,"maxItems":3}, "radius":{"type":"number", "minimum":0}}, "required":["point","radius"]}}), &[]),
+        },
         ToolDef {
             name: "blender_status", description: "Check local Blender bridge connection/version; if disconnected, returns startup instructions.",
             input_schema: schema(json!({}), &[]),

@@ -76,6 +76,10 @@ impl Engine {
                     visible: existing.first().map(|e| e.visible).unwrap_or(true),
                     source_uid: Some(uid.into()),
                     props: item["props"].clone(),
+                    tags: blender_tags(&item["props"])? ,
+                    collider: component_prop(&item["props"], "ai_collider", "shape")?.map(serde_json::from_value).transpose()?,
+                    rigidbody: component_prop(&item["props"], "ai_rigidbody", "type")?.map(serde_json::from_value).transpose()?,
+                    script: item["props"].get("ai_script").map(|v| serde_json::from_value(decode_prop(v))).transpose()?,
                 });
             }
             let all = manifest["all_mesh_uids"]
@@ -112,5 +116,27 @@ impl Engine {
             )
             .map_err(|e| e.to_string())?;
         Ok(text_result(value.to_string()))
+    }
+}
+
+fn decode_prop(value: &Value) -> Value {
+    value.as_str().and_then(|s| serde_json::from_str(s).ok()).unwrap_or_else(|| value.clone())
+}
+
+fn component_prop(props: &Value, key: &str, discriminator: &str) -> anyhow::Result<Option<Value>> {
+    Ok(props.get(key).filter(|v| !v.is_null()).map(|v| {
+        let value = decode_prop(v);
+        if let Some(kind) = value.as_str() { json!({(discriminator):kind}) } else { value }
+    }))
+}
+
+fn blender_tags(props: &Value) -> anyhow::Result<Vec<String>> {
+    match props.get("ai_tags") {
+        None => Ok(vec![]),
+        Some(value) => {
+            let decoded = decode_prop(value);
+            if let Some(text) = decoded.as_str() { Ok(text.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).collect()) }
+            else { Ok(serde_json::from_value(decoded)?) }
+        }
     }
 }

@@ -88,6 +88,14 @@ pub struct Entity {
     pub source_uid: Option<String>,
     #[serde(default = "empty_props")]
     pub props: serde_json::Value,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub collider: Option<crate::components::Collider>,
+    #[serde(default)]
+    pub rigidbody: Option<crate::components::RigidBody>,
+    #[serde(default)]
+    pub script: Option<crate::components::Script>,
 }
 
 fn empty_props() -> serde_json::Value { serde_json::json!({}) }

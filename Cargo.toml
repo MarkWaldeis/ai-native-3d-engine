@@ -16,6 +16,7 @@ members = [
     "crates/engine-geo",
     "crates/asset-pipeline",
     "crates/engine-tests",
+    "crates/engine-runtime",
 ]
 
 [dependencies]
@@ -28,3 +29,4 @@ asset-pipeline = { path = "crates/asset-pipeline" }
 serde_json = "1"
 anyhow = "1"
 tiny_http = "0.12"
+engine-runtime = { path = "crates/engine-runtime" }

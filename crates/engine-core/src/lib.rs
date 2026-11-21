@@ -109,6 +109,7 @@ impl World {
             visible: true,
             source_uid: None,
             props: json!({}),
+            tags: vec![], collider: None, rigidbody: None, script: None,
         });
         self.bump();
         id
