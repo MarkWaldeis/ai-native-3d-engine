@@ -11,7 +11,7 @@ function setup(pathname = '/game/') {
   const loaded = [];
   const window = { addEventListener(type, fn) { this[type] = fn; } };
   const context = vm.createContext({
-    window, location: { pathname }, ready: true, netEndpoint: null, console,
+    window, location: { pathname }, ready: true, netEndpoint: null, inputSettings: { open: false }, console,
     game: { save_game: () => '{"version":1}' },
     localStorage: { setItem: (k, v) => values.set(k, v), getItem: k => values.get(k) ?? null },
     restart: async save => loaded.push(save), startRunning: () => loaded.push('running'),
@@ -62,4 +62,13 @@ test('authoritative multiplayer rejects local save/load without touching storage
   await assert.rejects(window.__aiLoadGame(),/Multiplayer/);
   assert.equal(values.size,0);
   assert.deepEqual(loaded,[]);
+});
+
+test('save hotkeys do not dismiss an open settings dialog or navigate the browser', async () => {
+  const { context, window, loaded, values } = setup();
+  context.inputSettings.open = true;
+  let prevented = 0;
+  for (const code of ['F5', 'F9']) window.keydown({ code, repeat: false, preventDefault: () => prevented++ });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(prevented, 2); assert.equal(values.size, 0); assert.deepEqual(loaded, []);
 });

@@ -1,5 +1,24 @@
 # Eingabe / Gamepad
 
+## Menüs und Overlays
+
+D-Pad oder linker Stick (Schwelle 0,55; Wiederholung nach 400 ms, dann alle
+120 ms) und Pfeile/Tab bewegen den Fokus im obersten offenen Overlay.
+A, Enter oder Leertaste wählen; B/Escape schließen Dialoge bzw. setzen eine
+Pause fort. Start pausiert/kehrt aus der Pause zurück; während einer
+Neubelegung werden Gamepad-Tasten und Achsen ausschließlich aufgenommen.
+Intro, Sieg und Niederlage werden über ihre Haupttaste gestartet, B verwirft sie nicht.
+`state.lost: true` bzw. der bestehende FPS-Niederlagenstatus zeigen dasselbe
+bedienbare Neustart-Menü wie ein Sieg. Touch-Spielsteuerung bleibt hinter Menüs verborgen.
+Der Hauptknopf erhält anfangs Fokus; verschachtelte Dialoge geben ihn an das
+darunterliegende Menü zurück, beim Spielen erhält das Spielfeld Fokus.
+„Steuerung“, „Speichern“ und „Laden“ sind direkt im Menü erreichbar;
+fehlende oder ungültige Spielstände werden dort gemeldet. Multiplayer deaktiviert
+lokales Speichern/Laden. Navigation und gehaltene Auswahltasten gelangen nicht
+als Spielaktion an WASM; Gamepad-Eingaben bleiben bis zum Loslassen gesperrt.
+Sichtbare Fokusringe und „Ⓐ Auswählen · Ⓑ Zurück“ unterstützen die Navigation.
+Tests: `test_web_ui_nav.mjs`, echter WASM-Browsercheck `verify_web_ui_nav.mjs`.
+
 Die Web-Eingabe erzeugt ausschließlich die bestehenden WASM-Inputs. Spielregeln
 und Physik bleiben in Rust/Rhai. Ein W3C-Standard-Gamepad benötigt keine Einrichtung.
 

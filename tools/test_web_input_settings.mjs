@@ -16,14 +16,14 @@ class Element extends EventTarget {
     return this.children.flatMap(row => row.children).find(child => child.dataset.action === action);
   }
 }
-function fixture(saved, authored) {
+function fixture(saved, authored, onClose) {
   const elements = new Map(), storage = new Map();
   globalThis.document = { getElementById: id => { if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id); }, createElement: () => new Element() };
   globalThis.localStorage = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value), removeItem: key => storage.delete(key) };
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { getGamepads: () => [] } });
   if (saved !== undefined) storage.set('ai-engine:input:Test', saved);
   let paused = 0, changes = 0;
-  const input = new InputSystem(), settings = new InputSettings(input, authored, 'Test', () => paused++, () => changes++);
+  const input = new InputSystem(), settings = new InputSettings(input, authored, 'Test', () => paused++, () => changes++, onClose);
   return { input, settings, storage, elements, paused: () => paused, changes: () => changes };
 }
 
@@ -56,6 +56,13 @@ test('gamepad capture replaces buttons and axes but retains keyboard bindings an
   input.config.bindings.fire = [];
   settings.capturing = 'fire'; settings.bind({ type: 'key', code: 'KeyF' });
   assert.deepEqual(input.config.bindings.fire, [{ type: 'key', code: 'KeyF' }]);
+});
+
+test('a scoped focus controller owns restoration without a delayed footer focus stealing the next selection', () => {
+  let restored = 0;
+  const { settings } = fixture(undefined, undefined, () => restored++);
+  settings.show(); settings.dialog.close();
+  assert.equal(restored, 1); assert.equal(settings.trigger.focused, undefined);
 });
 
 test('saved config loads; corrupt or unavailable storage produces warnings, not failures', () => {
