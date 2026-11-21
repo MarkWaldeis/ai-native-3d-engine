@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from '../crates/engine-web/player/vendor/three.module.js';
 import {createTerrain, decodeHeights, sampleTile, terrainLOD, TileQueue} from '../crates/engine-web/player/terrain.js';
 
 test('scenes without terrain need no renderer, WASM calls or browser globals', async () => {
@@ -47,4 +48,41 @@ test('queue limits concurrency, deduplicates, evicts LRU and retries errors', as
   assert.deepEqual(await queue.get('b'),new Uint8Array([1,2]));
   for(let i=0;i<2;i++) {const failure=queue.get('bad'); await Promise.resolve(); releases.shift()(); await assert.rejects(failure,/404/); await new Promise(resolve=>setImmediate(resolve));}
   assert.equal(queue.pending.size,0); assert.equal(queue.active,0);
+});
+
+test('visuals receives offset-aware coarse/full-res heights immediately or on a later poll', async t => {
+  const originals = ['window','location'].map(key=>[key,Object.getOwnPropertyDescriptor(globalThis,key)]);
+  t.after(()=>{for(const [key,descriptor] of originals) {if(descriptor) Object.defineProperty(globalThis,key,descriptor); else delete globalThis[key];}});
+  globalThis.location={href:'http://localhost/demo/'};
+  const manifest={config:{size_m:[2,2],tile_m:2,samples:3},grid:[1,1],height_range:[0,100],coarse:{dims:[2,2],step:2,file:'coarse.bin'},tiles:'tiles/{x}_{z}.bin'};
+  function field(magic,n,value) {
+    const bytes=new Uint8Array(12+n*n*2), view=new DataView(bytes.buffer);
+    bytes.set(new TextEncoder().encode(magic)); view.setUint32(4,n,true); view.setUint32(8,n,true);
+    for(let i=0;i<n*n;i++) view.setUint16(12+i*2,value,true);
+    return bytes;
+  }
+  t.mock.method(globalThis,'fetch',async url=>new Response(url.endsWith('.json') ? JSON.stringify(manifest) : url.endsWith('coarse.bin') ? field('AITC',2,16384) : field('AITT',5,49151)));
+  for(const late of [false,true]) {
+    globalThis.window={};
+    const samplers=[];
+    const visuals={setHeightSampler(sampler){assert.equal(this,visuals);samplers.push(sampler);}};
+    if(!late) window.__aiEngineVisuals=visuals;
+    const world=new THREE.Scene(); world.fog=new THREE.Fog(0,1,100);
+    const errors=[];
+    const api=await createTerrain(THREE,[{props:{ai_terrain:'terrain.json'},transform:{position:[100,7,200]}}],{set_terrain(){},terrain_tiles_wanted(){return '[]';}},world,{},error=>errors.push(error));
+    assert.equal(samplers.length,late?0:1);
+    if(late) {window.__aiEngineVisuals={setHeightSampler:null};api.update(new THREE.PerspectiveCamera(),0);window.__aiEngineVisuals=visuals;api.update(new THREE.PerspectiveCamera(),500);}
+    assert.equal(samplers[0],api.heightAt);
+    assert.ok(Math.abs(samplers[0](101,201)-32)<.001);
+    await new Promise(resolve=>setImmediate(resolve));
+    if(!late) {api.update(new THREE.PerspectiveCamera(),0);await new Promise(resolve=>setImmediate(resolve));}
+    assert.ok(Math.abs(samplers[0](101,201)-82)<.001);
+    assert.ok(Math.abs(samplers[0](-100,-200)-32)<.001);
+    api.update(new THREE.PerspectiveCamera(),1000);
+    assert.equal(samplers.length,1);
+    const replacement=[]; window.__aiEngineVisuals={setHeightSampler:s=>replacement.push(s)};
+    api.update(new THREE.PerspectiveCamera(),1500);
+    assert.equal(replacement[0],api.heightAt);
+    assert.deepEqual(errors,[]);
+  }
 });

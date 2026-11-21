@@ -1,14 +1,58 @@
 import json
+import struct
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
 
-from gen_large_world import generate, GRID, WORLD_SIZE
+from gen_large_world import generate, TerrainSampler, GRID, WORLD_SIZE
 
 
 class GeneratorTests(unittest.TestCase):
+    def terrain_fixture(self, directory):
+        path = Path(directory) / "terrain.json"
+        path.write_text(json.dumps(dict(config=dict(size_m=[WORLD_SIZE] * 2, tile_m=WORLD_SIZE, samples=2),
+                                       grid=[1, 1], height_range=[100, 300],
+                                       tiles=[dict(x=0, z=0, file="tile.f32")])))
+        heights = [100.0] * 16
+        heights[10] = 300.0
+        (path.parent / "tile.f32").write_bytes(struct.pack("<16f", *heights))
+        return path
+
+    def test_streamed_terrain_preserves_density_and_places_props_and_flight(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.terrain_fixture(directory)
+            scene = generate(terrain_manifest=path)
+            entities = scene["entities"]
+            self.assertEqual(len(entities), 14998)
+            self.assertEqual(len({e["id"] for e in entities}), 14998)
+            self.assertEqual(sum("collider" in e for e in entities), 4096)
+            self.assertEqual(sum(e["name"].startswith("trunk-") for e in entities), 4000)
+            terrain = entities[-1]
+            self.assertEqual(terrain["props"]["ai_terrain"], str(path))
+            self.assertEqual(terrain["transform"]["position"], [-WORLD_SIZE / 2, 0, -WORLD_SIZE / 2])
+            self.assertEqual(entities[0]["transform"]["position"][1] + entities[0]["size"][1] / 2, 90)
+            tree = entities[GRID * GRID]
+            x, y, z = tree["transform"]["position"]
+            self.assertAlmostEqual(y - tree["height"] / 2, TerrainSampler(path).sample(x, z), places=4)
+            self.assertIn("ctx.terrain_height(x, z) + 8.0", entities[-2]["script"]["source"])
+            self.assertEqual(len(generate(density=0, terrain_manifest=path)["entities"]), 4098)
+
+    def test_native_sampling_triangle_clamping_and_invalid_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.terrain_fixture(directory)
+            sampler = TerrainSampler(path)
+            self.assertEqual(sampler.sample(-WORLD_SIZE, -WORLD_SIZE), 100)
+            self.assertEqual(sampler.sample(WORLD_SIZE, WORLD_SIZE), 300)
+            self.assertEqual(sampler.sample(0, 0), 100)
+            self.assertAlmostEqual(sampler.sample(WORLD_SIZE / 4, WORLD_SIZE / 4), 200)
+            (path.parent / "tile.f32").write_bytes(b"")
+            with self.assertRaisesRegex(ValueError, "tile length"):
+                TerrainSampler(path).sample(0, 0)
+            with self.assertRaises(FileNotFoundError):
+                TerrainSampler(path.parent / "missing.json")
+
     def test_default_scene_is_deterministic_and_covers_world(self):
         scene = generate()
         self.assertEqual(scene, generate())

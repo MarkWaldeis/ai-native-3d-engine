@@ -65,6 +65,14 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
   const queue = new TileQueue(fetchBytes), maps = new Map(), chunks = [], decoded = new Map(), indices = new Map();
   const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
   let lastPoll = -Infinity, lastRender = -Infinity;
+  let visualsTarget, visualsSetter;
+  function connectVisuals() {
+    const visuals = window.__aiEngineVisuals;
+    if (typeof visuals?.setHeightSampler === 'function' && (visuals !== visualsTarget || visuals.setHeightSampler !== visualsSetter)) {
+      visuals.setHeightSampler(heightAt);
+      visualsTarget = visuals; visualsSetter = visuals.setHeightSampler;
+    }
+  }
   const textureBytes = new Uint8Array(64 * 64 * 4);
   let seed = 7331;
   for (let i = 0; i < textureBytes.length; i += 4) {
@@ -192,7 +200,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
   function update(camera, now = performance.now()) {
     if(camera.far!==6000) {camera.far=6000; camera.updateProjectionMatrix();}
     world.fog.near=1800; world.fog.far=4500;
-    if(now-lastPoll>=500) {lastPoll=now; physicsTiles().catch(onError);}
+    if(now-lastPoll>=500) {lastPoll=now; connectVisuals(); physicsTiles().catch(onError);}
     if(now-lastRender>=250) {
       lastRender=now;
       const nearest=[...chunks].sort((a,b)=>distance(a)-distance(b));
@@ -238,5 +246,5 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     return first ? first.offset[1]+coarseHeight(first.map,x-first.offset[0],z-first.offset[2]) : 0;
   }
   const api={preload:physicsTiles,update,heightAt,stats,physicsHeightAt:(x,z)=>game.terrain_height(x,z)};
-  window.__aiTerrain=api; return api;
+  window.__aiTerrain=api; connectVisuals(); return api;
 }
