@@ -21,7 +21,7 @@ fn on_tick(ctx, dt) {
         let dx = position[0] - target[0];
         let dy = position[1] - target[1];
         let dz = position[2] - target[2];
-        if dx * dx + dy * dy + dz * dz < 0.36 {
+        if dx * dx + dy * dy + dz * dz < 0.81 {
             ctx.remove(coin);
             ctx.state_set("score", ctx.state_get("score") + 1);
             ctx.log("Münze gesammelt");

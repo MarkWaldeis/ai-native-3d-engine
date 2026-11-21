@@ -77,6 +77,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
     assert_eq!(report["scripts"], 2);
     for path in [
         "index.html",
+        "favicon.svg",
         "player.js",
         "nature.js",
         "nature-settings.js",

@@ -5,7 +5,9 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {installClock, verifyLantern, verifyLanternTouch} from './lantern_maze/browser.mjs';
 import {verifyGraphics} from './verify_web_graphics.mjs';
-const {chromium} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const {chromium,webkit,devices} = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
+const engine=process.env.BROWSER_ENGINE || 'chromium';
+assert.ok(['chromium','webkit'].includes(engine),'BROWSER_ENGINE must be chromium or webkit');
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const site = path.resolve(process.argv[2] || 'target/m9-site');
 const native = JSON.parse(await fs.readFile(process.argv[3] || 'target/web-native.json', 'utf8'));
@@ -27,7 +29,7 @@ const server = http.createServer(async (req,res) => {
     let file = path.resolve(site, '.' + decodeURIComponent(new URL(req.url, 'http://localhost').pathname));
     if (!file.startsWith(site + path.sep)) throw new Error('outside site');
     if ((await fs.stat(file)).isDirectory()) file = path.join(file, 'index.html');
-    res.setHeader('Content-Type', ({'.wasm':'application/wasm','.js':'text/javascript','.json':'application/json','.html':'text/html','.css':'text/css','.glb':'model/gltf-binary'})[path.extname(file)] || 'application/octet-stream');
+    res.setHeader('Content-Type', ({'.svg':'image/svg+xml','.wasm':'application/wasm','.js':'text/javascript','.json':'application/json','.html':'text/html','.css':'text/css','.glb':'model/gltf-binary'})[path.extname(file)] || 'application/octet-stream');
     res.end(await fs.readFile(file));
   } catch { res.writeHead(404); res.end('Not found'); }
 });
@@ -36,10 +38,14 @@ const base = `http://127.0.0.1:${server.address().port}`;
 let browser;
 const errors = [];
 try {
-  browser = await chromium.launch({...(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {}),args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-  await verifyGraphics(browser, base, errors, shots);
-  for (const game of games) {
-    const page = await browser.newPage({viewport:{width:1100,height:800}});
+  try {browser = engine==='webkit' ? await webkit.launch() : await chromium.launch({...(process.env.CHROME_PATH ? {executablePath:process.env.CHROME_PATH} : {}),args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});}
+  catch(error){throw new Error(`${engine} release checks cannot run. Install the pinned Playwright browser and OS dependencies (playwright install --with-deps ${engine}); no browser fallback or silent skip is allowed. ${error.message}`);}
+  if(engine==='chromium')await verifyGraphics(browser, base, errors, shots);
+  const profiles=engine==='webkit'?['iPhone 13','iPad Pro 11']:[null];
+  for (const {game,profile} of profiles.flatMap(profile=>games.map(game=>({game,profile})))) {
+    const pageShots=profile?path.join(shots,profile.replaceAll(' ','-')):shots;
+    await fs.mkdir(pageShots,{recursive:true});
+    const page = await browser.newPage(profile?{...devices[profile],deviceScaleFactor:1}:{viewport:{width:1100,height:800}});
     page.setDefaultTimeout(120000);
     page.on('pageerror', error => errors.push(`${game}: ${error.message}`));
     page.on('response', response => {if (response.status()>=400) errors.push(`${response.status()} ${response.url()}`);});
@@ -85,8 +91,10 @@ try {
         assert.deepEqual(result,native[name],`${name}: native simulate / exported WASM mismatch`);
         console.log(`PASS parity ${name}: win_tick=${result.win_tick}; ${result.checkpoints.length} score/checkpoint/rescue samples match native simulate`);
       }
-      await page.getByRole('button',{name:'Spielen',exact:true}).click();
-      if(game==='lantern_maze'){await verifyLantern(page,shots);continue;}
+      const start=page.getByRole('button',{name:'Spielen',exact:true});
+      if(profile)await start.tap();else await start.click();
+      await page.locator('#modal').waitFor({state:'hidden'});
+      if(game==='lantern_maze'){await verifyLantern(page,pageShots);console.log(`PASS ${engine}/${profile||'desktop'}/lantern_maze: first activation, win + restart`);continue;}
       const advance = count => page.evaluate(n=>{advanceFrames(n);return snapshot;},count);
       let snapshot = await advance(2);
       async function until(predicate,label,max=900) {
@@ -129,18 +137,19 @@ try {
       }
       assert.equal(snapshot.state.score,3);
       assert.equal(await page.locator('#modal-title').innerText(),'Gewonnen!');
-      await page.screenshot({path:path.join(shots,`${game}-win.png`)});
+      await page.screenshot({path:path.join(pageShots,`${game}-win.png`)});
       await page.getByRole('button',{name:'Nochmal spielen',exact:true}).click();
       await page.locator('#modal').waitFor({state:'hidden'}); snapshot=await advance(2);
       assert.equal(snapshot.state.score,0); assert.equal(snapshot.state.won,false);
       assert.ok(snapshot.tick>0,'win restart must resume simulation');
       assert.equal(await page.locator('#modal').isHidden(),true,'win restart must not show a graphics error');
       console.log(`PASS player ${game}: actual exported WASM, keyboard win, off-platform rescue, pause freezes ticks, pause-Neustart and win restart`);
+      console.log(`PASS ${engine}/${profile||'desktop'}/${game}: first activation, win + restart`);
     } catch(error) {
-      await page.screenshot({path:path.join(shots,`${game}-failure.png`)}).catch(()=>{}); throw error;
+      await page.screenshot({path:path.join(pageShots,`${game}-failure.png`)}).catch(()=>{}); throw error;
     } finally {await page.close();}
   }
-  await verifyLanternTouch(browser,base,shots,errors);
+  if(engine==='chromium')await verifyLanternTouch(browser,base,shots,errors);
   assert.deepEqual(errors,[],'browser exceptions or HTTP failures');
   console.log('PASS release browser: no page errors or failed asset responses; external requests blocked');
 } finally {await browser?.close();await new Promise(resolve=>server.close(resolve));}
