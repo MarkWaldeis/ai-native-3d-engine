@@ -91,7 +91,8 @@ Intensity is measured in candela (0–1000); zero disables the light. Range is
 in metres (0.25–64). The optional offset is in the entity's local coordinates.
 Lights follow moving entities and illuminate PBR surfaces, but do not cast
 shadows. The web player renders the closest 2, 4 or 8 lights for low, balanced
-or ultra, so the GPU light count remains bounded in large scenes.
+or ultra. Streamed worlds select around the player rather than the distant
+follow camera, so nearby fixtures stay lit without increasing the GPU budget.
 
 These settings affect browser rendering only. They don't change native
 screenshots or the deterministic simulation.

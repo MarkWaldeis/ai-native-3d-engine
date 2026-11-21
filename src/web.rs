@@ -68,6 +68,10 @@ const PLAYER_FILES: &[(&str, &str)] = &[
         "controls.js",
         include_str!("../crates/engine-web/player/controls.js"),
     ),
+    ("fps.js", include_str!("../crates/engine-web/player/fps.js")),
+    ("fps_core.js", include_str!("../crates/engine-web/player/fps_core.js")),
+    ("fx.js", include_str!("../crates/engine-web/player/fx.js")),
+    ("hud.js", include_str!("../crates/engine-web/player/hud.js")),
     (
         "vendor/three.module.js",
         include_str!("../crates/engine-web/player/vendor/three.module.js"),
@@ -268,6 +272,23 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
                 if !assets.contains_key(&original){let file=engine_core::project_path(&root,Path::new(&original))?;let bytes=std::fs::read(file)?;embedded_glb(&bytes)?;let target=content_asset(bytes,&mut files,&mut content);assets.insert(original.clone(),target);}
                 *path=json!(assets[&original]);
             }
+        }
+        if let Some(original) = entity.props.get("ai_viewmodel").and_then(Value::as_str).filter(|p| !p.is_empty()).map(str::to_owned) {
+            if !assets.contains_key(&original) {
+                let file = [root.join(&original), root.join("assets").join(&original)]
+                    .into_iter()
+                    .find(|p| p.is_file())
+                    .with_context(|| format!("missing ai_viewmodel GLB: {original}"))?
+                    .canonicalize()?;
+                if !file.starts_with(&root) {
+                    bail!("ai_viewmodel path escapes project root: {original}");
+                }
+                let bytes = std::fs::read(&file)?;
+                embedded_glb(&bytes).with_context(|| format!("{} must be a self-contained GLB", file.display()))?;
+                let target = content_asset(bytes, &mut files, &mut content);
+                assets.insert(original.clone(), target);
+            }
+            entity.props["ai_viewmodel"] = json!(assets[&original]);
         }
     }
     let has_environment = bundle_environment(&mut scene, &root, &mut files)?;
