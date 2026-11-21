@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from '../crates/engine-web/player/vendor/three.module.js';
-import {createTerrain, decodeHeights, sampleTile, terrainLOD, TileQueue} from '../crates/engine-web/player/terrain.js';
+import {createTerrain, decodeHeights, sampleTile, terrainLOD, terrainReach, drainTerrainWork, TileQueue} from '../crates/engine-web/player/terrain.js';
 
 function heightfield(magic,n,value) {
   const bytes=new Uint8Array(12+n*n*2), view=new DataView(bytes.buffer);
@@ -30,6 +30,9 @@ async function terrainFixture(t,{size=[3,3],tile=2,samples=3,entities,game={},fa
 
 test('coarse and full-resolution meshes cover padded edge tiles like Rapier', async t=>{
   const {api,world,errors}=await terrainFixture(t);
+  const camera=new THREE.PerspectiveCamera(90,1,0.1,2000);camera.position.set(2,150,2);camera.lookAt(2,0,2);
+  assert.equal(world.children.length,0);
+  for(let i=0;i<4;i++)api.update(camera,i);
   const assertBounds=()=>{
     assert.equal(world.children.length,4);
     for(const mesh of world.children) {
@@ -40,9 +43,8 @@ test('coarse and full-resolution meshes cover padded edge tiles like Rapier', as
     assert.equal(Math.max(...world.children.map(m=>m.position.x+m.geometry.boundingBox.max.x)),4);
   };
   assertBounds();
-  api.update(new THREE.PerspectiveCamera(),0);
   await new Promise(resolve=>setImmediate(resolve));
-  api.update(new THREE.PerspectiveCamera(),500);
+  for(let i=0;i<4;i++){api.update(camera,500+i);for(const mesh of world.children)if(mesh.visible)mesh.onBeforeRender();}
   const fine=world.children.filter(m=>m.visible);
   assert.equal(fine.length,4);
   for(const mesh of fine) {
@@ -78,9 +80,10 @@ test('occlusion hides coarse and full tile meshes and restores visibility next f
 
 test('terrain micro-relief is off by default, bounded and shares a shader across enabled strengths', async t => {
   const strengths = [undefined, -1, '0.5', 0.5, 2];
-  const {world} = await terrainFixture(t, {size:[2,2],entities:strengths.map(ai_terrain_detail => ({
+  const {api,world} = await terrainFixture(t, {size:[2,2],entities:strengths.map(ai_terrain_detail => ({
     props:{ai_terrain:'terrain.json',ai_terrain_detail},
   }))});
+  for(let i=0;i<5;i++)api.update(new THREE.PerspectiveCamera(),i);
   const keys = world.children.map(({material}) => material.customProgramCacheKey());
   assert.equal(new Set(keys.slice(0,3)).size,1);
   assert.equal(keys[3],keys[4]);
@@ -96,10 +99,10 @@ test('terrain micro-relief is off by default, bounded and shares a shader across
 test('odd tile widths keep exact LOD edge samples and finite skirt positions',async t=>{
   for(const samples of [129,130]) await t.test(`${samples} samples`,async t=>{
     const {api,world,errors}=await terrainFixture(t,{size:[100.1,100.1],tile:100.1,samples});
-    const camera=new THREE.PerspectiveCamera();camera.position.set(50.05,10,50.05);
+    const camera=new THREE.PerspectiveCamera();camera.position.set(50.05,150,50.05);camera.lookAt(50.05,75,50.05);
     api.update(camera,0);await new Promise(resolve=>setImmediate(resolve));
-    for(const [index,distance] of [0,300,600,1100].entries()) {
-      camera.position.x=50.05+distance;api.update(camera,(index+1)*500);
+    for(const [index,distance] of [0,300,600,850].entries()) {
+      camera.position.x=50.05+distance;camera.lookAt(50.05,75,50.05);api.update(camera,(index+1)*500);
       const mesh=world.children.find(mesh=>mesh.visible),positions=mesh.geometry.attributes.position;
       const stride=2**index,n=Math.ceil((samples-1)/stride)+1;
       assert.equal(positions.count,n*n+4*(n-1));
@@ -115,6 +118,7 @@ test('odd tile widths keep exact LOD edge samples and finite skirt positions',as
 test('coarse edge meshes preserve the grid slope up to the real edge and stay clamped beyond it',async t=>{
   const coarseValues=[0,2,3].flatMap(z=>[0,2,3].map(x=>Math.round((x+z)/6*65535)));
   const {api,world}=await terrainFixture(t,{coarseValues});
+  for(let i=0;i<4;i++)api.update(new THREE.PerspectiveCamera(),i);
   world.updateMatrixWorld(true);
   for(const [x,z] of [[2.25,.5],[2.9,2.6],[.4,2.8],[3,3],[3.5,3.5]]) {
     const ray=new THREE.Raycaster(new THREE.Vector3(x,1000,z),new THREE.Vector3(0,-1,0));
@@ -177,6 +181,29 @@ test('terrain sampling uses the native triangle diagonal and clamps to tile', ()
 test('LOD hysteresis prevents oscillation and supports all four strides', () => {
   assert.equal(terrainLOD(0),1); assert.equal(terrainLOD(300),2); assert.equal(terrainLOD(600),4); assert.equal(terrainLOD(1100),8);
   assert.equal(terrainLOD(190,1),1); assert.equal(terrainLOD(160,2),2); assert.equal(terrainLOD(140,2),1);
+});
+test('nearest terrain work has count and time budgets, including empty and failed jobs',()=>{
+  const jobs=[{distance:30},{distance:1},{distance:8}],seen=[];
+  assert.equal(drainTerrainWork(jobs,j=>seen.push(j.distance),2,3,()=>0),2);
+  assert.deepEqual(seen,[1,8]);assert.equal(jobs.length,1);
+  let now=0;
+  assert.equal(drainTerrainWork([{distance:0},{distance:1}],()=>{now+=4;},2,3,()=>now),1);
+  assert.equal(drainTerrainWork([],()=>assert.fail()),0);
+  assert.throws(()=>drainTerrainWork([{distance:1}],()=>{throw new Error('build failed');}),/build failed/);
+});
+test('terrain reach is quality dependent and never exceeds the authored far plane',()=>{
+  assert.deepEqual([0,1,2].map(q=>terrainReach(600,q)),[320,480,600]);
+  assert.equal(terrainReach(100,2),100);assert.equal(terrainReach(2000,2),900);
+});
+test('lazy coarse geometry is cheaper than the farthest detailed LOD and activation is budgeted across turns',async t=>{
+  const {api,world}=await terrainFixture(t,{size:[2048,2048],tile:256,samples:33});
+  const camera=new THREE.PerspectiveCamera(120,1,0.1,600);camera.position.set(1024,200,1024);camera.lookAt(1024,0,0);
+  assert.equal(world.children.length,0);api.update(camera,0);
+  assert.ok(world.children.length<=2);assert.ok(api.stats().terrainActivations<=2);assert.equal(camera.far,600);
+  const coarse=world.children[0];assert.ok(coarse.geometry.index.count/3<64);
+  for(let i=0;i<12;i++){api.update(camera,i);assert.ok(api.stats().terrainBuilds<=2);assert.ok(api.stats().terrainActivations<=2);for(const mesh of world.children)if(mesh.visible)mesh.onBeforeRender();}
+  camera.lookAt(1024,0,2048);api.update(camera,20);assert.ok(api.stats().terrainActivations<=2);
+  world.fog=null;assert.doesNotThrow(()=>api.update(camera,21));
 });
 test('queue limits concurrency, deduplicates, evicts LRU and retries errors', async () => {
   let active=0,max=0,calls=0;

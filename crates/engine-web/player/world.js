@@ -114,6 +114,7 @@ export class StreamingWorld {
     this.hlod = config.hlod ? new HLOD(scene,config) : null;
     this.grid = new ChunkGrid(this.gridConfig); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
+    this.activeBuilds=0;
   }
   hideProxied(group, hidden = true) {
     for (const child of group.children) if (child.isInstancedMesh) child.visible = !hidden || !this.hlod.entities.has(child.userData.items[0].e.id);
@@ -315,7 +316,13 @@ export class StreamingWorld {
         if (!group.visible) this.occludedChunks++;
       }
     }
-    for (const key of this.dirty) if (this.grid.loaded.has(key)) { this.dirty.delete(key); const task = this.rebuild(key); tasks.push(task); task.catch(error => { console.error(error); }); }
+    const size=this.config.chunk_size;
+    const distance=key=>{const [x,z]=key.split(',').map(Number);return Math.hypot((x+0.5)*size-camera.position.x,(z+0.5)*size-camera.position.z);};
+    const pending=[...this.dirty].filter(key=>this.grid.loaded.has(key) && !this.builds.has(key)).sort((a,b)=>distance(a)-distance(b));
+    for (const key of pending.slice(0,Math.max(0,Math.min(2,2-this.activeBuilds)))) {
+      this.dirty.delete(key);this.activeBuilds++;
+      const task=this.rebuild(key).finally(()=>{this.activeBuilds--;});tasks.push(task);task.catch(error=>console.error(error));
+    }
     return tasks;
   }
   support(position) {

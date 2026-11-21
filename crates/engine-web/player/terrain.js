@@ -29,6 +29,19 @@ export function terrainLOD(distance, previous = null) {
   return 2 ** limits.filter(limit => distance > limit).length;
 }
 
+export function terrainReach(far, quality = 2) {
+  return Math.min(far, [320,480,900][quality] ?? 900);
+}
+
+export function drainTerrainWork(jobs, work, limit = 2, milliseconds = 3, clock = () => performance.now()) {
+  jobs.sort((a,b)=>a.distance-b.distance);
+  const start=clock();let count=0;
+  while(jobs.length && count<limit && (count===0 || clock()-start<milliseconds)) {
+    work(jobs.shift());count++;
+  }
+  return count;
+}
+
 export class TileQueue {
   constructor(fetchBytes, limit = 6, capacity = 128) {
     this.fetchBytes = fetchBytes; this.limit = limit; this.capacity = capacity;
@@ -81,7 +94,8 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
   const queue = new TileQueue(fetchBytes), maps = new Map(), chunks = [], decoded = new Map(), indices = new Map(), layers = [];
   const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
   let occluder, occludedTerrainTiles=0;
-  let lastPoll = -Infinity, lastRender = -Infinity;
+  let lastPoll = -Infinity, terrainBuilds=0, terrainActivations=0;
+  const fog=world.fog, authoredFog=fog && {density:fog.density,near:fog.near,far:fog.far};
   let visualsTarget, visualsSetter;
   function connectVisuals() {
     const visuals = window.__aiEngineVisuals;
@@ -115,7 +129,6 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     terrainSurface(THREE, material, water, detail, entity.props.ai_terrain_detail);
     for (let z = 0; z < map.manifest.grid[1]; z++) for (let x = 0; x < map.manifest.grid[0]; x++) {
       const chunk = {map, x, z, offset, material, visible: layer.visible, mesh: null, stride: null};
-      if(chunk.visible) {chunk.coarse = buildMesh(chunk, null, 1); world.add(chunk.coarse);}
       chunks.push(chunk); layer.chunks.push(chunk);
     }
     if (layer.visible) layers.push(layer);
@@ -143,7 +156,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
   function buildMesh(chunk, heights, stride) {
     const {map,x,z,offset,material} = chunk, c = map.manifest.config;
     const width = c.tile_m, depth = c.tile_m;
-    const step = heights ? c.tile_m/(c.samples-1)*stride : map.manifest.coarse.step;
+    const step = heights ? c.tile_m/(c.samples-1)*stride : Math.max(map.manifest.coarse.step,c.tile_m/2);
     function axisPositions(tile, size) {
       if(heights) {
         const values=[];
@@ -202,6 +215,7 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     const geometry=new THREE.BufferGeometry();
     geometry.setAttribute('position',new THREE.Float32BufferAttribute(positions,3)); geometry.setAttribute('normal',new THREE.Float32BufferAttribute(normals,3)); geometry.setIndex(indices.get(indexKey)); geometry.computeBoundingSphere(); geometry.computeBoundingBox();
     const mesh=new THREE.Mesh(geometry,material); mesh.position.set(offset[0]+x*c.tile_m,offset[1],offset[2]+z*c.tile_m); mesh.receiveShadow=true;
+    mesh.visible=false;mesh.onBeforeRender=()=>{mesh.userData.terrainUploaded=true;};
     return mesh;
   }
   async function physicsTiles() {
@@ -238,50 +252,60 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     mesh.geometry.dispose();
   }
   function update(camera, now = performance.now()) {
-    if(chunks.some(chunk=>chunk.visible)) {
-      if(camera.far!==6000) {camera.far=6000; camera.updateProjectionMatrix();}
-      world.fog.near=1800; world.fog.far=4500;
-    }
     if(now-lastPoll>=500) {lastPoll=now; connectVisuals(); physicsTiles().catch(onError);}
-    if(now-lastRender>=250) {
-      lastRender=now;
-      const nearest=chunks.filter(chunk=>chunk.visible).sort((a,b)=>distance(a)-distance(b));
-      function distance(chunk) {const c=chunk.map.manifest.config; return Math.hypot(camera.position.x-chunk.offset[0]-(chunk.x+0.5)*c.tile_m,camera.position.z-chunk.offset[2]-(chunk.z+0.5)*c.tile_m);}
-      for(const chunk of nearest) {
-        const d=distance(chunk); chunk.coarse.visible=d<4800;
-        if(d>1350 && chunk.mesh) {disposeTile(chunk.mesh); chunk.mesh=null; chunk.stride=null;}
-        if(d<=1200) {
-          const stride=terrainLOD(d,chunk.stride), id=key(chunk.map,chunk.x,chunk.z);
-          const data=decoded.get(id);
-          if(data) {decoded.delete(id); decoded.set(id,data);}
-          if(data && (!chunk.mesh || chunk.stride!==stride)) {
-            if(chunk.mesh) disposeTile(chunk.mesh);
-            chunk.mesh=buildMesh(chunk,data,stride); chunk.stride=stride; world.add(chunk.mesh);
-          } else if(!data && !chunk.fetching && !chunk.mesh) {
-            chunk.fetching=true;
-            queue.get(tileURL(chunk.map,chunk.x,chunk.z)).then(bytes=>tileData(chunk.map,chunk.x,chunk.z,bytes)).catch(onError).finally(()=>{chunk.fetching=false;});
-          }
-        }
-        if(chunk.mesh) chunk.coarse.visible=false;
+    const quality=Number(world.userData.terrainQuality?.() ?? 2),reach=terrainReach(camera.far,quality);
+    if(chunks.some(chunk=>chunk.visible) && fog) {
+      if(fog.isFogExp2) fog.density=Math.max(authoredFog.density,Math.sqrt(-Math.log(0.01))/(reach*0.9));
+      else if(fog.isFog) {fog.near=Math.min(authoredFog.near,reach*0.55);fog.far=Math.min(authoredFog.far,reach*0.9);}
+    }
+    const jobs=[];let fetches=0;
+    const nearest=chunks.filter(chunk=>chunk.visible).map(chunk=>{
+      const c=chunk.map.manifest.config,x=chunk.offset[0]+chunk.x*c.tile_m,z=chunk.offset[2]+chunk.z*c.tile_m;
+      return {chunk,distance:Math.hypot(Math.max(x-camera.position.x,0,camera.position.x-x-c.tile_m),Math.max(z-camera.position.z,0,camera.position.z-z-c.tile_m))};
+    }).sort((a,b)=>a.distance-b.distance);
+    for(const job of nearest) {
+      const {chunk,distance:d}=job;
+      if(chunk.mesh)chunk.mesh.visible=false;
+      if(d>reach) {
+        if(d>reach+chunk.map.manifest.config.tile_m && chunk.mesh) {disposeTile(chunk.mesh);chunk.mesh=null;chunk.stride=null;}
+        continue;
+      }
+      const c=chunk.map.manifest.config;
+      const centerDistance=Math.hypot(camera.position.x-chunk.offset[0]-(chunk.x+0.5)*c.tile_m,camera.position.z-chunk.offset[2]-(chunk.z+0.5)*c.tile_m);
+      const stride=terrainLOD(centerDistance,chunk.stride),id=key(chunk.map,chunk.x,chunk.z),data=decoded.get(id);
+      if(!chunk.mesh || (data && chunk.stride!==stride)) jobs.push({...job,data,stride});
+      if(!data && !chunk.fetching && fetches<2 && chunk.stride!==stride) {
+        fetches++;chunk.fetching=true;
+        queue.get(tileURL(chunk.map,chunk.x,chunk.z)).then(bytes=>tileData(chunk.map,chunk.x,chunk.z,bytes)).catch(onError).finally(()=>{chunk.fetching=false;});
       }
     }
+    terrainBuilds=drainTerrainWork(jobs,({chunk,data,stride})=>{
+      const mesh=buildMesh(chunk,data,data?stride:1);
+      if(chunk.mesh)disposeTile(chunk.mesh);
+      chunk.mesh=mesh;chunk.stride=data?stride:null;world.add(mesh);
+    });
     camera.updateMatrixWorld();
     frustum.setFromProjectionMatrix(viewProjection.multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+    const activations=[];
     occludedTerrainTiles=0;
-    for(const chunk of chunks) {
-      if(!chunk.visible) {chunk.inView=false; continue;}
-      const mesh=chunk.mesh||chunk.coarse;
-      const c=chunk.map.manifest.config;
-      mesh.visible=!!chunk.mesh || Math.hypot(camera.position.x-chunk.offset[0]-(chunk.x+0.5)*c.tile_m,camera.position.z-chunk.offset[2]-(chunk.z+0.5)*c.tile_m)<4800;
-      mesh.updateMatrixWorld(); chunk.inView=mesh.visible && frustum.intersectsObject(mesh);
+    for(const {chunk,distance} of nearest) {
+      chunk.inView=false;
+      const mesh=chunk.mesh;
+      if(!mesh || distance>reach)continue;
+      mesh.updateMatrixWorld(); chunk.inView=frustum.intersectsObject(mesh);
       const box=mesh.geometry.boundingBox.clone().translate(mesh.position);
       if(chunk.inView && occluder?.occluded(chunk,camera.position,box)) {mesh.visible=false;chunk.inView=false;occludedTerrainTiles++;}
+      if(chunk.inView) {
+        if(mesh.userData.terrainUploaded)mesh.visible=true;
+        else {chunk.inView=false;activations.push({chunk,distance});}
+      }
     }
+    terrainActivations=drainTerrainWork(activations,({chunk})=>{chunk.mesh.visible=true;chunk.inView=true;});
     Object.assign(engineStats,stats());
   }
   function stats() {
     const visible=chunks.filter(c=>c.inView);
-    return {occludedTerrainTiles,terrainTilesLoaded:decoded.size,terrainTilesVisible:visible.length,terrainTriangles:visible.reduce((n,c)=>n+(c.mesh||c.coarse).geometry.index.count/3,0),terrainPendingFetches:queue.pending.size,terrainBytesFetched:queue.bytes};
+    return {terrainBuilds,terrainActivations,occludedTerrainTiles,terrainTilesLoaded:decoded.size,terrainTilesVisible:visible.length,terrainTriangles:visible.reduce((n,c)=>n+c.mesh.geometry.index.count/3,0),terrainPendingFetches:queue.pending.size,terrainBytesFetched:queue.bytes};
   }
   function heightAt(x,z) {
     for(const chunk of chunks) {
