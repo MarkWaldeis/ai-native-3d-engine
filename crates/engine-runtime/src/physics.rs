@@ -9,10 +9,15 @@ use shared::scene::{Entity, Scene, Transform};
 use std::collections::{BTreeMap, BTreeSet};
 use crate::terrain_stream::{TerrainSources, SharedTerrain};
 
+#[path = "physics_gameplay.rs"]
+mod gameplay;
+
 pub(crate) enum Force {
     Impulse(u64, [f32; 3]),
     Velocity(u64, [f32; 3]),
     Applied(u64, [f32; 3]),
+    Ragdoll(u64, bool),
+    Hit(u64, String, [f32; 3]),
 }
 
 pub(crate) struct Physics {
@@ -30,9 +35,11 @@ pub(crate) struct Physics {
     terrain: BTreeMap<u64, (String, SharedTerrain)>,
     pub(crate) terrain_sources: TerrainSources,
     terrain_handles: BTreeMap<(u64, u32, u32), ColliderHandle>,
+    terrain_owners: std::collections::HashMap<ColliderHandle, u64>,
     query: QueryPipeline,
     owners: std::collections::HashMap<RigidBodyHandle, u64>,
-    forced: BTreeSet<u64>,
+    forced: Vec<RigidBodyHandle>,
+    gameplay: gameplay::Gameplay,
 }
 
 #[derive(Serialize)]
@@ -41,6 +48,8 @@ pub(crate) struct RayHit {
     pub point: [f32; 3],
     pub normal: [f32; 3],
     pub distance: f32,
+    pub hitbox: Option<String>,
+    pub damage_multiplier: f64,
 }
 
 fn pose(t: &Transform) -> Isometry<Real> {
@@ -171,6 +180,7 @@ impl Physics {
             terrain: BTreeMap::new(),
             terrain_sources: Default::default(),
             terrain_handles: BTreeMap::new(),
+            terrain_owners: std::collections::HashMap::new(),
             pipeline: PhysicsPipeline::new(),
             islands: IslandManager::new(),
             broad: BroadPhaseMultiSap::new(),
@@ -183,7 +193,8 @@ impl Physics {
             handles: BTreeMap::new(),
             query: QueryPipeline::new(),
             owners: std::collections::HashMap::new(),
-            forced: BTreeSet::new(),
+            forced: Vec::new(),
+            gameplay: gameplay::Gameplay::default(),
         }
     }
 
@@ -192,7 +203,7 @@ impl Physics {
     }
 
     pub(crate) fn nav_bounds(&self) -> Vec<(u64, [f32; 3], [f32; 3])> {
-        self.colliders.iter().map(|(_, c)| {
+        self.colliders.iter().filter(|(_, c)| !c.is_sensor()).map(|(_, c)| {
             let a=c.compute_aabb();
             let id=c.parent().and_then(|p|self.owners.get(&p).copied()).unwrap_or(0);
             (id,[a.mins.x,a.mins.y,a.mins.z],[a.maxs.x,a.maxs.y,a.maxs.z])
@@ -220,7 +231,7 @@ impl Physics {
 
     /// Casts a ray against enabled, non-sensor colliders. `id` 0 means terrain/unowned.
     pub(crate) fn raycast(&self, origin: [f32; 3], dir: [f32; 3], max_dist: f32, exclude: Option<u64>) -> Option<RayHit> {
-        if !(max_dist > 0.0) || origin.iter().chain(&dir).any(|v| !v.is_finite()) {
+        if !max_dist.is_finite() || max_dist <= 0.0 || origin.iter().chain(&dir).any(|v| !v.is_finite()) {
             return None;
         }
         let direction = Vector::from(dir).try_normalize(1e-6)?;
@@ -229,40 +240,46 @@ impl Physics {
 
     fn query_filter<'a>(options: Filter, predicate: &'a impl Fn(ColliderHandle, &Collider) -> bool) -> QueryFilter<'a> {
         let mut filter = QueryFilter::new().predicate(predicate);
-        if !options.include_sensors {
-            filter = filter.exclude_sensors();
-        }
         if let Some(groups) = options.groups {
             filter = filter.groups(groups.into());
         }
         filter
     }
 
-    fn allowed(&self, handle: ColliderHandle, collider: &Collider, options: Filter) -> bool {
-        collider.is_enabled()
-            && collider.parent().map_or(true, |parent| self.bodies.get(parent).is_some_and(RigidBody::is_enabled))
-            && options.exclude.map_or(true, |id| id != self.owner(handle))
+    fn allowed(&self, handle: ColliderHandle, collider: &Collider, options: Filter, ray: bool) -> bool {
+        let owner = self.owner(handle);
+        let region = self.gameplay.hitboxes.get(&handle);
+        let ray_only = region.is_some_and(|region| region.ray_only);
+        (ray || !ray_only)
+            && (!ray || region.is_some() || !self.gameplay.named_owners.contains(&owner))
+            && (options.include_sensors || !collider.is_sensor() || ray_only)
+            && collider.is_enabled()
+            && collider.parent().is_none_or(|parent| self.bodies.get(parent).is_some_and(RigidBody::is_enabled))
+            && options.exclude != Some(owner)
     }
 
     fn owner(&self, collider: ColliderHandle) -> u64 {
-        self.colliders[collider]
-            .parent()
+        self.colliders.get(collider)
+            .and_then(Collider::parent)
             .and_then(|parent| self.owners.get(&parent).copied())
-            .or_else(|| self.terrain_handles.iter().find(|(_, h)| **h == collider).map(|(k, _)| k.0))
+            .or_else(|| self.terrain_owners.get(&collider).copied())
             .unwrap_or(0)
     }
 
     fn cast_ray(&self, origin: Point<Real>, direction: Vector<Real>, distance: f32, options: Filter) -> Option<RayHit> {
         let ray = Ray::new(origin, direction);
-        let allowed = |handle, collider: &Collider| self.allowed(handle, collider, options);
+        let allowed = |handle, collider: &Collider| self.allowed(handle, collider, options, true);
         let (collider, hit) = self.query.cast_ray_and_get_normal(
             &self.bodies, &self.colliders, &ray, distance, true, Self::query_filter(options, &allowed))?;
-        Some(RayHit {
-            id: self.owner(collider),
-            point: ray.point_at(hit.time_of_impact).into(),
-            normal: hit.normal.into(),
-            distance: hit.time_of_impact,
-        })
+        Some(self.hit(collider, ray.point_at(hit.time_of_impact), hit.normal, hit.time_of_impact))
+    }
+
+    fn hit(&self, collider: ColliderHandle, point: Point<Real>, normal: Vector<Real>, distance: f32) -> RayHit {
+        let region = self.gameplay.hitboxes.get(&collider);
+        RayHit {
+            id: self.owner(collider), point: point.into(), normal: normal.into(), distance,
+            hitbox: region.map(|r| r.name.clone()), damage_multiplier: region.map_or(1.0, |r| r.multiplier),
+        }
     }
 
     pub(crate) fn query(&self, name: &str, args: Query) -> Result<Value> {
@@ -272,19 +289,14 @@ impl Physics {
             return Ok(query_hit(self.cast_ray(Point::from(args.origin), direction, distance, args.filter)));
         }
         let shape = args.shape.as_ref().context("shape is required")?.build([1.0; 3], true)?;
-        let allowed = |handle, collider: &Collider| self.allowed(handle, collider, args.filter);
+        let allowed = |handle, collider: &Collider| self.allowed(handle, collider, args.filter, false);
         let filter = Self::query_filter(args.filter, &allowed);
         match name {
             "shape_cast" => {
                 let (direction, distance) = args.cast()?;
                 let hit = self.query.cast_shape(&self.bodies, &self.colliders, &pose, &direction, shape.as_ref(),
                     ShapeCastOptions::with_max_time_of_impact(distance), filter);
-                Ok(query_hit(hit.map(|(collider, hit)| RayHit {
-                    id: self.owner(collider),
-                    point: hit.witness1.into(),
-                    normal: hit.normal1.into_inner().into(),
-                    distance: hit.time_of_impact,
-                })))
+                Ok(query_hit(hit.map(|(collider, hit)| self.hit(collider, hit.witness1, hit.normal1.into_inner(), hit.time_of_impact))))
             }
             "overlap" => {
                 let mut ids = BTreeSet::new();
@@ -309,15 +321,8 @@ impl Physics {
             .collect();
         for id in removed {
             let handle = self.handles.remove(&id).unwrap();
-            self.owners.remove(&handle);
-            self.bodies.remove(
-                handle,
-                &mut self.islands,
-                &mut self.colliders,
-                &mut self.joints,
-                &mut self.multibody,
-                true,
-            );
+            self.remove_gameplay(id);
+            self.remove_body(handle);
         }
         for entity in &scene.entities {
             if self.handles.contains_key(&entity.id)
@@ -326,8 +331,7 @@ impl Physics {
                 continue;
             }
             let config = entity.rigidbody.clone().unwrap_or_default();
-            let extra: Config = entity.props.get("ai_physics").map(|v| serde_json::from_value(v.clone()))
-                .transpose().with_context(|| format!("entity {}: invalid ai_physics", entity.name))?.unwrap_or_default();
+            let extra = Config::from_entity(entity)?;
             extra.validate()?;
             let friction_rule = match entity.props.get("ai_friction_combine").and_then(|v| v.as_str()) {
                 None | Some("average") => CoefficientCombineRule::Average,
@@ -383,6 +387,7 @@ impl Physics {
                         .friction_combine_rule(friction_rule)
                         .restitution(config.restitution)
                         .collision_groups(extra.groups.into())
+                        .active_collision_types(if extra.sensor { ActiveCollisionTypes::all() } else { ActiveCollisionTypes::default() })
                         .sensor(extra.sensor)
                         .build(),
                     handle,
@@ -391,8 +396,15 @@ impl Physics {
             }
             self.handles.insert(entity.id, handle);
             self.owners.insert(handle, entity.id);
+            self.attach_gameplay(entity, handle, extra, config)?;
         }
+        self.reconcile_joints();
         Ok(())
+    }
+
+    fn remove_body(&mut self, handle: RigidBodyHandle) {
+        self.owners.remove(&handle);
+        self.bodies.remove(handle, &mut self.islands, &mut self.colliders, &mut self.joints, &mut self.multibody, true);
     }
 
     pub(crate) fn reconcile_terrain(&mut self, scene: &Scene) -> Result<()> {
@@ -403,6 +415,7 @@ impl Physics {
             .iter()
             .filter(|e| {
                 e.tags.iter().any(|t| t == "player")
+                    || self.ragdoll_active(e.id)
                     || e.rigidbody
                         .as_ref()
                         .is_some_and(|r| r.kind == BodyType::Dynamic)
@@ -438,9 +451,7 @@ impl Physics {
                     .copied()
                     .collect();
                 for key in keys {
-                    let h = self.terrain_handles.remove(&key).unwrap();
-                    self.colliders
-                        .remove(h, &mut self.islands, &mut self.bodies, true);
+                    self.remove_terrain_collider(key);
                 }
             }
             if !self.terrain.contains_key(&entity.id) {
@@ -494,8 +505,9 @@ impl Physics {
                     (z + config.tile_m / 2.0) as f32
                 ])
                 .build();
-                self.terrain_handles
-                    .insert(key, self.colliders.insert(collider));
+                let handle = self.colliders.insert(collider);
+                self.terrain_handles.insert(key, handle);
+                self.terrain_owners.insert(handle, entity.id);
             }
         }
         let removed: Vec<_> = self
@@ -505,34 +517,41 @@ impl Physics {
             .copied()
             .collect();
         for key in removed {
-            let h = self.terrain_handles.remove(&key).unwrap();
-            self.colliders
-                .remove(h, &mut self.islands, &mut self.bodies, true);
+            self.remove_terrain_collider(key);
         }
         self.terrain.retain(|id, _| live.contains(id));
         Ok(())
+    }
+
+    fn remove_terrain_collider(&mut self, key: (u64, u32, u32)) {
+        let handle = self.terrain_handles.remove(&key).unwrap();
+        self.terrain_owners.remove(&handle);
+        self.colliders.remove(handle, &mut self.islands, &mut self.bodies, true);
     }
 
     /// Enables/disables non-fixed bodies for the active region; returns whether any changed.
     pub(crate) fn apply_active(&mut self, inactive: &BTreeSet<u64>) -> bool {
         let mut changed = false;
         for (id, handle) in &self.handles {
+            let active_rig = self.ragdoll_active(*id);
             let body = &mut self.bodies[*handle];
-            let enabled = body.is_fixed() || !inactive.contains(id);
+            let enabled = !active_rig && (body.is_fixed() || !inactive.contains(id));
             if body.is_enabled() != enabled {
                 body.set_enabled(enabled);
                 if enabled { body.wake_up(true); }
                 changed = true;
             }
         }
-        changed
+        self.apply_ragdoll_active(inactive) || changed
     }
 
     /// Copies script-set transforms of `dirty` entities onto their bodies.
     pub(crate) fn apply_poses(&mut self, scene: &Scene, dirty: &BTreeSet<u64>) {
         for entity in &scene.entities {
             if dirty.contains(&entity.id) {
-                if let Some(handle) = self.handles.get(&entity.id) {
+                if self.ragdoll_active(entity.id) {
+                    self.move_ragdoll(entity.id, pose(&entity.transform));
+                } else if let Some(handle) = self.handles.get(&entity.id) {
                     self.bodies[*handle].set_position(pose(&entity.transform), true);
                 }
             }
@@ -546,34 +565,50 @@ impl Physics {
         dirty: &BTreeSet<u64>,
         forces: Vec<Force>,
         inactive: &BTreeSet<u64>,
-    ) -> Result<()> {
+    ) -> Result<Vec<Value>> {
         self.reconcile(scene)?;
-        self.apply_active(inactive);
         self.apply_poses(scene, dirty);
-        for id in std::mem::take(&mut self.forced) {
-            if let Some(handle) = self.handles.get(&id) {
-                self.bodies[*handle].reset_forces(false);
+        for handle in self.forced.drain(..) {
+            if let Some(body) = self.bodies.get_mut(handle) {
+                body.reset_forces(false);
             }
         }
         for force in forces {
-            let (id, value) = match force {
-                Force::Impulse(id, v) | Force::Velocity(id, v) | Force::Applied(id, v) => (id, v),
+            enum Mode { Impulse, Velocity, Force }
+            let (id, value, mode) = match force {
+                Force::Impulse(id, v) => (id, v, Mode::Impulse),
+                Force::Velocity(id, v) => (id, v, Mode::Velocity),
+                Force::Applied(id, v) => (id, v, Mode::Force),
+                Force::Ragdoll(id, active) => {
+                    if self.handles.contains_key(&id) {
+                        self.set_ragdoll(id, active)?;
+                    }
+                    continue;
+                }
+                Force::Hit(id, region, impulse) => {
+                    if let Some(handle) = self.ragdoll_part(id, &region) {
+                        self.bodies[handle].apply_impulse(Vector::from(impulse), true);
+                    }
+                    continue;
+                }
             };
-            if let Some(handle) = self.handles.get(&id) {
-                let body = &mut self.bodies[*handle];
+            let handle = self.ragdoll_part(id, "").or_else(|| self.handles.get(&id).copied());
+            if let Some(handle) = handle {
+                let body = &mut self.bodies[handle];
                 let vector = vector![value[0], value[1], value[2]];
-                match force {
-                    Force::Impulse(..) => body.apply_impulse(vector, true),
-                    Force::Velocity(..) => body.set_linvel(vector, true),
-                    Force::Applied(..) => {
+                match mode {
+                    Mode::Impulse => body.apply_impulse(vector, true),
+                    Mode::Velocity => body.set_linvel(vector, true),
+                    Mode::Force => {
                         body.add_force(vector, true);
-                        self.forced.insert(id);
+                        self.forced.push(handle);
                     }
                 }
             } else if scene.entities.iter().any(|e| e.id == id) {
                 bail!("entity {id} needs a rigidbody for impulse/velocity");
             }
         }
+        self.apply_active(inactive);
         let parameters = IntegrationParameters {
             dt: super::DT,
             ..Default::default()
@@ -594,8 +629,8 @@ impl Physics {
             &(),
         );
         for entity in &mut scene.entities {
-            if let Some(handle) = self.handles.get(&entity.id) {
-                let body = &self.bodies[*handle];
+            if let Some(handle) = self.ragdoll_part(entity.id, "").or_else(|| self.handles.get(&entity.id).copied()) {
+                let body = &self.bodies[handle];
                 if !body.is_enabled() { continue; }
                 entity.transform.position = [
                     body.translation().x,
@@ -606,13 +641,13 @@ impl Physics {
                 entity.transform.rotation_deg = [x.to_degrees(), y.to_degrees(), z.to_degrees()];
             }
         }
-        Ok(())
+        Ok(self.update_collision_events())
     }
 
     pub(crate) fn motion(&self) -> (BTreeMap<u64,[f32;3]>, BTreeSet<u64>) {
         let mut velocities=BTreeMap::new(); let mut grounded=BTreeSet::new();
         for (id,handle) in &self.handles {
-            let body=&self.bodies[*handle]; let v=body.linvel();
+            let body=&self.bodies[self.ragdoll_part(*id, "").unwrap_or(*handle)]; let v=body.linvel();
             velocities.insert(*id,[v.x,v.y,v.z]);
             for collider in body.colliders() {
                 if self.narrow.contact_pairs_with(*collider).any(|pair| pair.has_any_active_contact && pair.manifolds.iter().any(|manifold| {

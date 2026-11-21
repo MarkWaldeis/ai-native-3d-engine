@@ -1,0 +1,64 @@
+{
+  "name": "Physics Lab",
+  "camera": {"position":[7,5,9],"target":[0,1.4,0],"fov_deg":52},
+  "ambient": 0.5,
+  "entities": [
+    {
+      "id":1,"name":"Floor","kind":"box","size":[16,1,12],
+      "transform":{"position":[0,-0.5,0]},"color":[0.18,0.27,0.32,1],
+      "collider":{"shape":"box"}
+    },
+    {
+      "id":2,"name":"Humanoid target","kind":"box","size":[0.62,1.8,0.4],
+      "transform":{"position":[0,1,0]},"color":[0.9,0.35,0.18,1],
+      "collider":{"shape":"capsule","radius":0.23,"half_height":0.65},
+      "rigidbody":{"type":"kinematic","mass":11},
+      "props":{"ai_health":100,"ai_physics":{
+        "ragdoll":{"preset":"humanoid"},
+        "hitboxes":[
+          {"name":"head","position":[0,0.75,0],"shape":{"shape":"sphere","radius":0.18},"damage_multiplier":2},
+          {"name":"torso","shape":{"shape":"box","half_extents":[0.31,0.5,0.2]}}
+        ]
+      }}
+    },
+    {
+      "id":3,"name":"Lab controller","kind":"box","size":[1,1,1],"visible":false,
+      "props":{"ai_ui":{"title":"Physics Lab","mission":"Press Space or the action button to hit the target; press again to reset.",
+        "action_label":"Hit / Reset","hud_keys":["Hitbox","Health","Sensor"]}},
+      "script":"examples/physics_lab/lab.rhai"
+    },
+    {
+      "id":4,"name":"Sensor gate","kind":"box","size":[1.4,0.08,1.4],
+      "transform":{"position":[-2.5,1.65,0]},"color":[0.20,0.75,0.9,1],
+      "collider":{"shape":"box"},"props":{"ai_physics":{"sensor":true,"groups":{"memberships":2,"filter":4}}}
+    },
+    {
+      "id":5,"name":"Drop ball","kind":"sphere","radius":0.23,"segments":18,
+      "transform":{"position":[-2.5,3.5,0]},"color":[0.78,0.91,0.27,1],
+      "collider":{"shape":"sphere"},"rigidbody":{"type":"dynamic","restitution":0.35},
+      "props":{"ai_physics":{"ccd":true,"linear_damping":0.05,"groups":{"memberships":4}}}
+    },
+    {
+      "id":6,"name":"Hinge support","kind":"box","size":[0.8,0.2,0.7],
+      "transform":{"position":[2.4,2.6,0]},"color":[0.55,0.64,0.68,1],
+      "collider":{"shape":"box"}
+    },
+    {
+      "id":7,"name":"Pendulum","kind":"box","size":[0.25,1.4,0.25],
+      "transform":{"position":[2.4,1.9,0]},"color":[1,0.72,0.25,1],
+      "collider":{"shape":"box"},"rigidbody":{"type":"dynamic"},
+      "props":{"ai_physics":{"joints":[
+        {"type":"revolute","target":6,"axis":[1,0,0],"anchor":[0,0.7,0],"limits_deg":[-70,70]}
+      ]}},
+      "script":{"source":"fn on_start(ctx) { ctx.apply_impulse([0.0, 0.0, 1.5]); }"}
+    },
+    {
+      "id":8,"name":"Compound barrier","kind":"box","size":[2,0.35,0.3],
+      "transform":{"position":[0,0.2,2.8]},"color":[0.48,0.39,0.8,1],
+      "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
+        {"shape":"box","half_extents":[0.45,0.175,0.15],"position":[-0.55,0,0]},
+        {"shape":"box","half_extents":[0.45,0.175,0.15],"position":[0.55,0,0]}
+      ]}}}
+    }
+  ]
+}

@@ -114,24 +114,34 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
         {
             continue;
         }
-        if e.collider.is_none() && e.props["nav_geometry"] != true {
+        let physics = crate::physics_config::Config::from_entity(e)?;
+        if physics.sensor || physics.ragdoll.is_some()
+            || (physics.collider.is_none() && e.collider.is_none() && e.props["nav_geometry"] != true) {
             continue;
         }
         let mut e = e.clone();
-        e.collider.get_or_insert(Collider::Mesh);
-        let mut file_hash = String::new();
-        if let PrimitiveKind::Gltf { path } = &mut e.mesh {
-            let full = engine_core::project_path(root, Path::new(path))?;
-            file_hash = if let Some(h) = files.get(&full) {
-                h.clone()
-            } else {
-                let h = fingerprint(&std::fs::read(&full)?);
-                files.insert(full.clone(), h.clone());
-                h
-            };
-            *path = full.to_string_lossy().into_owned();
+        if let Some(props) = e.props.as_object_mut() {
+            props.remove("ai_physics");
         }
-        let shape = if matches!(e.mesh, PrimitiveKind::Gltf { .. }) {
+        let mut file_hash = String::new();
+        if physics.collider.is_none() {
+            e.collider.get_or_insert(Collider::Mesh);
+            if let PrimitiveKind::Gltf { path } = &mut e.mesh {
+                let full = engine_core::project_path(root, Path::new(path))?;
+                file_hash = if let Some(h) = files.get(&full) {
+                    h.clone()
+                } else {
+                    let h = fingerprint(&std::fs::read(&full)?);
+                    files.insert(full.clone(), h.clone());
+                    h
+                };
+                *path = full.to_string_lossy().into_owned();
+            }
+        }
+        let shape = if let Some(collider) = physics.collider {
+            e.props["ai_physics"] = json!({"collider":collider});
+            e.props["ai_physics"].clone()
+        } else if matches!(e.mesh, PrimitiveKind::Gltf { .. }) {
             json!({"kind":"gltf","content":file_hash})
         } else {
             serde_json::to_value(&e.mesh)?

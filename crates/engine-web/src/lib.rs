@@ -114,7 +114,7 @@ impl WebGame {
         let state = simulation.state_summary();
         self.transforms.retain(|id, _| current.contains(id));
         let combat = simulation.take_events();
-        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"],"animators":simulation.animator_states(),"nav_agents":simulation.nav_agent_states()});
+        let result = json!({"tick":state["tick"],"transforms":changed,"state":state["state"],"logs":state["logs"],"spawned":spawned,"removed":removed,"fx":combat["fx"],"events":combat["events"],"animators":simulation.animator_states(),"nav_agents":simulation.nav_agent_states(),"ragdolls":simulation.ragdoll_states()});
         self.known = current;
         Ok(result.to_string())
     }
@@ -124,6 +124,21 @@ impl WebGame {
 mod tests {
     use super::*;
     use serde_json::Value;
+    #[test]
+    fn bridge_reports_collision_events_and_ragdoll_poses() {
+        let mut game = WebGame::new();
+        let scene = json!({"entities":[
+            {"id":1,"name":"trigger","kind":"box","size":[5,5,5],
+                "collider":{"shape":"box"},"props":{"ai_physics":{"sensor":true}}},
+            {"id":2,"name":"ragdoll","kind":"box","size":[1,1,1],
+                "props":{"ai_physics":{"ragdoll":{"start_active":true}}}}
+        ]});
+        let initial: Value = serde_json::from_str(&game.load_inner(&scene.to_string(), "{}").unwrap()).unwrap();
+        let tick: Value = serde_json::from_str(&game.tick_inner("{}").unwrap()).unwrap();
+        assert_eq!(initial["ragdolls"][0]["parts"].as_array().unwrap().len(), 11);
+        assert_ne!(initial["ragdolls"][0]["parts"], tick["ragdolls"][0]["parts"]);
+        assert_eq!(tick["events"], json!([{"type":"sensor","phase":"started","a":1,"b":2}]));
+    }
     #[test]
     fn terrain_bridge_loads_streams_and_preserves_tiles_on_reload() {
         use engine_terrain::{Terrain, TerrainConfig, web::*};
