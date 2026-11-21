@@ -17,6 +17,23 @@ function texture() {
   return new THREE.CanvasTexture(canvas);
 }
 
+// Soft star-shaped flash: bright core, short spikes, fully transparent edges.
+export function flashTexture() {
+  const size = 64, half = size / 2, canvas = document.createElement('canvas'); canvas.width = canvas.height = size;
+  const context = canvas.getContext('2d'), glow = context.createRadialGradient(half, half, 0, half, half, half);
+  glow.addColorStop(0, '#fffbe8'); glow.addColorStop(0.18, '#ffd27acc'); glow.addColorStop(0.5, '#ff8a2440'); glow.addColorStop(1, '#ff6a0000');
+  context.fillStyle = glow; context.fillRect(0, 0, size, size);
+  context.globalCompositeOperation = 'lighter'; context.translate(half, half);
+  for (let i = 0; i < 6; i++) {
+    context.rotate(Math.PI / 3);
+    const spike = context.createLinearGradient(0, 0, half * 0.95, 0);
+    spike.addColorStop(0, '#ffe7a8aa'); spike.addColorStop(1, '#ff8a2400');
+    context.fillStyle = spike; context.beginPath(); context.moveTo(0, -2.5); context.lineTo(half * 0.95, 0); context.lineTo(0, 2.5); context.fill();
+  }
+  const map = new THREE.CanvasTexture(canvas); map.colorSpace = THREE.SRGBColorSpace;
+  return map;
+}
+
 class ParticleLayer {
   constructor(scene, size, capacity, map, blending) {
     this.capacity = capacity; this.pool = new SlotPool(capacity);

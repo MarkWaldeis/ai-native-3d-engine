@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyLook, combatCues, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
-import { ShooterFx } from './fx.js';
+import { ShooterFx, flashTexture } from './fx.js';
 import { ShooterHud } from './hud.js';
 import { loadAsset } from './world.js';
 
@@ -29,8 +29,8 @@ export class FirstPerson {
     const key = new THREE.DirectionalLight(0xfff0d8, 2.4); key.position.set(1, 2, 1); this.vmScene.add(key);
     this.weapon = new THREE.Group(); this.vmScene.add(this.weapon);
     this.rest = new THREE.Vector3(0.16, -0.15, -0.32);
-    const flashMaterial = new THREE.SpriteMaterial({ color: 0xffd08a, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true });
-    this.muzzleFlash = new THREE.Sprite(flashMaterial); this.muzzleFlash.scale.setScalar(0.16); this.muzzleFlash.visible = false;
+    const flashMaterial = new THREE.SpriteMaterial({ map: flashTexture(), blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false, transparent: true, toneMapped: false, fog: false });
+    this.muzzleFlash = new THREE.Sprite(flashMaterial); this.muzzleFlash.scale.setScalar(0.07); this.muzzleFlash.renderOrder = 10; this.muzzleFlash.visible = false;
     this.muzzleLight = new THREE.PointLight(0xffb060, 0, 2); this.vmScene.add(this.muzzleLight);
     if (this.config.viewmodel) {
       loadAsset(this.config.viewmodel).then(gltf => { const model = gltf.scene.clone(true); this.mountModel(model, true); }).catch(() => this.mountModel(this.fallbackRifle()));
@@ -56,7 +56,7 @@ export class FirstPerson {
       model.userData.muzzle = new THREE.Vector3(0, 0.02, -0.2 / model.scale.x);
     }
     model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
-    this.muzzleFlash.position.copy(model.userData.muzzle); this.weapon.add(this.muzzleFlash);
+    model.updateMatrix(); this.muzzleFlash.position.copy(model.userData.muzzle).applyMatrix4(model.matrix); this.weapon.add(this.muzzleFlash);
   }
   bind() {
     const listen = (target, type, fn, options) => target.addEventListener(type, fn, options);
@@ -155,6 +155,7 @@ export class FirstPerson {
     this.weapon.position.set(this.rest.x + bob.x, this.rest.y + bob.y - dip * 0.07 - (this.dead ? 0.5 : 0), this.rest.z + this.recoil * 0.05);
     this.weapon.rotation.set(this.recoil * 0.12 - dip * 0.35, bob.x * 2, dip * 0.45);
     this.muzzleFlash.visible = this.flash > 0; this.muzzleFlash.material.rotation = Math.random() * Math.PI;
+    if (this.muzzleFlash.visible) this.muzzleFlash.scale.setScalar(0.055 + Math.random() * 0.03);
     this.muzzleLight.intensity = this.flash > 0 ? 3 : 0;
     if (this.model) { const tip = this.model.userData.muzzle.clone(); this.model.localToWorld(tip); this.muzzleLight.position.copy(tip); }
   }
