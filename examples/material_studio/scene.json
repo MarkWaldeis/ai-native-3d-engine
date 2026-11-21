@@ -3,10 +3,9 @@
   "camera": {"position": [0, 5, 8], "target": [0, 1, -2], "fov_deg": 48},
   "entities": [
     {
-      "id": 1, "name": "gallery-floor", "kind": "box", "size": [13, 0.4, 11],
-      "transform": {"position": [0, -0.2, -1]}, "color": [0.033, 0.047, 0.067, 1],
-      "collider": {"shape": "box"}, "rigidbody": {"type": "static"},
-      "props": {"ai_material": {"metalness": 0.27, "roughness": 0.48}}
+      "id": 1, "name": "gallery-floor", "kind": "gltf", "path": "examples/material_studio/slate-floor.glb",
+      "transform": {"position": [0, -0.2, -1]},
+      "collider": {"shape": "mesh"}, "rigidbody": {"type": "static"}
     },
     {
       "id": 2, "name": "visitor", "kind": "sphere", "radius": 0.3, "segments": 48,
@@ -40,8 +39,8 @@
     {"id": 11, "name": "chrome", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [-3, 1.63, -1.15]}, "color": [0.82, 0.86, 0.9, 1], "props": {"ai_material": {"metalness": 1, "roughness": 0.09}}},
     {"id": 12, "name": "copper", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [-1, 1.63, -1.15]}, "color": [0.94, 0.43, 0.21, 1], "props": {"ai_material": {"metalness": 1, "roughness": 0.3}}},
     {"id": 13, "name": "lacquer", "kind": "sphere", "radius": 0.63, "segments": 64, "transform": {"position": [1, 1.63, -1.15]}, "color": [0.035, 0.19, 0.35, 1], "props": {"ai_material": {"metalness": 0.36, "roughness": 0.44, "clearcoat": 1, "clearcoat_roughness": 0.13}}},
-    {"id": 14, "name": "neon", "kind": "sphere", "radius": 0.59, "segments": 64, "transform": {"position": [3, 1.59, -1.15]}, "color": [0.05, 0.004, 0.06, 1], "props": {"ai_material": {"emissive": "#fc277d", "emissive_intensity": 2.7, "roughness": 0.35}}},
-    {"id": 15, "name": "left-lamp", "kind": "box", "size": [0.11, 1.7, 0.1], "transform": {"position": [-5.5, 0.85, -3.56]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#ffba76", "emissive_intensity": 4}}},
-    {"id": 16, "name": "right-lamp", "kind": "box", "size": [0.11, 1.7, 0.1], "transform": {"position": [5.5, 0.85, -3.56]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#5fcfff", "emissive_intensity": 4}}}
+    {"id": 14, "name": "neon", "kind": "sphere", "radius": 0.59, "segments": 64, "transform": {"position": [3, 1.59, -1.15]}, "color": [0.05, 0.004, 0.06, 1], "props": {"ai_material": {"emissive": "#fc277d", "emissive_intensity": 2.7, "roughness": 0.35}, "ai_light": {"color": "#fc277d", "intensity": 6, "range": 3.2}}},
+    {"id": 15, "name": "left-lamp", "kind": "box", "size": [0.11, 1.7, 0.1], "transform": {"position": [-5.5, 0.85, -3.56]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#ffba76", "emissive_intensity": 4}, "ai_light": {"color": "#ffba76", "intensity": 15, "range": 6, "offset": [0.15, 0, 0.12]}}},
+    {"id": 16, "name": "right-lamp", "kind": "box", "size": [0.11, 1.7, 0.1], "transform": {"position": [5.5, 0.85, -3.56]}, "color": [0, 0, 0, 1], "props": {"ai_material": {"emissive": "#5fcfff", "emissive_intensity": 4}, "ai_light": {"color": "#5fcfff", "intensity": 15, "range": 6, "offset": [-0.15, 0, 0.12]}}}
   ]
 }

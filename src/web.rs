@@ -50,6 +50,10 @@ const PLAYER_FILES: &[(&str, &str)] = &[
         include_str!("../crates/engine-web/player/materials.js"),
     ),
     (
+        "local-lights.js",
+        include_str!("../crates/engine-web/player/local-lights.js"),
+    ),
+    (
         "index.html",
         include_str!("../crates/engine-web/player/index.html"),
     ),

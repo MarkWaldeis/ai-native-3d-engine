@@ -2,8 +2,26 @@ import * as THREE from 'three';
 import { qualitySettings } from './presentation.js';
 import { HDRPipeline } from './hdr.js';
 import { applySky, loadEnvironment } from './sky.js';
+import { LocalLights } from './local-lights.js';
 import { NatureVisuals } from './nature.js';
 import { adaptQuality } from './nature-settings.js';
+
+export class ShadowGrid {
+  constructor(sunOffset, up) {
+    const basis = new THREE.Matrix4().lookAt(sunOffset, new THREE.Vector3(), up);
+    this.right = new THREE.Vector3().setFromMatrixColumn(basis, 0);
+    this.up = new THREE.Vector3().setFromMatrixColumn(basis, 1);
+  }
+
+  align(target, camera, mapSize) {
+    const x = target.dot(this.right), y = target.dot(this.up);
+    const stepX = (camera.right - camera.left) / mapSize.x;
+    const stepY = (camera.top - camera.bottom) / mapSize.y;
+    return target
+      .addScaledVector(this.right, Math.round(x / stepX) * stepX - x)
+      .addScaledVector(this.up, Math.round(y / stepY) * stepY - y);
+  }
+}
 
 export class GameEffects {
   constructor(renderer, scene, skyColor, graphics) {
@@ -11,6 +29,7 @@ export class GameEffects {
     renderer.shadowMap.autoUpdate = false; this.shadowFrame = 0;
     this.inverseRotation = new THREE.Quaternion();
     this.graphics = graphics;
+    this.localLights = graphics ? new LocalLights(scene) : null;
     this.level = graphics?.quality >= 0 ? graphics.quality : matchMedia('(pointer: coarse)').matches ? 1 : 2;
     this.startLevel = this.level; this.fast = 0;
     this.sunOffset = new THREE.Vector3(...(graphics?.sunDirection || [-6, 16, 9]));
@@ -28,6 +47,7 @@ export class GameEffects {
     this.sun = new THREE.DirectionalLight(graphics?.sunColor || 0xffe6b5, graphics?.sunIntensity ?? 3.2); this.sun.castShadow = this.sun.intensity > 0;
     Object.assign(this.sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 0.5, far: 55 });
     this.sun.shadow.normalBias = 0.045; this.sun.shadow.bias = -0.00015;
+    if (graphics) this.shadowGrid = new ShadowGrid(this.sunOffset, this.sun.shadow.camera.up);
     scene.add(this.sun, this.sun.target);
     if (!graphics) {
       const fill = new THREE.DirectionalLight(0x9fc8ff, 0.7); fill.position.set(4, 5, -8); scene.add(fill);
@@ -87,7 +107,11 @@ export class GameEffects {
     }
     this.particles = this.particles.slice(-96);
   }
-  reset() { this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = this.fast = 0; this.nature?.clearTiles(); }
+  reset() {
+    this.localLights?.reset();
+    this.nature?.clearTiles();
+    this.particles = []; this.points.geometry.setDrawRange(0,0); this.sampleTime = this.frames = this.slow = this.fast = 0;
+  }
   update(elapsed, objects, camera, active, frameElapsed = elapsed, shadowTarget) {
     this.time += elapsed;
     if (this.level > 0 || ++this.shadowFrame % 2 === 0) this.renderer.shadowMap.needsUpdate = true;
@@ -102,6 +126,7 @@ export class GameEffects {
     this.sun.target.position.copy(camera.position).addScaledVector(camera.getWorldDirection(new THREE.Vector3()), 10);
     this.sun.target.position.y = 0;
     if (shadowTarget) this.sun.target.position.copy(shadowTarget);
+    this.shadowGrid?.align(this.sun.target.position, this.sun.shadow.camera, this.sun.shadow.mapSize);
     this.sun.position.copy(this.sun.target.position).add(this.sunOffset);
     this.nature?.update(elapsed, camera);
     this.particles = this.particles.filter(p => p.age < 0.85);
