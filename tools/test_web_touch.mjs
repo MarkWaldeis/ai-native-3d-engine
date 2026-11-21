@@ -32,6 +32,17 @@ test('touch layout fits all anchors, safe areas and both joystick sides without 
   assert.deepEqual(layoutTouch(config, { width: 390, height: 844 }).map(p => p.id), ['joystick']);
 });
 
+test('look touch actions are hold-only so their integration does not depend on queued impulse frame duration', () => {
+  const parsed = parseTouchConfig({ buttons: [{ action: 'look_x', hold: false }, { action: 'look_y', hold: false }, { action: 'fire', hold: false }] });
+  assert.equal(parsed.warnings.length, 2); assert.match(parsed.warnings[0], /hold:true/);
+  assert.deepEqual(parsed.config.buttons.map(b => b.hold), [true, true, false]);
+  const state = new TouchState(parsed.config.buttons);
+  state.press(0, 1); state.press(1, 2); state.consume();
+  assert.deepEqual(state.sample(), { look_x: 1, look_y: 1 });
+  state.release(1); state.release(2); assert.deepEqual(state.sample(), {});
+  assert.deepEqual(parseTouchConfig({ buttons: [{ action: 'look_x' }, { action: 'look_y', hold: true }] }).warnings, []);
+});
+
 test('independent touch pointers retain held actions, queue short taps until a tick and cancel/reset safely', () => {
   const state = new TouchState([{ action: 'fire', hold: true }, { action: 'sprint', hold: true }, { action: 'reload', hold: false }]);
   assert.deepEqual(state.sample(), {}); assert.equal(state.press(9, 1), false);

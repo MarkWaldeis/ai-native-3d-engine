@@ -23,6 +23,9 @@ export function parseTouchConfig(value) {
           for (const [key, check] of Object.entries(valid)) if (raw[key] !== undefined) {
             if (check(raw[key])) button[key] = raw[key]; else warn(`button.${key}`);
           }
+          if (['look_x', 'look_y'].includes(button.action) && !button.hold) {
+            button.hold = true; warnings.push('Touch: Look-Aktionen benötigen hold:true.');
+          }
           config.buttons.push(button);
         }
       }

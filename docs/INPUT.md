@@ -88,6 +88,7 @@ einen Impuls für den nächsten Simulationstick. Auch sehr kurze Taps bleiben
 bis zum Tick erhalten; Cancel, Pause, Fokusverlust und Neustart löschen sie.
 Jeder Finger wird unabhängig erfasst. `look_x/y` wirken wie positive digitale
 Look-Bindungen; Tastatur-/Gamepad-Remaps ändern die logischen Touch-Aktionen nicht.
+Für `look_x/y` gilt immer `hold:true`; `hold:false` wird mit Warnung korrigiert.
 
 Joystick-Seite: `left` (Standard) oder `right`. Größe: 80–180 px, alternativ
 `md` = 120 und `lg` = 150; im Querformat maximal 100 px. Authored Controls
