@@ -47,6 +47,10 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     ),
     ("hdr.js", include_str!("../crates/engine-web/player/hdr.js")),
     (
+        "gpu-timer.js",
+        include_str!("../crates/engine-web/player/gpu-timer.js"),
+    ),
+    (
         "contact-occlusion.js",
         include_str!("../crates/engine-web/player/contact-occlusion.js"),
     ),

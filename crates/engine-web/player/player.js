@@ -3,6 +3,7 @@ import init, { WebGame } from './pkg/engine_web.js';
 import { ActionLatch, viewMovement, followDistance, routeFrame, bindActivation } from './controls.js';
 import { GameEffects } from './effects.js';
 import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
+import { GpuTimer } from './gpu-timer.js';
 import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
 import { StreamingWorld, WebAssets } from './world.js';
@@ -27,7 +28,7 @@ window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const transforms = new Map(), objectives = new Map();
-let streaming, statsOverlay, playerId, fps;
+let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain;
 const enemies = new Map();
 const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
@@ -458,14 +459,27 @@ function frame(now) {
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
     if (fps) fps.frame(elapsed, fpsMarkers()); else { updateShadows(); updateObjective(); }
-    effects.render(camera); fps?.renderOverlay();
+    if (gpuTimer) {
+      gpuTimer.begin();
+      const renderStart = performance.now();
+      try { effects.render(camera); }
+      finally {
+        stats.renderCpuMs = performance.now() - renderStart;
+        gpuTimer.end();
+      }
+      stats.renderGpuMs = gpuTimer.ms;
+    } else effects.render(camera);
+    fps?.renderOverlay();
     stats.fps = stats.fps * 0.9 + (rawElapsed > 0 ? 1/rawElapsed : 0) * 0.1;
     stats.drawCalls = renderer.info.render.calls; stats.triangles = renderer.info.render.triangles;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
-    if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''}`;
+    if (statsOverlay) {
+      const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+    }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
 }
@@ -497,7 +511,8 @@ async function fetchJson(path) { const response = await fetch(path); if (!respon
 async function boot() {
   mark('bootStart');
   $('game').addEventListener('webglcontextlost', event => {
-    event.preventDefault(); fail(new Error('Die Grafikverbindung wurde unterbrochen. Bitte lade die Seite neu.'));
+    event.preventDefault(); gpuTimer?.dispose();
+    fail(new Error('Die Grafikverbindung wurde unterbrochen. Bitte lade die Seite neu.'));
   });
   const context = $('game').getContext('webgl2', { antialias: true, alpha: false });
   if (!context) throw new Error('WebGL 2 ist nicht verfügbar. Bitte Safari oder Chrome aktualisieren.');
@@ -525,7 +540,9 @@ async function boot() {
     if (world.fog?.isFog) { world.fog.near = config.draw_distance * 0.65; world.fog.far = config.draw_distance; }
   }
   if (new URLSearchParams(location.search).get('stats') === '1') {
+    gpuTimer = new GpuTimer(context);
     statsOverlay = document.createElement('div');
+    statsOverlay.id = 'render-stats';
     statsOverlay.style.cssText = 'position:fixed;left:8px;top:8px;z-index:1000;background:#000b;color:white;padding:6px;font:12px monospace;pointer-events:none';
     document.body.append(statsOverlay);
   }

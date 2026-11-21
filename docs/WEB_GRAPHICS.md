@@ -172,3 +172,13 @@ never adapt. `fog_density` opts into exponential fog (0 disables it); choose a l
 density for saturated vegetation instead of the legacy near-distance fog.
 `?stats=1` includes the nature quality tier. No additional post stack or addons
 are introduced. Screenshot: `docs/web_visuals.png`.
+
+## Measure the render budget
+
+Use `?stats=1` for CPU submission time and GPU elapsed time in milliseconds,
+also available as `window.__engineStats.renderCpuMs` and `renderGpuMs`.
+Both cover scene rendering, shadow maps, and post-processing, not simulation,
+world updates, or UI. GPU time is the latest completed timer query, not
+necessarily the same frame as the CPU reading. An unsupported extension,
+invalid GPU timing, or a query that has not yet returned shows a dash.
+The player does not request the timer extension without the overlay.
