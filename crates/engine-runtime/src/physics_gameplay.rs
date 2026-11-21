@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 const MAX_PHYSICS_EVENTS: usize = 256;
 const MAX_ACTIVE_RAGDOLLS: usize = 128;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Gameplay {
     pub hitboxes: HashMap<ColliderHandle, Region>,
     pub named_owners: BTreeSet<u64>,
@@ -23,12 +23,14 @@ pub(super) struct Gameplay {
     events: Vec<Collision>,
 }
 
+#[derive(Clone)]
 pub(super) struct Region {
     pub name: String,
     pub multiplier: f64,
     pub ray_only: bool,
 }
 
+#[derive(Clone)]
 struct Rig {
     config: ragdoll::Config,
     body: BodyConfig,
@@ -44,7 +46,7 @@ struct Pair {
     sensor: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct Collision {
     #[serde(rename = "type")]
     kind: &'static str,

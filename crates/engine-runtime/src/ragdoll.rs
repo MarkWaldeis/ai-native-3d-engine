@@ -2,7 +2,7 @@ use anyhow::{ensure, Result};
 use rapier3d::prelude::*;
 use serde::Deserialize;
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct Config {
     preset: Preset,
@@ -11,7 +11,7 @@ pub(crate) struct Config {
     pub scale: f32,
 }
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 #[serde(rename_all = "snake_case")]
 enum Preset {
     Humanoid,

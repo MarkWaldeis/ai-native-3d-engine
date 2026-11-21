@@ -125,12 +125,12 @@ fn deterministic_physics_and_inputs_match_transform_bits_each_tick() {
     let mut second = Simulation::new(scene, &root()).unwrap();
     for tick in 0..360 {
         let inputs = match tick {
-            0 => vec![Input {
+            0 => vec![Input { entity: None,
                 tick,
                 action: "jump".into(),
                 value: 1.0,
             }],
-            5 => vec![Input {
+            5 => vec![Input { entity: None,
                 tick,
                 action: "jump".into(),
                 value: 0.0,

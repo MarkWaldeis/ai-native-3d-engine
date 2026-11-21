@@ -83,6 +83,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "nature-settings.js",
         "streaming.js",
         "world.js",
+        "occlusion.js",
         "effects.js",
         "presentation.js",
         "graphics-settings.js",
@@ -91,6 +92,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
         "sky.js",
         "materials.js",
         "surfaces.js",
+        "atmosphere.js",
         "local-lights.js",
         "style.css",
         "scene.json",
@@ -120,7 +122,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
     lateral
         .step(
             30,
-            &[engine_runtime::Input {
+            &[engine_runtime::Input { entity: None,
                 tick: 0,
                 action: "move_z".into(),
                 value: 1.0,
@@ -140,7 +142,7 @@ fn web_export_writes_offline_bundle_scripts_and_portable_glb_bounds() {
     let mut sim = engine_runtime::Simulation::from_sources(scene, scripts).unwrap();
     sim.step(
         180,
-        &[engine_runtime::Input {
+        &[engine_runtime::Input { entity: None,
             tick: 0,
             action: "move_x".into(),
             value: 1.0,

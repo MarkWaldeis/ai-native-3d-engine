@@ -13,6 +13,10 @@ use crate::terrain_stream::{TerrainSources, SharedTerrain};
 #[path = "physics_gameplay.rs"]
 mod gameplay;
 
+#[path = "net_physics.rs"]
+mod net_physics;
+
+#[derive(Clone)]
 pub(crate) enum Force {
     Impulse(u64, [f32; 3]),
     Velocity(u64, [f32; 3]),

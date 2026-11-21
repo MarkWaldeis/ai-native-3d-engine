@@ -13,6 +13,7 @@ fn sim(entities: Value) -> Simulation {
 fn input(tick: u64, action: &str) -> Input {
     Input {
         tick,
+        entity: None,
         action: action.into(),
         value: 1.0,
     }
@@ -54,6 +55,7 @@ fn lab_reset_restores_the_target_to_its_authored_pose() {
                 input(0, "action"),
                 Input {
                     tick: 1,
+                    entity: None,
                     action: "action".into(),
                     value: 0.0,
                 },
