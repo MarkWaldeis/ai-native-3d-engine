@@ -28,6 +28,18 @@ pub struct NetEntityState {
 }
 
 impl Simulation {
+    pub fn net_next_id(&self) -> u64 {
+        self.data.borrow().next_id
+    }
+
+    pub fn apply_net_next_id(&mut self, next_id: u64) -> Result<()> {
+        let mut data=self.data.borrow_mut();
+        let minimum=data.scene.entities.iter().map(|entity|entity.id).max().unwrap_or(0)+1;
+        ensure!((minimum..=i64::MAX as u64+1).contains(&next_id), "authoritative next_id must exceed all live entity IDs and fit the allocation range");
+        data.next_id=next_id;
+        Ok(())
+    }
+
     /// Scripted entities whose on_start hook has not yet been prepared.
     pub fn net_pending_starts(&self) -> Vec<u64> {
         self.data.borrow().scene.entities.iter()

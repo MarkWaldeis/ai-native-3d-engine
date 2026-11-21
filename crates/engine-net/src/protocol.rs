@@ -41,6 +41,8 @@ pub enum ServerMessage {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
     pub server_tick: u64,
+    #[serde(default)]
+    pub next_id: Option<u64>,
     pub last_processed_seq: Option<u64>,
     pub input_late_ticks: u64,
     pub entities: Vec<NetEntityState>,

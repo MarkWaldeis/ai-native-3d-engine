@@ -108,6 +108,32 @@ fn replicated_started_script_does_not_repeat_start_on_prediction_or_late_join() 
 }
 
 #[test]
+fn discarded_predicted_spawn_restores_authoritative_allocation_cursor() -> Result<()> {
+    let mut scene=support::scene();
+    scene.entities[1].script=Some(shared::components::Script::Inline {source:r#"
+        fn on_tick(ctx,dt) {
+            if ctx.input("spawn")>0.0 && ctx.state_get("created")==() {
+                ctx.spawn_entity(#{name:"child",kind:"box",size:[1.0,1.0,1.0]});
+                ctx.state_set("created",true);
+            }
+        }
+    "#.into()});
+    let mut server=NetServer::new(scene.clone(),BTreeMap::new(),ServerConfig{snapshot_interval:1,..ServerConfig::default()})?;
+    let mut client=NetClient::new(scene,BTreeMap::new(),ClientConfig::default())?;
+    join(&mut server,&mut client,1)?;
+    client.tick(BTreeMap::from([("spawn".into(),1.0)]),0.0)?;
+    for (_,snapshot) in server.tick()? {client.receive(snapshot,17.0)?;}
+    assert_eq!(client.simulation().scene().entities.len(),4);
+    server.receive(1,client.tick(BTreeMap::new(),17.0)?)?;
+    for (_,snapshot) in server.tick()? {client.receive(snapshot,34.0)?;}
+    server.receive(1,client.tick(BTreeMap::from([("spawn".into(),1.0)]),34.0)?)?;
+    server.tick()?;
+    assert_eq!(client.simulation().scene().entities.iter().map(|e|e.id).collect::<Vec<_>>(),
+        server.simulation().scene().entities.iter().map(|e|e.id).collect::<Vec<_>>());
+    Ok(())
+}
+
+#[test]
 fn zero_latency_prediction_is_bit_exact_without_corrections() -> Result<()> {
     let mut server = NetServer::new(support::scene(), BTreeMap::new(), ServerConfig::default())?;
     let config = ClientConfig {
@@ -568,6 +594,7 @@ fn invalid_inputs_configs_and_removed_entities_have_explicit_behavior() -> Resul
 
 fn snapshot(tick: u64, x: f32) -> Snapshot {
     Snapshot {
+        next_id: None,
         server_tick: tick,
         last_processed_seq: None,
         input_late_ticks: 0,

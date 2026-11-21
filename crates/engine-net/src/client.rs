@@ -39,6 +39,7 @@ struct Checkpoint {
     definitions: Vec<Entity>,
     script: Value,
     pending_starts: Vec<u64>,
+    next_id: u64,
 }
 
 pub struct NetClient {
@@ -147,6 +148,7 @@ impl NetClient {
                 definitions: self.simulation.scene().entities,
                 script: self.simulation.net_script_state(),
                 pending_starts: self.simulation.net_pending_starts(),
+                next_id: self.simulation.net_next_id(),
             },
         );
         while self.history.len() > self.config.history_capacity {
@@ -353,6 +355,7 @@ impl NetClient {
             || predicted.is_none_or(|c| {
                 c.script != snapshot.script_state
                     || c.pending_starts != snapshot.pending_starts
+                    || snapshot.next_id.is_some_and(|next|c.next_id!=next)
                     || snapshot.spawned.iter().any(|definition| {
                         c.definitions
                             .iter()
@@ -420,6 +423,7 @@ impl NetClient {
         self.simulation
             .apply_net_script_state(snapshot.script_state.clone());
         self.simulation.apply_net_pending_starts(&snapshot.pending_starts)?;
+        if let Some(next_id)=snapshot.next_id {self.simulation.apply_net_next_id(next_id)?;}
         self.history.retain(|at, _| *at < tick);
         self.checkpoint();
         let mut previous = self

@@ -213,6 +213,7 @@ impl NetServer {
         for (&peer, client) in &mut self.clients {
             let full = Snapshot {
                 server_tick: tick,
+                next_id: Some(self.simulation.net_next_id()),
                 last_processed_seq: client.processed,
                 input_late_ticks: client.late,
                 entities: self.simulation.net_entity_states(),
