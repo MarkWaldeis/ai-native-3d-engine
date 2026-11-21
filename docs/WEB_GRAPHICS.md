@@ -28,6 +28,14 @@ materials, including existing GLBs. Zero environment intensity disables
 the environment lighting. Zero bloom strength skips all bloom passes and
 allocates no bloom targets; Ultra can still run edge smoothing.
 
+For outdoor scenes, add `sky_atmosphere: {"strength":0.8,"haze":0.45}` to
+`ai_graphics`. The procedural sky adds blue Rayleigh scattering and a warm
+forward halo around a low sun; more haze strengthens the halo. Both values
+range from 0 to 1. Use `true` for strength 1 and haze 0.35. The sky and its
+prefiltered reflections are baked once at load, with no per-frame pass.
+The authored horizon fog and direct lighting are unchanged. An authored
+HDRI still takes precedence for reflections and, if enabled, the background.
+
 For authored reflections, set `environment_map` in `ai_graphics` to a
 project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
 panorama (64–4096 pixels wide, up to 32 MiB, standard `-Y +X` orientation).

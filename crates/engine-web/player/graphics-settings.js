@@ -31,10 +31,15 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
   if (preset === 'legacy' || (!value && quality < 0)) return null;
   const config = {...daylightDefaults(value?.time_of_day),...value};
   const foliage = object(config.foliage), water = object(config.water);
+  const atmosphere = object(config.sky_atmosphere);
   return {
     quality,
     sky: hex(config.sky, '#4d88cb'),
     horizon: hex(config.horizon, hex(skyColor, '#b8cddd')),
+    skyAtmosphere: config.sky_atmosphere === true || atmosphere ? {
+      strength: bounded(atmosphere?.strength, 1, 0, 1),
+      haze: bounded(atmosphere?.haze, 0.35, 0, 1),
+    } : null,
     ground: hex(config.ground, '#626457'),
     sunColor: hex(config.sun_color, '#ffe5c1'),
     sunDirection: direction(config.sun_direction),

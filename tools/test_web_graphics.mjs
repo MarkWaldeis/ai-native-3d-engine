@@ -290,3 +290,32 @@ test('procedural sky stores linear HDR radiance and moves the solar highlight wi
   assert.ok(red(width / 2, height * 0.75) > 2, 'the +X 45° sun is HDR');
   assert.ok(red(0, height * 0.75) < 1, 'opposite side has no glare');
 });
+
+test('opt-in atmospheric scattering responds to sun elevation, haze and azimuth', () => {
+  const morning = [1, 0.11, 0], noon = [1, 1.2, 0];
+  const sample = (options, direction) => {
+    const config = graphicsConfig({
+      sky:'#303030', horizon:'#303030', ground:'#303030', sun_color:'#ffffff',
+      sun_direction:direction, sky_atmosphere:options,
+    }, 'ultra');
+    return skyTexture(config, new THREE.Vector3(...config.sunDirection));
+  };
+  const color = (texture, azimuth, elevation) => {
+    const {data,width,height} = texture.image;
+    const x = Math.floor((azimuth / (2 * Math.PI) + 0.5) * width);
+    const y = Math.floor((elevation / Math.PI + 0.5) * height);
+    return [...data.subarray(4 * (y * width + x), 4 * (y * width + x) + 3)].map(THREE.DataUtils.fromHalfFloat);
+  };
+  assert.deepEqual(graphicsConfig({sky_atmosphere:{strength:8,haze:-1}}, 'ultra').skyAtmosphere,
+    {strength:1,haze:0});
+  assert.deepEqual(sample(false, morning).image.data, sample({strength:0}, morning).image.data);
+  const sunset = sample({haze:0.7}, morning), dry = sample({haze:0}, morning), day = sample(true, noon);
+  const near = color(sunset, 0.12, 0.12), away = color(sunset, 1.9, 0.12);
+  assert.ok(near[0] > near[2] + 0.04, 'low sunlight warms the sky');
+  assert.ok(near[0] > away[0] + 0.06, 'forward haze follows the sun');
+  assert.ok(near[0] > color(dry, 0.12, 0.12)[0] + 0.06, 'more haze increases the halo');
+  const zenith = color(day, 1.5, 1.45);
+  assert.ok(zenith[2] > zenith[0] + 0.015, 'daytime overhead sky scatters more blue');
+  assert.deepEqual(color(sunset, 0.12, -0.12), color(dry, 0.12, -0.12));
+  assert.deepEqual(sample(true, [1,-1,0]).image.data, sample(false, [1,-1,0]).image.data);
+});

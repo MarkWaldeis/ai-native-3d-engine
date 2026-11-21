@@ -495,6 +495,48 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(delta(reflected.pixels.slice(top), fallback.pixels.slice(top)) > 800, 'the studio map changes the lighting, not just the background');
     console.log('PASS HDRI: offline panorama, rotation, reflection-only mode, visible background, movement and missing-map fallback');
     console.log('PASS point lights: exported fixtures light nearby surfaces without altering the sky');
+    const atmosphere = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {applySky} = await import('./sky.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      renderer.setSize(64, 64, false);
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 20);
+      const direction = new THREE.Vector3(1, 0.125, 0.15).normalize();
+      const mirror = new THREE.Mesh(new THREE.PlaneGeometry(3, 3),
+        new THREE.MeshStandardMaterial({color:0xffffff, roughness:0.12, metalness:1}));
+      mirror.position.copy(direction).multiplyScalar(-3);
+      mirror.lookAt(camera.position);
+      const sample = enabled => {
+        const scene = new THREE.Scene();
+        const config = graphicsConfig({
+          sky:'#303030', horizon:'#303030', ground:'#303030', sun_color:'#ffffff',
+          sun_direction:[1, 0.11, 0], environment_intensity:1, sky_atmosphere:enabled,
+        }, 'ultra');
+        applySky(renderer, scene, config, new THREE.Vector3(...config.sunDirection));
+        const read = view => {
+          camera.lookAt(view);
+          renderer.render(scene, camera);
+          gl.readPixels(32, 32, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+          return [...pixel.slice(0, 3)];
+        };
+        try {
+          const sky = read(direction);
+          const opposite = read(mirror.position);
+          scene.add(mirror);
+          return {sky, opposite, reflected:read(mirror.position)};
+        } finally { scene.background.dispose(); scene.environment.dispose(); }
+      };
+      try { return {clear:sample(false), hazy:sample({haze:0.7}), error:gl.getError()}; }
+      finally { mirror.geometry.dispose(); mirror.material.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    const {clear, hazy, error} = atmosphere;
+    assert.ok(error === 0 && hazy.sky[0] > clear.sky[0] + 25
+      && hazy.sky[0] > hazy.sky[2] + 15
+      && hazy.reflected[0] > clear.reflected[0] + 20, JSON.stringify(atmosphere));
+    assert.deepEqual(hazy.opposite, clear.opposite, 'a ray below the horizon keeps its authored color');
+    console.log('PASS atmosphere: warm low-sun haze reaches the procedural sky and its PBR reflections');
   } finally {
     await page.close();
   }
