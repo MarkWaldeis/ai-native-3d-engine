@@ -205,6 +205,48 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(spot.turned[1] > spot.turned[0] + 40 && spot.error === 0, JSON.stringify(spot));
     console.log('PASS spotlights: rendered soft cone edge follows an emitter rotation');
 
+    const finishes = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const { primitiveMaterial } = await import('./materials.js');
+      const scene = new THREE.Scene(), camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+      camera.position.z = 3;
+      const key = new THREE.DirectionalLight(0xffffff, 4);
+      key.position.set(2, 1, 4);
+      const geometry = new THREE.SphereGeometry(0.8, 64, 32), mesh = new THREE.Mesh(geometry);
+      mesh.material.dispose();
+      scene.add(mesh, key, new THREE.HemisphereLight(0xffffff, 0x555555, 0.2));
+      const renderer = new THREE.WebGLRenderer({canvas: document.createElement('canvas')});
+      const gl = renderer.getContext(), size = 128;
+      renderer.setSize(size, size, false);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const sample = settings => {
+        const native = {color:[0.29, 0.20, 0.17], props:{ai_material:settings}};
+        mesh.material = primitiveMaterial(native);
+        const pixels = new Uint8Array(size * size * 4);
+        try {
+          renderer.render(scene, camera);
+          gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          return pixels;
+        } finally { mesh.material.dispose(); }
+      };
+      const changed = (base, finish) => {
+        const a = sample(base), b = sample({...base, ...finish});
+        let count = 0;
+        for (let i = 0; i < a.length; i += 4) {
+          if (Math.abs(a[i]-b[i]) + Math.abs(a[i+1]-b[i+1]) + Math.abs(a[i+2]-b[i+2]) > 20) count++;
+        }
+        return count;
+      };
+      try {
+        const brushed = changed({metalness:1, roughness:0.32}, {anisotropy:0.8, anisotropy_rotation_deg:45});
+        const cloth = changed({metalness:0, roughness:0.8}, {sheen:1, sheen_color:'#ff3322', sheen_roughness:0.7});
+        const coating = changed({metalness:0.5, roughness:0.28}, {iridescence:1, iridescence_ior:1.5, iridescence_thickness_nm:420});
+        return {brushed, cloth, coating, glError: gl.getError()};
+      } finally { geometry.dispose(); renderer.dispose(); renderer.forceContextLoss(); }
+    });
+    assert.ok(finishes.brushed > 80 && finishes.cloth > 80 && finishes.coating > 80 && finishes.glError === 0, JSON.stringify(finishes));
+    console.log('PASS PBR finishes: visible brushed anisotropy, fabric sheen, and thin-film iridescence');
+
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
     await page.setViewportSize({ width: 1100, height: 750 });

@@ -82,6 +82,15 @@ For primitives, set `props.ai_material` (object or JSON string) to supply
 `emissive` is an sRGB `#rrggbb` color; `emissive_intensity` is a linear
 multiplier (0–32). Emissive materials above the bloom threshold can glow without
 adding a light to the scene. The existing entity `color` is the linear base color.
+Optional finishes use Three.js physical shading only when enabled:
+
+| Finish | `ai_material` properties |
+| --- | --- |
+| Brushed metals | `anisotropy` (0–1), `anisotropy_rotation_deg` (UV-space angle) |
+| Cloth highlights | `sheen` (0–1), `sheen_color` (sRGB hex), `sheen_roughness` (0–1) |
+| Thin-film colors | `iridescence` (0–1), `iridescence_ior` (1–2.5), `iridescence_thickness_nm` (100–1200) |
+
+Set the strength to zero or omit it to keep the corresponding shader work off.
 Authored GLB textures and material parameters are not overridden, and streamed
 primitive instances only share a draw when their resolved materials match.
 For mipmapped GLB textures, balanced and ultra sharpen shallow viewing angles

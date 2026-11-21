@@ -216,6 +216,30 @@ test('material settings control real Three.js materials and normalized instancin
   for (const props of [entity.props, legacy.props]) assert.equal(batchKey({ kind: 'gltf', path: 'a.glb', props }), batchKey({ kind: 'gltf', path: 'a.glb' }));
 });
 
+test('optional physical finishes resolve in Three.js and separate streamed material batches', () => {
+  const entity = settings => ({kind:'sphere', radius:1, props:{ai_material:settings}});
+  const features = {
+    anisotropy:0.7, anisotropy_rotation_deg:450, sheen:2, sheen_color:'#FFAA99', sheen_roughness:0.8,
+    iridescence:0.6, iridescence_ior:3, iridescence_thickness_nm:40,
+  };
+  const material = primitiveMaterial(entity(features));
+  assert.ok(material.isMeshPhysicalMaterial);
+  assert.equal(material.anisotropy, 0.7);
+  assert.equal(material.anisotropyRotation, Math.PI / 2);
+  assert.equal(material.sheen, 1);
+  assert.equal(material.sheenColor.getHexString(), 'ffaa99');
+  assert.equal(material.sheenRoughness, 0.8);
+  assert.equal(material.iridescence, 0.6);
+  assert.equal(material.iridescenceIOR, 2.5);
+  assert.deepEqual(material.iridescenceThicknessRange, [100,100]);
+  for (const finish of ['anisotropy','sheen','iridescence']) {
+    assert.ok(primitiveMaterial(entity({[finish]:0.5})).isMeshPhysicalMaterial);
+    assert.notEqual(batchKey(entity(features)), batchKey(entity({...features,[finish]:0})));
+  }
+  assert.equal(batchKey(entity(features)), batchKey(entity(JSON.stringify({...features,anisotropy_rotation_deg:90}))));
+  assert.equal(batchKey(entity({sheen_color:'#ff0000',anisotropy_rotation_deg:20})), batchKey(entity({})));
+});
+
 test('GLB texture sampling respects the GPU and existing texture filters', () => {
   assert.deepEqual([0,1,2].map(level => textureAnisotropy(level, 16)), [1,4,8]);
   assert.equal(textureAnisotropy(2, 2), 2);

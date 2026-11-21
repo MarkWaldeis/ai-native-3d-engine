@@ -69,6 +69,10 @@ export function hdrSettings(level, supported, strength, width, height, pixelRati
 
 export function materialSettings(authored) {
   const value = object(authored);
+  const anisotropy = bounded(value?.anisotropy, 0, 0, 1);
+  const sheen = bounded(value?.sheen, 0, 0, 1);
+  const iridescence = bounded(value?.iridescence, 0, 0, 1);
+  const film = bounded(value?.iridescence_thickness_nm, 400, 100, 1200);
   return {
     roughness: bounded(value?.roughness, 0.55, 0, 1),
     metalness: bounded(value?.metalness, 0.08, 0, 1),
@@ -76,6 +80,18 @@ export function materialSettings(authored) {
     emissiveIntensity: bounded(value?.emissive_intensity, 1, 0, 32),
     clearcoat: bounded(value?.clearcoat, 0, 0, 1),
     clearcoatRoughness: bounded(value?.clearcoat_roughness, 0.2, 0, 1),
+    ...(anisotropy > 0 ? {
+      anisotropy,
+      anisotropyRotation: (Number.isFinite(value.anisotropy_rotation_deg) ? value.anisotropy_rotation_deg % 360 : 0) * Math.PI / 180,
+    } : {}),
+    ...(sheen > 0 ? {
+      sheen, sheenColor: hex(value.sheen_color, '#ffffff').toLowerCase(),
+      sheenRoughness: bounded(value.sheen_roughness, 0.6, 0, 1),
+    } : {}),
+    ...(iridescence > 0 ? {
+      iridescence, iridescenceIOR: bounded(value.iridescence_ior, 1.3, 1, 2.5),
+      iridescenceThicknessRange: [film, film],
+    } : {}),
   };
 }
 
