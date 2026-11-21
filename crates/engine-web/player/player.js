@@ -5,7 +5,7 @@ import { GameEffects } from './effects.js';
 import { graphicsConfig, sunShadowSettings } from './graphics-settings.js';
 import { primitiveMaterial, textureAnisotropy } from './materials.js';
 import { worldConfig } from './streaming.js';
-import { StreamingWorld, WebAssets } from './world.js';
+import { disposeObject, StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { createTerrain } from './terrain.js';
@@ -144,19 +144,6 @@ function createObject(entity) {
     }));
     shadow.renderOrder = 2; shadow.visible = false; world.add(shadow); shadows.set(entity.id, shadow);
   }
-}
-
-function disposeObject(object) {
-  object.removeFromParent();
-  object.traverse(child => {
-    if (child.userData.sharedAsset) return;
-    child.geometry?.dispose();
-    for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
-      if (!mat) continue;
-      for (const value of Object.values(mat)) if (value?.isTexture && !value.userData.shared) value.dispose();
-      mat.dispose();
-    }
-  });
 }
 
 function apply(result) {

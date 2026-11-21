@@ -6,7 +6,7 @@ registerHooks({resolve(specifier,context,nextResolve) {
   return nextResolve(specifier === 'three' ? new URL('../crates/engine-web/player/vendor/three.module.js',import.meta.url).href : specifier,context);
 }});
 const THREE = await import('three');
-const {StreamingWorld} = await import('../crates/engine-web/player/world.js');
+const {disposeObject, StreamingWorld} = await import('../crates/engine-web/player/world.js');
 const {worldConfig} = await import('../crates/engine-web/player/streaming.js');
 const {batchKey} = await import('../crates/engine-web/player/streaming.js');
 
@@ -137,6 +137,11 @@ test('unloading a distant chunk releases its instance buffers and reuses templat
   let disposals = 0;
   instance.addEventListener('dispose',()=>disposals++);
   const geometry = instance.geometry, material = instance.material;
+  const nested = new THREE.InstancedMesh(geometry,material,1);
+  nested.userData.sharedAsset = true;
+  actor.add(nested);
+  let nestedDisposals = 0;
+  nested.addEventListener('dispose',()=>nestedDisposals++);
   let templateDisposals = 0;
   for (const resource of [geometry,material]) resource.addEventListener('dispose',()=>templateDisposals++);
   camera.position.x = 2000; camera.updateMatrixWorld();
@@ -145,6 +150,7 @@ test('unloading a distant chunk releases its instance buffers and reuses templat
   assert.equal(world.groups.has(key),false);
   assert.equal(old.parent,null);
   assert.equal(actor.parent,null);
+  assert.equal(nestedDisposals,0);
   assert.equal(templateDisposals,0);
   camera.position.x = 0; camera.updateMatrixWorld();
   await Promise.all(world.update(camera));
@@ -154,6 +160,11 @@ test('unloading a distant chunk releases its instance buffers and reuses templat
   assert.equal(mesh.material,material);
   assert.equal(restored.parent,scene);
   assert.equal(actor.parent,restored);
+  world.reset();
+  assert.equal(nestedDisposals,0);
+  disposeObject(actor);
+  assert.equal(nestedDisposals,1);
+  assert.equal(templateDisposals,0);
 });
 
 test('an instance build in flight cannot restore a chunk after it has unloaded', async () => {

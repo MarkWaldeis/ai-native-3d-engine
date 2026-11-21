@@ -12,6 +12,20 @@ function disposeChunk(group) {
   group.clear();
 }
 
+export function disposeObject(object) {
+  object.removeFromParent();
+  object.traverse(child => {
+    if (child.isInstancedMesh) child.dispose();
+    if (child.userData.sharedAsset) return;
+    child.geometry?.dispose();
+    for (const mat of (Array.isArray(child.material) ? child.material : [child.material])) {
+      if (!mat) continue;
+      for (const value of Object.values(mat)) if (value?.isTexture && !value.userData.shared) value.dispose();
+      mat.dispose();
+    }
+  });
+}
+
 export class WebAssets {
   constructor(anisotropy = 1) {
     this.anisotropy = anisotropy;
