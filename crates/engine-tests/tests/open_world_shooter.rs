@@ -120,6 +120,7 @@ fn shooter_save_reload_restores_the_dead_soldier_as_a_ragdoll() {
     ]);
     let mut simulation = Simulation::new(scene.clone(), &root()).unwrap();
     simulation.step(9, &[rifle_input(0, "fire", 1.0)]).unwrap();
+    simulation.step(120, &[rifle_input(9, "fire", 0.0)]).unwrap();
     let before = simulation.ragdoll_states();
     assert_eq!(before.as_array().unwrap().len(), 1);
     let save = simulation.save_game().unwrap();
@@ -128,13 +129,17 @@ fn shooter_save_reload_restores_the_dead_soldier_as_a_ragdoll() {
     let after = loaded.ragdoll_states();
     assert_eq!(after.as_array().unwrap().len(), 1);
     assert_eq!(after[0]["id"], before[0]["id"]);
-    assert_eq!(after[0]["parts"].as_array().unwrap().len(), 11);
+    let parts = after[0]["parts"].as_array().unwrap();
+    assert_eq!(parts.len(), 11);
+    let head = parts.iter().find(|part| part["name"] == "head").unwrap();
+    let pelvis_y = parts[0]["position"][1].as_f64().unwrap();
+    assert!((head["position"][1].as_f64().unwrap() - pelvis_y).abs() < 0.001);
     for axis in 0..3 {
         let before = before[0]["parts"][0]["position"][axis].as_f64().unwrap();
         let after = after[0]["parts"][0]["position"][axis].as_f64().unwrap();
         assert!((before - after).abs() < 0.001, "pelvis moved from {before} to {after}");
     }
-    loaded.step(1, &[rifle_input(9, "fire", 0.0)]).unwrap();
+    loaded.step(1, &[]).unwrap();
     assert_eq!(loaded.state()["state"]["kills"], 1);
 }
 

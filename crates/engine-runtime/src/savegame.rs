@@ -230,6 +230,8 @@ impl Simulation {
         sim.physics.borrow_mut().reconcile_terrain(&sim.data.borrow().scene)?;
         sim.sync_physics()?;
         {
+            let authored_transforms: BTreeMap<_, _> = sim.base_scene.entities.iter()
+                .map(|entity| (entity.id, &entity.transform)).collect();
             let mut physics = sim.physics.borrow_mut();
             let mut ids = BTreeSet::new();
             for body in save.bodies {
@@ -242,21 +244,20 @@ impl Simulation {
                     sim.data.borrow_mut().velocities.insert(body.id, body.linvel);
                 }
             }
-            let data = sim.data.borrow();
+            let mut data = sim.data.borrow_mut();
+            let Data { scene, combat, .. } = &mut *data;
             let mut restored = BTreeSet::new();
-            for entity in &data.scene.entities {
+            for entity in &mut scene.entities {
                 let id = entity.id;
-                if data.combat.health.get(&id).is_some_and(|hp| *hp <= 0.0)
-                    && physics.ragdoll_activates_on_death(id)
-                    && !physics.ragdoll_active(id)
-                {
-                    physics.set_ragdoll(id, true)?;
+                if combat.health.get(&id).is_some_and(|hp| *hp <= 0.0) && physics.ragdoll_activates_on_death(id) {
+                    let authored = authored_transforms.get(&id).copied();
+                    physics.restore_dead_ragdoll(id, &mut entity.transform, authored)?;
                     restored.insert(id);
                 }
             }
             if !restored.is_empty() {
                 // A saved ragdoll's entity transform is already its pelvis pose.
-                physics.apply_poses(&data.scene, &restored);
+                physics.apply_poses(scene, &restored);
                 physics.refresh_queries();
             }
         }

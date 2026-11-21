@@ -108,6 +108,10 @@ and transfers linear velocity to the limbs. The pelvis drives the root
 transform and ray hits use the root entity ID and part name. Deactivation
 removes the limbs and restores the original root collider relative to the
 pelvis, accounting for the offset, with its pre-ragdoll orientation and zero velocity.
+Loading a save rebuilds ragdolls that activate on death in a lying pose at
+their saved pelvis position, rather than restoring individual limb poses.
+Deactivating one of these rebuilt ragdolls restores the authored root transform
+if it exists.
 
 `ctx.apply_impulse(vector)` pushes the script's own body;
 `ctx.apply_impulse(id, vector)` pushes another body.
