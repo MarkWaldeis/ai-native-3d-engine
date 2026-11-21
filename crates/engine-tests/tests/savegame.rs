@@ -198,3 +198,31 @@ fn oversized_runtime_and_mcp_saves_return_errors() {
     engine.handle("play",&json!({})).unwrap();
     assert!(engine.handle("save_game",&json!({})).unwrap_err().contains("4 MB"));
 }
+
+#[test]
+fn unchanged_authored_paths_are_trusted_but_replacements_are_confined() {
+    let root=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..").canonicalize().unwrap();
+    let absolute=root.join("assets/suzanne.glb").to_string_lossy().into_owned();
+    for path in [&absolute, "C:\\project\\assets\\mesh.glb"] {
+        let base: Scene=serde_json::from_value(json!({"entities":[{"id":1,"name":"mesh","kind":"gltf","path":path,"props":{"web_lods":{"0":path}}}]})).unwrap();
+        let sim=Simulation::from_sources(base.clone(),BTreeMap::new()).unwrap();
+        let save=sim.save_game().unwrap();
+        let loaded=Simulation::load_game_from_sources(base.clone(),BTreeMap::new(),save.clone()).unwrap();
+        assert_eq!(loaded.scene().entities,sim.scene().entities);
+        let mut replaced=save.clone();
+        replaced["delta"]["removed"]=json!([1]);
+        replaced["delta"]["spawned"]=json!([base.entities[0]]);
+        assert!(Simulation::load_game_from_sources(base.clone(),BTreeMap::new(),replaced).is_err());
+        let mut changed=save.clone();
+        changed["delta"]["modified"]=json!([{"id":1,"name":"renamed","props":{"web_lods":{"0":path},"custom":true}}]);
+        assert!(Simulation::load_game_from_sources(base.clone(),BTreeMap::new(),changed).is_ok());
+        for patch in [json!({"id":1,"path":"/outside.glb"}), json!({"id":1,"props":{"web_lods":{"0":path,"1":"../outside.glb"}}})] {
+            let mut bad=save.clone();bad["delta"]["modified"]=json!([patch]);
+            assert!(Simulation::load_game_from_sources(base.clone(),BTreeMap::new(),bad).is_err());
+        }
+    }
+    let base: Scene=serde_json::from_value(json!({"entities":[{"id":1,"name":"mesh","kind":"gltf","path":absolute,"props":{"web_lods":{"0":absolute}}}]})).unwrap();
+    let sim=Simulation::new(base.clone(),&root).unwrap();
+    let loaded=Simulation::load_game(base,&root,sim.save_game().unwrap()).unwrap();
+    assert_eq!(loaded.scene().entities,sim.scene().entities);
+}

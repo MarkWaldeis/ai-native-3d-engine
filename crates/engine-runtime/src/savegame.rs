@@ -72,7 +72,7 @@ fn validate_map(map: &BTreeMap<String, Value>) -> Result<()> {
     Ok(())
 }
 
-fn validate_restored_paths(entity: &shared::scene::Entity, root: Option<&Path>) -> Result<()> {
+fn validate_restored_paths(entity: &shared::scene::Entity, base: Option<&shared::scene::Entity>, root: Option<&Path>) -> Result<()> {
     let check = |path: &str| -> Result<()> {
         let requested = Path::new(path);
         if path.is_empty() || requested.is_absolute() || path.contains('\\') || path.contains(':')
@@ -82,11 +82,17 @@ fn validate_restored_paths(entity: &shared::scene::Entity, root: Option<&Path>) 
         if let Some(root) = root { engine_core::project_path(root, requested)?; }
         Ok(())
     };
-    if let shared::scene::PrimitiveKind::Gltf { path } = &entity.mesh { check(path)?; }
-    if let Some(path) = entity.script.as_ref().and_then(Script::path) { check(path)?; }
+    if let shared::scene::PrimitiveKind::Gltf { path } = &entity.mesh {
+        if !base.is_some_and(|e| matches!(&e.mesh, shared::scene::PrimitiveKind::Gltf { path: original } if original == path)) { check(path)?; }
+    }
+    if let Some(path) = entity.script.as_ref().and_then(Script::path) {
+        if base.and_then(|e| e.script.as_ref()).and_then(Script::path) != Some(path) { check(path)?; }
+    }
     if let Some(lods) = entity.props.get("web_lods") {
-        for path in lods.as_object().context("web_lods must be an object")?.values() {
-            check(path.as_str().context("LOD path must be a string")?)?;
+        for (level, path) in lods.as_object().context("web_lods must be an object")? {
+            if base.and_then(|e| e.props.get("web_lods")).and_then(|lods| lods.get(level)) != Some(path) {
+                check(path.as_str().context("LOD path must be a string")?)?;
+            }
         }
     }
     Ok(())
@@ -165,13 +171,7 @@ impl Simulation {
         let mut sim = Self::create_mode(base_scene, root, sources, terrains, true)?;
         sim.base_changed = fingerprint(&sim.base_scene) != save.base_fingerprint;
         let mut entities: BTreeMap<_, _> = sim.base_scene.entities.iter().map(|e| (e.id, e.clone())).collect();
-        if sim.sources.is_none() {
-            for entity in entities.values_mut() {
-                if let shared::scene::PrimitiveKind::Gltf { path } = &mut entity.mesh {
-                    *path = Path::new(path).strip_prefix(&sim.root).context("base asset path escapes project root")?.to_string_lossy().into_owned();
-                }
-            }
-        }
+        let base_entities: BTreeMap<_, _> = sim.base_scene.entities.iter().map(|e| (e.id, e)).collect();
         for id in save.delta.removed { entities.remove(&id); }
         let mut seen = BTreeSet::new();
         for patch in save.delta.modified {
@@ -187,7 +187,9 @@ impl Simulation {
                 *entity = serde_json::from_value(value).context("invalid modified entity")?;
             }
         }
+        let mut spawned_ids = BTreeSet::new();
         for entity in save.delta.spawned {
+            spawned_ids.insert(entity.id);
             if entities.insert(entity.id, entity).is_some() { bail!("spawned entity id already exists"); }
         }
         if entities.len() > MAX_ENTITIES { bail!("save entity limit exceeded"); }
@@ -195,10 +197,13 @@ impl Simulation {
         if save.next_id == 0 || (!sim.base_changed && save.next_id < minimum_next) { bail!("invalid saved next_id"); }
         for entity in entities.values_mut() {
             validate_entity(entity)?;
-            validate_restored_paths(entity, sim.sources.is_none().then_some(sim.root.as_path()))?;
+            let base = if spawned_ids.contains(&entity.id) { None } else { base_entities.get(&entity.id).copied() };
+            validate_restored_paths(entity, base, sim.sources.is_none().then_some(sim.root.as_path()))?;
             if sim.sources.is_none() {
                 if let shared::scene::PrimitiveKind::Gltf { path } = &mut entity.mesh {
-                    *path = engine_core::project_path(&sim.root, Path::new(path))?.to_string_lossy().into_owned();
+                    if !base.is_some_and(|e| matches!(&e.mesh, shared::scene::PrimitiveKind::Gltf { path: original } if original == path)) {
+                        *path = engine_core::project_path(&sim.root, Path::new(path))?.to_string_lossy().into_owned();
+                    }
                 }
             }
         }
