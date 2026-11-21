@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export const readDepth = /* glsl */`
-  uniform sampler2D sceneDepth;
+  uniform highp sampler2D sceneDepth;
   uniform mat4 inverseProjection;
   uniform float logFar;
   float viewZ(float depth) {

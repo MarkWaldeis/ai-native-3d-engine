@@ -523,6 +523,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
           const near = sample(-1,8);
           const ground = sample(-1,45);
           const sky = read(1,1);
+          const far = sample(-1,150);
           const elevated = sample(45,45);
           const through = sample(-1,45,45);
           const fogOnly = !!pipeline.sceneTarget && !pipeline.bright && !pipeline.contact;
@@ -545,7 +546,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
           try { noDepth.resize(2,96,96,1); }
           finally { gl.checkFramebufferStatus = check; }
           const bloomFallback = !!noDepth.bright && !noDepth.sceneTarget.depthTexture && !noDepth.fogEnabled;
-          result.push({near,ground,sky,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,
+          result.push({near,ground,sky,far,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,
             restored:scene.fog === fallback,error:gl.getError()});
         } finally { noDepth.release(); metered.release(); contact.release(); pipeline.release(); renderer.dispose(); renderer.forceContextLoss(); }
       }
@@ -553,8 +554,9 @@ export async function verifyGraphics(browser, base, errors, shots) {
       return result;
     });
     for (const result of fog) {
-      const {near,ground,sky,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,restored,error} = result;
+      const {near,ground,sky,far,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,restored,error} = result;
       assert.ok(ground[2] > near[2] + 40 && near[2] > elevated[2] + 35, JSON.stringify(result));
+      assert.ok(far[2] > ground[2] + 10, JSON.stringify(result));
       assert.ok(through[2] > elevated[2] + 30 && through[2] < ground[2] - 15, JSON.stringify(result));
       assert.deepEqual(sky,[64,48,32]);
       assert.ok(combined.every((value,index) => Math.abs(value-ground[index]) <= 2), JSON.stringify(result));
