@@ -1,6 +1,6 @@
 {
   "name": "Coin collector",
-  "camera": {"position": [7, 6, 9], "target": [0, 0.4, 0], "fov_deg": 48},
+  "camera": {"position": [0, 6, 11], "target": [0, 0.4, 0], "fov_deg": 48},
   "light_dir": [-0.4, 1, 0.5],
   "ambient": 0.4,
   "entities": [

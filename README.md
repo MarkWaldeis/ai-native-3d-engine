@@ -71,20 +71,38 @@ npx --yes @modelcontextprotocol/inspector --cli --config /absolut/mein-spiel/.mc
 
 ## Web release checks (M9)
 
-CI runs `node --test tools/test_web_*.mjs`, plus a Linux Chromium release job on
-fresh exports of **both** demos. Reproduce from the repository root (Rust WASM
+CI runs `node --test tools/test_web_*.mjs`, plus Linux Chromium and required WebKit
+iPhone/iPad checks on fresh exports of **all three** demos. Reproduce from the repository root (Rust WASM
 target and wasm-bindgen-cli 0.2.100 installed, as in Pages):
 
 ```sh
 npm install --prefix target/web-ci --no-save --package-lock=false playwright@1.65.1
 target/web-ci/node_modules/.bin/playwright install --with-deps --only-shell chromium
+target/web-ci/node_modules/.bin/playwright install --with-deps webkit
 rm -rf target/m9-site
 cargo run -- --export-web examples/coin_game/scene.json target/m9-site/coin_game
 cargo run -- --export-web examples/sky_garden/scene.json target/m9-site/sky_garden
+cargo run -- --project examples/lantern_maze --export-web scene.json web
+mv examples/lantern_maze/web target/m9-site/lantern_maze
 cargo run --example web_parity > target/web-native.json
 PLAYWRIGHT_MODULE="$PWD/target/web-ci/node_modules/playwright/index.mjs" \
   node tools/verify_web_release.mjs target/m9-site target/web-native.json
+PLAYWRIGHT_MODULE="$PWD/target/web-ci/node_modules/playwright/index.mjs" \
+  BROWSER_ENGINE=webkit SHOTS_DIR=target/web-release-shots/webkit \
+  node tools/verify_web_release.mjs target/m9-site target/web-native.json
 ```
+
+WebKit uses iPhone 13 and iPad Pro 11 portrait profiles, native touchscreen first
+activation, keyboard-driven victories/restarts and the same native/WASM parity
+traces. These are Playwright WebKit profiles, not physical iOS Safari acceptance.
+Missing browser binaries/dependencies fail clearly; no silent skip or Chromium
+fallback. Chromium additionally exercises real multi-touch lantern gameplay;
+`tools/verify_mobile.mjs` covers the Coin straight-right joystick route with zero
+respawns. Coin's follow-camera yaw now aligns with its horizontal path and pickup
+radius is 0.9 m; a 0.67 m off-centre recorded trace guards that tolerance.
+Start/resume/restart accepts pointerup, touchend or keyboard click with a shared
+in-flight/visible-menu fence, preventing compatibility events from starting twice.
+Every exported player and the Pages landing page include the local SVG favicon.
 
 `tools/web_traces.json` contains fixed input traces for win and rescue in each
 demo, including Sky Garden rescue **after** advancing a checkpoint and Coin Game
@@ -420,6 +438,8 @@ authoring and flattened for the existing runtime, not a runtime animation graph.
 Blender collection instances import as prefabs. `*_LOD0/1/2` assets feed the
 existing player LOD levels; canonical SHA-256 GLBs and content-aware packaging
 avoid duplicate stored assets. No lighting/shadow/post-processing changes.
+After upgrading, restart existing Blender processes to load the updated bridge
+exporter before syncing collection instances or LOD assets.
 
 Use `query_entities` instead of full scene dumps: AND tag/component/prefab,
 origin bbox/radius/region filters, bounded ID-ordered pages (default 100, max 500),
