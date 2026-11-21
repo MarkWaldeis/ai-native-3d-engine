@@ -10,6 +10,7 @@ import { FirstPerson, fpsConfig } from './fps.js';
 import { GameAudio, feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
+import { replacesWater } from './nature-settings.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -92,6 +93,7 @@ function mesh(geometry, entity) {
 
 function createObject(entity) {
   if (entity.props?.ai_terrain) return;
+  if (replacesWater(entity, effects.graphics)) return;
   if (streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
@@ -435,6 +437,7 @@ function frame(now) {
     const rawElapsed = (now - previous) / 1000;
     const elapsed = Math.min(rawElapsed, 0.1); previous = now;
     if (document.hidden) return;
+    renderer.info.reset();
     if (running) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
       if (previewRemaining === 0) stopPreview();
@@ -501,6 +504,7 @@ async function boot() {
   renderer = new THREE.WebGLRenderer({ canvas: $('game'), context, antialias: true });
   renderer.debug.onShaderError = () => { throw new Error('Die Grafik konnte nicht berechnet werden. Bitte lade die Seite neu.'); };
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.info.autoReset = false;
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
   world = new THREE.Scene();
   [[source, scripts]] = await Promise.all([
