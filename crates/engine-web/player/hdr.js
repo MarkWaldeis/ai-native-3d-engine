@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { hdrSettings } from './graphics-settings.js';
+import { ContactOcclusion, contactComposite } from './contact-occlusion.js';
 
 const vertexShader = /* glsl */`
   varying vec2 vUv;
@@ -44,11 +45,16 @@ const blur = /* glsl */`
 `;
 
 const composite = /* glsl */`
+  #include <common>
+  #include <dithering_pars_fragment>
   uniform sampler2D image;
+  #ifdef BLOOM
   uniform sampler2D bloom;
-  uniform vec2 texel;
   uniform float strength;
+  #endif
+  uniform vec2 texel;
   varying vec2 vUv;
+  ${contactComposite}
   #ifdef EDGE_AA
   float perceptualLuma(vec3 color) {
     float luma = dot(max(color, 0.0), vec3(0.2126, 0.7152, 0.0722));
@@ -78,21 +84,28 @@ const composite = /* glsl */`
     #ifdef EDGE_AA
     color = smoothEdges(color);
     #endif
-    gl_FragColor = vec4(color + texture2D(bloom, vUv).rgb * strength, 1.0);
+    #ifdef CONTACT_OCCLUSION
+    color *= contactFactor(vUv);
+    #endif
+    #ifdef BLOOM
+    color += texture2D(bloom, vUv).rgb * strength;
+    #endif
+    gl_FragColor = vec4(color, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
+    #include <dithering_fragment>
   }
 `;
 
 function pass(fragmentShader, uniforms, toneMapped = false) {
   return new THREE.ShaderMaterial({
-    vertexShader, fragmentShader, uniforms, toneMapped,
+    vertexShader, fragmentShader, uniforms, toneMapped, dithering: toneMapped,
     depthTest: false, depthWrite: false, blending: THREE.NoBlending,
   });
 }
 
-function target(depthBuffer) {
-  return new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer });
+function target(depthBuffer, depthTexture = null) {
+  return new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer, depthTexture });
 }
 
 export class HDRPipeline {
@@ -102,13 +115,19 @@ export class HDRPipeline {
     this.strength = config.bloomStrength;
     this.threshold = config.bloomThreshold;
     this.edgeAA = config.hdrAntialias !== false;
+    this.contactConfig = config;
+    this.contactSupported = renderer.capabilities.isWebGL2 && !renderer.capabilities.logarithmicDepthBuffer;
     this.size = new THREE.Vector2();
   }
 
   resize(level, width, height, pixelRatio) {
-    const settings = hdrSettings(level, this.supported, this.strength, width, height, pixelRatio);
-    if (settings.enabled && !this.sceneTarget) this.init();
-    if (!settings.enabled) this.release();
+    const settings = hdrSettings(level, this.supported, this.strength, width, height, pixelRatio, this.edgeAA,
+      this.contactSupported && this.contactConfig.contactStrength > 0);
+    if (!settings.enabled || !!this.contact !== settings.contact) this.release();
+    if (settings.enabled && !this.sceneTarget && !this.init(settings.bloom, settings.contact)) {
+      this.resize(level, width, height, pixelRatio);
+      return;
+    }
     const renderer = this.renderer;
     renderer.setPixelRatio(this.sceneTarget ? settings.pixelRatio : pixelRatio);
     renderer.setSize(width, height, false);
@@ -116,50 +135,68 @@ export class HDRPipeline {
     renderer.getDrawingBufferSize(this.size);
     const w = Math.max(1, this.size.x), h = Math.max(1, this.size.y);
     this.sceneTarget.setSize(w, h);
-    this.prefilter.uniforms.texel.value.set(1 / w, 1 / h);
+    this.contact?.resize(w, h);
+    this.composite.uniforms.texel.value.set(1 / w, 1 / h);
     const edgeAA = this.edgeAA && level === 2;
     if (edgeAA !== ('EDGE_AA' in this.composite.defines)) {
-      this.composite.defines = edgeAA ? { EDGE_AA: 1 } : {};
+      if (edgeAA) this.composite.defines.EDGE_AA = 1;
+      else delete this.composite.defines.EDGE_AA;
       this.composite.needsUpdate = true;
     }
-    const bw = Math.max(1, Math.ceil(w * settings.bloomScale)), bh = Math.max(1, Math.ceil(h * settings.bloomScale));
-    this.bright.setSize(bw, bh); this.scratch.setSize(bw, bh);
+    if (settings.bloom) {
+      const bw = Math.max(1, Math.ceil(w * settings.bloomScale)), bh = Math.max(1, Math.ceil(h * settings.bloomScale));
+      this.bright.setSize(bw, bh); this.scratch.setSize(bw, bh);
+    }
   }
 
-  init() {
+  init(bloomEnabled, contactEnabled) {
     const renderer = this.renderer, gl = renderer.getContext();
-    this.sceneTarget = target(true);
+    const depth = contactEnabled ? new THREE.DepthTexture(1, 1) : null;
+    const texel = {value: new THREE.Vector2()};
+    this.sceneTarget = target(true, depth);
+    if (depth) this.contact = new ContactOcclusion(pass, depth, texel, this.contactConfig);
     const prev = renderer.getRenderTarget();
-    let complete;
+    const complete = renderTarget => {
+      renderer.setRenderTarget(renderTarget);
+      return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    };
+    let supported;
     try {
-      renderer.setRenderTarget(this.sceneTarget);
-      complete = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+      supported = complete(this.sceneTarget) && (!this.contact || complete(this.contact.target));
     } finally { renderer.setRenderTarget(prev); }
-    if (!complete) {
-      this.supported = false;
+    if (!supported) {
+      if (contactEnabled) this.contactSupported = false;
+      else this.supported = false;
+      this.contact?.dispose(); this.contact = null;
       this.sceneTarget.dispose(); this.sceneTarget = null;
-      return;
+      return false;
     }
-    this.bright = target(false); this.scratch = target(false);
-    this.prefilter = pass(prefilter, {
-      image: {value: this.sceneTarget.texture}, texel: {value: new THREE.Vector2()}, threshold: {value: this.threshold},
-    });
-    this.blur = pass(blur, { image: {value: null}, stepSize: {value: new THREE.Vector2()} });
+    if (bloomEnabled) {
+      this.bright = target(false); this.scratch = target(false);
+      this.prefilter = pass(prefilter, {
+        image: {value: this.sceneTarget.texture}, texel, threshold: {value: this.threshold},
+      });
+      this.blur = pass(blur, { image: {value: null}, stepSize: {value: new THREE.Vector2()} });
+    }
     this.composite = pass(composite, {
-      image: {value: this.sceneTarget.texture}, bloom: {value: this.bright.texture},
-      strength: {value: this.strength}, texel: this.prefilter.uniforms.texel,
+      image: {value: this.sceneTarget.texture}, bloom: {value: this.bright?.texture},
+      strength: {value: this.strength}, texel, ...this.contact?.compositeUniforms(this.contactConfig.contactStrength),
     }, true);
+    if (bloomEnabled) this.composite.defines.BLOOM = 1;
+    if (contactEnabled) this.composite.defines.CONTACT_OCCLUSION = 1;
     this.quadScene = new THREE.Scene(); this.camera = new THREE.Camera();
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute([-1, -1, 0, 3, -1, 0, -1, 3, 0], 3));
-    this.quad = new THREE.Mesh(geometry, this.prefilter);
+    this.quad = new THREE.Mesh(geometry, this.composite);
     this.quad.frustumCulled = false;
     this.quadScene.add(this.quad);
+    return true;
   }
 
   release() {
     if (!this.sceneTarget) return;
-    for (const resource of [this.sceneTarget, this.bright, this.scratch, this.prefilter, this.blur, this.composite, this.quad.geometry]) resource.dispose();
+    for (const resource of [this.sceneTarget, this.bright, this.scratch, this.prefilter, this.blur, this.composite, this.quad.geometry]) resource?.dispose();
+    this.contact?.dispose(); this.contact = null;
     this.sceneTarget = this.bright = this.scratch = null;
     this.quadScene = this.camera = this.quad = this.prefilter = this.blur = this.composite = null;
   }
@@ -177,13 +214,16 @@ export class HDRPipeline {
     };
     try {
       renderer.setRenderTarget(this.sceneTarget); renderer.render(scene, camera);
-      draw(this.prefilter, this.bright);
-      this.blur.uniforms.image.value = this.bright.texture;
-      this.blur.uniforms.stepSize.value.set(1 / this.bright.width, 0);
-      draw(this.blur, this.scratch);
-      this.blur.uniforms.image.value = this.scratch.texture;
-      this.blur.uniforms.stepSize.value.set(0, 1 / this.bright.height);
-      draw(this.blur, this.bright);
+      this.contact?.render(draw, camera);
+      if (this.bright) {
+        draw(this.prefilter, this.bright);
+        this.blur.uniforms.image.value = this.bright.texture;
+        this.blur.uniforms.stepSize.value.set(1 / this.bright.width, 0);
+        draw(this.blur, this.scratch);
+        this.blur.uniforms.image.value = this.scratch.texture;
+        this.blur.uniforms.stepSize.value.set(0, 1 / this.bright.height);
+        draw(this.blur, this.bright);
+      }
       draw(this.composite, previous);
     } finally {
       renderer.setRenderTarget(previous);

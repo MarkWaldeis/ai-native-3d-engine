@@ -217,6 +217,7 @@ fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
     assert_eq!(scene, original);
     assert_eq!(report["assets"], 2);
     assert!(out.join("vendor/addons/loaders/RGBELoader.js").is_file());
+    assert!(out.join("contact-occlusion.js").is_file());
     let hdr = std::fs::read(repo.join("examples/material_studio/studio.hdr")).unwrap();
     assert_eq!(
         std::fs::read(out.join("assets/environment.hdr")).unwrap(),
