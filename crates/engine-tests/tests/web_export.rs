@@ -203,6 +203,51 @@ fn web_export_empty_scene_and_missing_sources_are_safe() {
 }
 
 #[test]
+fn web_export_bundles_authored_low_lods_and_rejects_invalid_paths() {
+    let fixture = Fixture::new();
+    let root = root();
+    let mut scene: Scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"lod-model","kind":"gltf","path":"assets/suzanne.glb",
+         "props":{"web_lods":{"1":"assets/suzanne.glb","2":"assets/suzanne.glb"}}},
+        {"id":2,"name":"no-lod","kind":"gltf","path":"assets/suzanne.glb"}
+    ]}))
+    .unwrap();
+    let out = fixture.0.join("lod-site");
+    let report = export_bundle(&scene, &root, &out, &fixture.0.join("pkg")).unwrap();
+    assert_eq!(report["assets"], 1);
+    let exported: Value =
+        serde_json::from_slice(&std::fs::read(out.join("scene.json")).unwrap()).unwrap();
+    assert_eq!(
+        exported["entities"][0]["props"]["web_lods"]["1"],
+        "assets/0.glb"
+    );
+    assert!(exported["entities"][1]["props"].get("web_lods").is_none());
+    scene.entities[0].props["web_lods"]["1"] = json!("examples/open_world_shooter/assets/tree_palm_low.glb");
+    let distinct = fixture.0.join("distinct-lod-site");
+    let report = export_bundle(&scene, &root, &distinct, &fixture.0.join("pkg")).unwrap();
+    assert_eq!(report["assets"], 2);
+    assert!(distinct.join("assets/1.glb").is_file());
+    for (index, low) in [
+        json!("missing.glb"),
+        json!("Cargo.toml"),
+        json!("../escape.glb"),
+        json!(12),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        scene.entities[0].props["web_lods"]["1"] = low;
+        assert!(export_bundle(
+            &scene,
+            &root,
+            &fixture.0.join(format!("invalid-lod-{index}")),
+            &fixture.0.join("pkg")
+        )
+        .is_err());
+    }
+}
+
+#[test]
 fn web_export_bundles_authored_hdri_and_rejects_invalid_assets() {
     let fixture = Fixture::new();
     let repo = root();

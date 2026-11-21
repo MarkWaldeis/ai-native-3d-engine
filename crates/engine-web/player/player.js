@@ -271,7 +271,7 @@ function updateCamera(immediate = false, elapsed = 1 / 60) {
     camera.position.copy(center).add(cameraOffset.clone().normalize().multiplyScalar(framing.distance));
     camera.lookAt(center); return;
   }
-  const distance = followDistance(camera.aspect, camera.fov) * (streaming ? 6 : 1);
+  const distance = streaming?.config.camera_distance ?? followDistance(camera.aspect, camera.fov) * (streaming ? 6 : 1);
   const offset = new THREE.Vector3(cameraOffset.x, 0, cameraOffset.z).normalize().multiplyScalar(distance * 0.74);
   offset.y = distance * 0.67;
   camera.position.copy(followTarget).add(offset); camera.lookAt(followTarget);
