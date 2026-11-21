@@ -125,15 +125,15 @@
       [
         -4.0,
         0.0,
-        -3.0
+        -3.04
       ],
       [
         4.0,
         3.47976,
-        3.0
+        3.04
       ]
     ],
-    "tris": 984
+    "tris": 2482
   },
   "house_shack": {
     "high": "examples/open_world_shooter/assets/house_shack.glb",
@@ -150,7 +150,7 @@
         3.4625
       ]
     ],
-    "tris": 2554
+    "tris": 4718
   },
   "bunker": {
     "high": "examples/open_world_shooter/assets/bunker.glb",
@@ -167,7 +167,7 @@
         2.65
       ]
     ],
-    "tris": 396
+    "tris": 4844
   },
   "watchtower": {
     "high": "examples/open_world_shooter/assets/watchtower.glb",
@@ -184,24 +184,24 @@
         2.5
       ]
     ],
-    "tris": 1270
+    "tris": 2782
   },
   "barracks": {
     "high": "examples/open_world_shooter/assets/barracks.glb",
     "low": "examples/open_world_shooter/assets/barracks_low.glb",
     "bounds": [
       [
-        -3.1428,
+        -3.195,
         0.0,
-        -6.06
+        -6.08
       ],
       [
-        3.1428,
+        3.195,
         4.14101,
-        6.06
+        6.08
       ]
     ],
-    "tris": 1338
+    "tris": 6494
   },
   "radio_tower": {
     "high": "examples/open_world_shooter/assets/radio_tower.glb",
@@ -252,7 +252,7 @@
         1.9
       ]
     ],
-    "tris": 840
+    "tris": 4964
   },
   "fortress_tower": {
     "high": "examples/open_world_shooter/assets/fortress_tower.glb",
@@ -269,7 +269,7 @@
         4.1
       ]
     ],
-    "tris": 952
+    "tris": 5884
   },
   "citadel_keep": {
     "high": "examples/open_world_shooter/assets/citadel_keep.glb",
@@ -286,7 +286,7 @@
         15.1625
       ]
     ],
-    "tris": 2924
+    "tris": 9092
   },
   "sandbags": {
     "high": "examples/open_world_shooter/assets/sandbags.glb",
@@ -439,7 +439,7 @@
         0.4974
       ]
     ],
-    "tris": 2564
+    "tris": 8890
   },
   "drone": {
     "high": "examples/open_world_shooter/assets/drone.glb",
