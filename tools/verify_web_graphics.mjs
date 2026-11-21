@@ -151,6 +151,85 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.agx.rgb.every((channel, i) => Math.abs(channel - result.directAgx.rgb[i]) <= 2), 'direct and HDR compositing apply AgX once');
     console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
 
+    const exposure = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {HDRPipeline} = await import('./hdr.js');
+      const {graphicsConfig} = await import('./graphics-settings.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const gl = renderer.getContext();
+      const scene = new THREE.Scene();
+      const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 10);
+      camera.position.z = 2;
+      const material = new THREE.MeshBasicMaterial();
+      const geometry = new THREE.PlaneGeometry(2, 2);
+      scene.add(new THREE.Mesh(geometry, material));
+      const config = graphicsConfig({bloom_strength:0, hdr_antialias:false, auto_exposure:true}, 'balanced');
+      const pipeline = new HDRPipeline(renderer, config);
+      const fallback = new HDRPipeline(renderer, {...config, bloomStrength:0.2});
+      const pixels = new Uint8Array(4);
+      const read = () => {
+        gl.readPixels(16, 16, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels[0];
+      };
+      const render = (level, luma, frames = 1) => {
+        pipeline.resize(level, 32, 32, 1);
+        material.color.setRGB(luma, luma, luma);
+        for (let i = 0; i < frames; ++i) pipeline.render(scene, camera, 0.1);
+        return read();
+      };
+      try {
+        const bright = render(1, 1.5);
+        const metered = !!pipeline.exposureMeter && !pipeline.bright && renderer.info.render.calls === 3;
+        const enteringShade = render(1, 0.06);
+        const adaptedShade = render(1, 0.06, 40);
+        const leavingShade = render(1, 1.5);
+        const adaptedBright = render(1, 1.5, 24);
+        const fixedShade = render(0, 0.06);
+        const released = !pipeline.sceneTarget && !pipeline.exposureMeter;
+        const restoredShade = render(1, 0.06);
+        const original = gl.checkFramebufferStatus;
+        let checks = 0;
+        gl.checkFramebufferStatus = function(target) {
+          return ++checks === 2 ? gl.FRAMEBUFFER_UNSUPPORTED : original.call(this, target);
+        };
+        try { fallback.resize(1, 32, 32, 1); }
+        finally { gl.checkFramebufferStatus = original; }
+        return {
+          bright, enteringShade, adaptedShade, leavingShade, adaptedBright, fixedShade, restoredShade, metered,
+          released, bloomFallback:!!fallback.bright && !fallback.exposureMeter, glError:gl.getError(),
+        };
+      } finally {
+        pipeline.release(); fallback.release(); geometry.dispose(); material.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(exposure.metered && exposure.released && exposure.bloomFallback && exposure.glError === 0, JSON.stringify(exposure));
+    assert.ok(exposure.enteringShade + 30 < exposure.adaptedShade && exposure.fixedShade + 35 < exposure.adaptedShade, JSON.stringify(exposure));
+    assert.ok(exposure.leavingShade > exposure.bright + 20, JSON.stringify(exposure));
+    assert.ok(Math.abs(exposure.adaptedBright - exposure.bright) <= 3 && Math.abs(exposure.restoredShade - exposure.adaptedShade) <= 6, JSON.stringify(exposure));
+    console.log('PASS auto exposure: gradual bright/dark adaptation, fixed Low exposure and independent bloom fallback');
+
+    const coinScene = `${base}/coin_game/scene.json`;
+    const authoredExposure = async route => {
+      const response = await route.fetch();
+      const scene = await response.json();
+      scene.entities.find(entity => entity.tags.includes('player')).props.ai_graphics = {
+        auto_exposure:true, bloom_strength:0, hdr_antialias:false,
+      };
+      await route.fulfill({response, json:scene});
+    };
+    await page.route(coinScene, authoredExposure);
+    try {
+      await page.goto(`${base}/coin_game/?quality=balanced`);
+      await ready();
+      const mode = await page.evaluate(() => {
+        advanceFrames(1);
+        return document.querySelector('#game').dataset.graphics;
+      });
+      assert.equal(mode, 'hdr', 'authored auto exposure enables HDR without bloom or AA');
+    } finally { await page.unroute(coinScene, authoredExposure); }
+
     const contact = await page.evaluate(async () => {
       const THREE = await import('three');
       const { HDRPipeline } = await import('./hdr.js');

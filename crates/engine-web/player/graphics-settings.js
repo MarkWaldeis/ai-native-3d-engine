@@ -45,6 +45,7 @@ export function graphicsConfig(authored, preset, skyColor, deprecatedAlias) {
     environmentBackground: config.environment_background !== false,
     environmentRotation: Number.isFinite(config.environment_rotation_deg) ? config.environment_rotation_deg % 360 : 0,
     exposure: bounded(config.exposure, 1, 0.1, 4),
+    autoExposure: autoExposureSettings(config.auto_exposure),
     toneMapping: config.tone_mapping === 'agx' ? 'agx' : 'aces',
     hdrAntialias: config.hdr_antialias !== false,
     contactStrength: bounded(config.contact_occlusion, 0, 0, 1),
@@ -62,10 +63,21 @@ export function sunShadowSettings(authored) {
   return { castShadow: value?.cast !== false, receiveShadow: value?.receive !== false };
 }
 
-export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false) {
+function autoExposureSettings(authored) {
+  const value = object(authored);
+  if (authored !== true && !value) return null;
+  return {
+    minEV: bounded(value?.min_ev, -2, -4, 0),
+    maxEV: bounded(value?.max_ev, 2, 0, 4),
+    brightenSpeed: bounded(value?.brighten_speed, 1.25, 0.1, 8),
+    darkenSpeed: bounded(value?.darken_speed, 3, 0.1, 8),
+  };
+}
+
+export function hdrSettings(level, supported, strength, width, height, pixelRatio, antialias = false, contactOcclusion = false, autoExposure = false) {
   const bloom = level > 0 && supported && strength > 0;
   const contact = level === 2 && supported && contactOcclusion;
-  const enabled = bloom || contact || (level === 2 && supported && antialias);
+  const enabled = bloom || contact || (supported && ((level === 2 && antialias) || (level > 0 && autoExposure)));
   return {
     enabled, bloom, contact,
     pixelRatio: enabled ? Math.min(pixelRatio, Math.sqrt(2_600_000 / (width * height))) : pixelRatio,

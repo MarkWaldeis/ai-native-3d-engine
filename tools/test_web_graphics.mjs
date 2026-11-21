@@ -76,6 +76,19 @@ test('moving the sun camera does not move shadows by fractions of a texel', () =
   }
 });
 
+test('auto exposure is opt-in, bounded, and only activates supported HDR tiers', () => {
+  const config = auto_exposure => graphicsConfig({auto_exposure}, 'balanced').autoExposure;
+  for (const disabled of [undefined, false, 1, 'invalid', '[]']) assert.equal(config(disabled), null);
+  assert.deepEqual(config(true), {minEV:-2, maxEV:2, brightenSpeed:1.25, darkenSpeed:3});
+  assert.deepEqual(config('{"min_ev":-99,"max_ev":-1,"brighten_speed":0,"darken_speed":99}'),
+    {minEV:-4, maxEV:0, brightenSpeed:0.1, darkenSpeed:8});
+  for (const [level, supported, enabled] of [[0,true,false],[1,true,true],[2,true,true],[2,false,false]]) {
+    const hdr = hdrSettings(level, supported, 0, 500, 500, 1, false, false, true);
+    assert.equal(hdr.enabled, enabled);
+    assert.equal(hdr.bloom, false);
+  }
+});
+
 test('studio HDRI decodes HDR colors and lighting intensity does not alter the background', async () => {
   const file = await readFile(new URL('../examples/material_studio/studio.hdr', import.meta.url));
   const { data, width, height } = new RGBELoader().parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));

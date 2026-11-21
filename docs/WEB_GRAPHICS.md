@@ -28,6 +28,17 @@ materials, including existing GLBs. Zero environment intensity disables
 the environment lighting. Zero bloom strength skips all bloom passes and
 allocates no bloom targets; Ultra can still run edge smoothing.
 
+For scenes with both bright and dark areas, set `"auto_exposure": true` in
+`ai_graphics`. Balanced and Ultra adjust exposure from the rendered HDR image
+before tone mapping, like a camera going indoors. Fixed `exposure` remains an
+artistic multiplier and is the only setting used on Low or without HDR support.
+The first frame meters immediately; transitions then adapt gradually.
+
+An object can override `min_ev` and `max_ev` (defaults −2 and +2 stops, bounded
+to −4–0 and 0–4). `brighten_speed` and `darken_speed` control adaptation
+toward darker and brighter views, respectively (defaults 1.25/s and 3/s,
+bounded to 0.1–8/s). The meter adds two 1×1 targets and no CPU readback.
+
 For authored reflections, set `environment_map` in `ai_graphics` to a
 project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
 panorama (64–4096 pixels wide, up to 32 MiB, standard `-Y +X` orientation).
