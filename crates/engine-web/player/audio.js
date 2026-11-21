@@ -1,5 +1,10 @@
 import { GameAudio } from './presentation.js';
 
+export function bindAudioGestures(target, unlock, enabled) {
+  const handle = () => { if (enabled()) unlock(); };
+  for (const event of ['pointerdown', 'keydown', 'pointerup', 'touchend', 'click']) target.addEventListener(event, handle, { passive: true, capture: true });
+}
+
 export function audioObject(value) {
   try { const parsed = typeof value === 'string' ? JSON.parse(value) : value; return parsed && typeof parsed === 'object' ? parsed : {}; } catch { return {}; }
 }

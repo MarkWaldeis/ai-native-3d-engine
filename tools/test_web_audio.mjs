@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SpatialAudio, audioConfig, musicWhen, zoneWeight } from '../crates/engine-web/player/audio.js';
+import { SpatialAudio, audioConfig, musicWhen, zoneWeight, bindAudioGestures } from '../crates/engine-web/player/audio.js';
 
 class Parameter {
   value = 0;
@@ -45,6 +45,15 @@ const listen = (x = 0) => ({ position: [x, 0, 0], forward: [1, 0, 0], up: [0, 1,
 const entity = (id, x, sound = { synth: 'hum' }) => ({ id, tags: [], transform: { position: [x, 0, 0], scale: [1, 1, 1], rotation_deg: [0, 90, 0] }, props: { ai_sound: sound } });
 const scene = (entities, config = {}) => ({ entities: [{ id: 'player', tags: ['player'], props: { ai_audio: config } }, ...entities] });
 const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('audio retries on mobile release gestures in passive capture and respects paused/hidden gating', () => {
+  const listeners = new Map(); let enabled = true, calls = 0;
+  bindAudioGestures({ addEventListener(event, handle, options) { listeners.set(event, handle); assert.deepEqual(options, { passive: true, capture: true }); } }, () => calls++, () => enabled);
+  for (const event of ['pointerdown', 'keydown', 'pointerup', 'touchend', 'click']) listeners.get(event)();
+  assert.equal(calls, 5); enabled = false;
+  for (const handle of listeners.values()) handle();
+  assert.equal(calls, 5);
+});
 async function mock(run) {
   const saved = { AudioContext: globalThis.AudioContext, Audio: globalThis.Audio, fetch: globalThis.fetch };
   globalThis.AudioContext = Context; globalThis.Audio = Media;

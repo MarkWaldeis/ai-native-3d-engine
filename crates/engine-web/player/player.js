@@ -9,7 +9,7 @@ import { worldConfig } from './streaming.js';
 import { StreamingWorld, WebAssets } from './world.js';
 import { FirstPerson, fpsConfig } from './fps.js';
 import { feedbackEvents, nextObjective, objectiveBearing, isCollectible } from './presentation.js';
-import { SpatialAudio } from './audio.js';
+import { SpatialAudio, bindAudioGestures } from './audio.js';
 import { createTerrain } from './terrain.js';
 import { Animations, cloneSkinned } from './animation.js';
 import { replacesWater } from './nature-settings.js';
@@ -399,7 +399,7 @@ $('fullscreen').addEventListener('click', async () => {
 });
 
 const moveKeys = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'];
-for (const event of ['pointerdown', 'keydown']) window.addEventListener(event, () => { if (running && !document.hidden) audio.unlock(); });
+bindAudioGestures(window, () => audio.unlock(), () => running && !document.hidden);
 window.addEventListener('keydown', e => { if (moveKeys.includes(e.code)) { e.preventDefault(); if (running) { stopPreview(); if (e.code === 'Space') actionInput.press('keyboard'); keys.add(e.code); } } });
 window.addEventListener('keyup', e => { keys.delete(e.code); if (e.code === 'Space') actionInput.release('keyboard'); });
 window.addEventListener('blur', resetInput);
