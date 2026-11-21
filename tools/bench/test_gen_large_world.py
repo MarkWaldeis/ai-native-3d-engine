@@ -53,6 +53,19 @@ class GeneratorTests(unittest.TestCase):
             with self.assertRaises(FileNotFoundError):
                 TerrainSampler(path.parent / "missing.json")
 
+    def test_low_terrain_foundations_have_positive_sizes_and_stay_below_surface(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.terrain_fixture(directory)
+            manifest = json.loads(path.read_text())
+            for minimum in [2, 0, -100]:
+                with self.subTest(minimum=minimum):
+                    manifest["height_range"][0] = minimum
+                    path.write_text(json.dumps(manifest))
+                    foundations = generate(density=0, terrain_manifest=path)["entities"][:GRID * GRID]
+                    for foundation in foundations:
+                        self.assertTrue(all(size > 0 for size in foundation["size"]))
+                        self.assertEqual(foundation["transform"]["position"][1] + foundation["size"][1] / 2, minimum - 10)
+
     def test_default_scene_is_deterministic_and_covers_world(self):
         scene = generate()
         self.assertEqual(scene, generate())

@@ -73,9 +73,10 @@ def generate(seed=1, density=1.0, terrain_manifest=None):
         for ix in range(GRID):
             x, z = (ix + .5) * TILE - WORLD_SIZE / 2, (iz + .5) * TILE - WORLD_SIZE / 2
             top = terrain.manifest["height_range"][0] - 10 if terrain else height(x, z)
-            add(f"ground-{ix}-{iz}", "box", [x, (top - 8) / 2, z],
+            thickness = max(1, top + 8)
+            add(f"ground-{ix}-{iz}", "box", [x, top - thickness / 2, z],
                 [rng.uniform(.18, .32), rng.uniform(.30, .46), rng.uniform(.10, .19), 1],
-                size=[TILE, top + 8, TILE], tags=["ground"],
+                size=[TILE, thickness, TILE], tags=["ground"],
                 collider={"shape": "box"}, rigidbody={"type": "static"})
 
     def point():
