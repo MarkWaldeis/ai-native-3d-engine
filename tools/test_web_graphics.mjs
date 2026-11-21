@@ -294,7 +294,7 @@ test('procedural sky stores linear HDR radiance and moves the solar highlight wi
 test('procedural clouds are bounded, deterministic and leave the lower hemisphere untouched', () => {
   const render = sky_clouds => {
     const config = graphicsConfig({sky_clouds}, 'ultra');
-    return skyTexture(config, new THREE.Vector3(...config.sunDirection));
+    return skyTexture(config, new THREE.Vector3(...config.sunDirection).normalize());
   };
   assert.equal(graphicsConfig({}, 'ultra').skyClouds, null);
   assert.deepEqual(graphicsConfig({sky_clouds:{coverage:4, opacity:-1, scale:0, seed:100000}}, 'ultra').skyClouds,
