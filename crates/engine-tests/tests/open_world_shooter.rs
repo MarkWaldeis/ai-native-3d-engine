@@ -255,3 +255,68 @@ fn shooter_player_walks_across_both_generated_bridges_without_jumping() {
         println!("Shooter bridge {label}: crossed deck and both ramps without jumping");
     }
 }
+
+#[test]
+fn shooter_player_stays_inside_each_terrain_edge_and_can_walk_back() {
+    for axis in [0, 2] {
+        for sign in [-1.0_f32, 1.0] {
+            let mut scene: Scene = serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
+            scene.entities.retain(|e| ["player", "terrain", "intel"].contains(&e.name.as_str()));
+            let player = scene.entities.iter_mut().find(|e| e.name == "player").unwrap();
+            player.transform.position = [0.0, 250.0, 0.0];
+            player.transform.position[axis] = sign * 3259.8;
+            let action = if axis == 0 { "move_x" } else { "move_z" };
+            let mut simulation = Simulation::new(scene, &root()).unwrap();
+            simulation.step(300, &[]).unwrap();
+            simulation.step(180, &[
+                Input {tick:300,action:action.into(),value:sign as f64},
+                Input {tick:300,action:"sprint".into(),value:1.0},
+            ]).unwrap();
+            let snapshot = simulation.scene();
+            let p = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
+            assert!(p[axis].abs() <= 3260.01, "axis={axis}, sign={sign}: escaped at {p:?}");
+            simulation.step(180, &[Input {tick:480,action:action.into(),value:-sign as f64}]).unwrap();
+            let snapshot = simulation.scene();
+            let p = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
+            assert!(p[axis].abs() < 3254.0, "axis={axis}, sign={sign}: could not walk back at {p:?}");
+            assert!(!simulation.failed, "{}", simulation.state());
+        }
+    }
+}
+
+#[test]
+fn shooter_player_recovers_below_terrain_with_and_without_heightfields() {
+    let source = std::fs::read_to_string(root().join("examples/open_world_shooter/scripts/player.rhai")).unwrap();
+    let source = format!("{}\n{}", source.replace("fn on_tick(ctx,dt)", "fn player_tick(ctx,dt)"), r#"
+fn on_tick(ctx,dt) {
+    if ctx.input("force_fall") > 0.5 {
+        let p=ctx.position();
+        ctx.set_position([p[0],p[1]-50.0,p[2]]);
+        ctx.set_velocity([12.0,-50.0,12.0]);
+    }
+    player_tick(ctx,dt);
+}
+"#);
+    for with_terrain in [false, true] {
+        let mut scene: Scene = serde_json::from_value(read(if with_terrain {
+            "examples/open_world_shooter/scene.json"
+        } else {
+            "examples/open_world_shooter/tests/combat.json"
+        })).unwrap();
+        scene.entities.retain(|e| ["player", "terrain", "intel", "fixture-ground"].contains(&e.name.as_str()));
+        scene.entities.iter_mut().find(|e| e.name == "player").unwrap().script = Some(Script::Inline {source:source.clone()});
+        let mut simulation = Simulation::new(scene, &root()).unwrap();
+        simulation.step(60, &[]).unwrap();
+        let snapshot = simulation.scene();
+        let before = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
+        simulation.step(1, &[Input {tick:60,action:"force_fall".into(),value:1.0}]).unwrap();
+        simulation.step(60, &[Input {tick:61,action:"force_fall".into(),value:0.0}]).unwrap();
+        let snapshot = simulation.scene();
+        let after = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
+        for axis in 0..3 {
+            assert!((after[axis]-before[axis]).abs() < 0.15, "terrain={with_terrain}: {before:?} -> {after:?}");
+        }
+        assert_eq!(simulation.state()["state"]["health"].as_f64(), Some(100.0));
+        assert!(!simulation.failed, "{}", simulation.state());
+    }
+}

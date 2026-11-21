@@ -106,6 +106,17 @@ fn on_start(ctx) {
     }
     ctx.state_set("objective","Erreiche die Brücke über den Rio Verde");
     ctx.state_set("_wp",ctx.position());
+    ctx.set_memo("has_terrain",ctx.find_by_tag("terrain").len > 0);
+    let safe=ctx.position();
+    safe[0]=clamp(safe[0],-3260.0,3260.0);
+    safe[2]=clamp(safe[2],-3260.0,3260.0);
+    safe[1]=max(safe[1],terrain_floor(ctx,safe)+0.9);
+    ctx.set_memo("last_safe",safe);
+}
+
+fn terrain_floor(ctx,p) {
+    if ctx.memo("has_terrain") { ctx.terrain_height(p[0],p[2]) }
+    else { analytic_height(p[0],p[2]) }
 }
 
 fn fire(ctx, eye, dir, tick) {
@@ -171,6 +182,20 @@ fn missions(ctx,p) {
 }
 
 fn on_tick(ctx,dt) {
+    let p=ctx.position();
+    let x=clamp(p[0],-3260.0,3260.0);
+    let z=clamp(p[2],-3260.0,3260.0);
+    if p[0] != x || p[2] != z {
+        p=[x,p[1],z];
+        ctx.set_position(p);
+    }
+    let floor=terrain_floor(ctx,p);
+    if p[1] < floor-20.0 {
+        ctx.set_position(ctx.memo("last_safe"));
+        ctx.set_velocity([0.0,0.0,0.0]);
+        return;
+    }
+    if ctx.grounded() && p[1] >= floor { ctx.set_memo("last_safe",p); }
     if ctx.state_get("won") || ctx.state_get("lost") {
         ctx.set_velocity([0.0,ctx.velocity()[1],0.0]);
         return;
@@ -184,14 +209,15 @@ fn on_tick(ctx,dt) {
         ctx.set_velocity([0.0,ctx.velocity()[1],0.0]);
         return;
     }
-    let p=ctx.position();
     let cfg=ctx.prop("ai_fps");
     let velocity=ctx.velocity();
     let vy=velocity[1];
     if ctx.input("jump") > 0.5 && ctx.grounded() { vy=setting(cfg,"jump_speed",5.0); }
     let speed=if ctx.input("sprint") > 0.5 { setting(cfg,"sprint_speed",9.0) } else { setting(cfg,"move_speed",5.5) };
     let move=ctx.move_dir();
-    ctx.set_velocity([move[0]*speed,vy,move[2]*speed]);
+    let vx=clamp(move[0]*speed,(-3260.0-p[0])/dt,(3260.0-p[0])/dt);
+    let vz=clamp(move[2]*speed,(-3260.0-p[2])/dt,(3260.0-p[2])/dt);
+    ctx.set_velocity([vx,vy,vz]);
     let reload=ctx.state_get("_reload");
     if reload > 0.0 {
         reload=max(0.0,reload-dt);
