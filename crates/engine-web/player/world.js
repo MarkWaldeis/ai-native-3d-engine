@@ -126,8 +126,9 @@ export class StreamingWorld {
       }
     });
   }
-  assetPaths(e) { return e.kind==='gltf' ? [...new Set([e.path,...Object.values(e.props?.web_lods || {})].filter(Boolean))] : []; }
+  assetPaths(e) { return e.kind==='gltf' ? [...new Set([e.path,...Object.values(e.animator ? {} : e.props?.web_lods || {})].filter(Boolean))] : []; }
   assetChoice(item) {
+    if(item.e.animator) return {request:item.e.path,path:item.e.path};
     const lods=item.e.props?.web_lods || {}, coarse=Object.keys(lods).map(Number).sort((a,b)=>b-a).map(i=>lods[i]).find(Boolean);
     const desired=lods[item.level || 0] || item.e.path;
     const ready=this.assetPaths(item.e).filter(path=>this.assetStream.get(path));

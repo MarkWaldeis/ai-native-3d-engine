@@ -140,3 +140,11 @@ test('asset config validates positive finite budgets and integer work caps; smal
   for(const key of ['asset_concurrency','texture_uploads_per_frame']) assert.throws(()=>config({[key]:1.5}),RangeError);
   assert.equal(config({asset_cache_mb:0.1}).asset_cache_mb,0.1);
 });
+
+test('animated GLB entities load only their animated original, never static web_lods',async()=>{
+  const {world,loaded,camera}=fixture();
+  world.entities.get(1).e.animator={machine:{states:{}}};
+  await Promise.all(world.update(camera));await settle();
+  assert.deepEqual(loaded,['fine']);
+  assert.deepEqual(world.assetPaths(world.entities.get(1).e),['fine']);
+});
