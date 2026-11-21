@@ -12,6 +12,24 @@ use std::io::{BufRead, Write};
 
 fn main() {
     let mut args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("--net-serve") {
+        let result = (|| -> anyhow::Result<()> {
+            let scene_path=args.get(2).ok_or_else(|| anyhow::anyhow!("usage: ai-engine --net-serve <scene.json> [--addr 127.0.0.1:7790]"))?;
+            let addr=match args.len() {
+                3 => "127.0.0.1:7790".to_owned(),
+                5 if args[3]=="--addr" => args[4].clone(),
+                _ => anyhow::bail!("usage: ai-engine --net-serve <scene.json> [--addr 127.0.0.1:7790]"),
+            };
+            let root=std::env::current_dir()?.canonicalize()?;
+            let path=engine_core::project_path(&root,std::path::Path::new(scene_path))?;
+            let scene=serde_json::from_str(&std::fs::read_to_string(path)?)?;
+            engine_core::validate_scene_paths(&scene,&root)?;
+            std::thread::spawn(move || engine_net::websocket::serve(scene,engine_net::SimSource::ProjectRoot(root),&addr))
+                .join().map_err(|_| anyhow::anyhow!("network server thread panicked"))?
+        })();
+        if let Err(error)=result { eprintln!("network server failed: {error:#}"); std::process::exit(1); }
+        return;
+    }
     if args.get(1).map(String::as_str) == Some("init") {
         let result = (|| -> anyhow::Result<Value> {
             let dir = args.get(2).ok_or_else(|| anyhow::anyhow!("usage: ai-engine init <dir> [--template coin_game|sky_garden|empty]"))?;

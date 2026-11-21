@@ -46,6 +46,8 @@ pub struct Snapshot {
     pub entities: Vec<NetEntityState>,
     #[serde(default)]
     pub spawned: Vec<Entity>,
+    #[serde(default)]
+    pub players: Vec<u64>,
     pub removed: Vec<u64>,
     pub script_state: Value,
     pub baseline_tick: Option<u64>,

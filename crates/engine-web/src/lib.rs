@@ -3,6 +3,8 @@ use serde_json::json;
 use shared::scene::Scene;
 use std::collections::{BTreeMap, BTreeSet};
 use wasm_bindgen::prelude::*;
+mod net;
+pub use net::NetGame;
 
 #[wasm_bindgen]
 #[derive(Default)]

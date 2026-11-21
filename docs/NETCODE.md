@@ -148,6 +148,63 @@ These are numerical/headless checks, not visual verification of the arena.
 
 ## Limits
 
+### Browser multiplayer (native WebSocket authority)
+
+From the project/workspace root, use three terminals:
+
+```sh
+cargo run -- --export-web examples/net_arena/scene.json target/site/net_arena_ws
+cargo run -- --net-serve examples/net_arena/scene.json --addr 127.0.0.1:7790
+python3 -m http.server 8000 --bind 127.0.0.1 --directory target/site
+```
+
+The export directory must be new/empty. The exporter builds release WASM and
+requires `rustup target add wasm32-unknown-unknown` and
+`cargo install wasm-bindgen-cli --version 0.2.100 --locked` once.
+Open **two tabs** at:
+
+`http://127.0.0.1:8000/net_arena_ws/?net=ws://127.0.0.1:7790`
+
+Press **Spielen** in each tab; use WASD/arrows or the touch joystick. Each
+connection receives a different `net_player` slot. The camera follows that slot;
+the HUD shows Spieler N, estimated ping and connected player count. Push the
+brown crates toward the centre. The gold box at the back is script-spawned and
+replaced every three seconds; all clients see the same authoritative lifecycle.
+Pause/hidden tabs send neutral input but do not pause the server. Disconnects
+free slots; reload after a disconnect to rejoin. There are four arena slots.
+
+`?net` (empty) defaults to the current hostname on port 7790 (`wss` on HTTPS).
+Alternatively set `props.ai_net` to a WS URL or `{ "url": "ws://..." }` on the
+player; `?net=off` overrides it. Without either opt-in, WebGame/single-player is
+unchanged. `window.__engineNet` exposes connection/slot/RTT/correction/entity
+counts and rendered positions for automation.
+
+`engine-web::NetGame` wraps `NetClient`. `load(scene_json,scripts_json)` prepares
+the local scene; `receive(msg)` queues text protocol bytes; `tick(inputs_json,
+now_ms)` returns outgoing protocol messages plus WebGame-style render deltas,
+state, ownership and stats. Clock estimation, prediction, reconciliation,
+interpolation and physics remain in Rust. JS only moves bytes and renders.
+
+The native adapter uses tungstenite 0.28, bounded worker queues and a 60-Hz
+authority thread. Text and binary frames carry the existing JSON encoding.
+It is for **trusted local sessions**, without authentication or TLS. HTTPS pages
+need a separately configured TLS WebSocket endpoint. Browser network terrain
+streaming/asset transfer are not implemented; use the bundled net_arena scene.
+
+Optional real-browser smoke check (Chrome installed, a fresh native authority
+and HTTP server above running): install Playwright outside production dependencies, then run
+`tools/verify_web_net.mjs`. It checks distinct slots, movement visible in both
+tabs, crate pushing, spawned mesh lifecycle, HUD and disconnects; screenshots
+and a JSON report are written to `target/net-shots/`.
+
+```sh
+npm install --prefix target/net-check-tools playwright
+PLAYWRIGHT_MODULE="$PWD/target/net-check-tools/node_modules/playwright/index.mjs" \
+  node tools/verify_web_net.mjs
+```
+
+### Remaining limits
+
 - Script-spawned entities carry full definitions in full snapshots and on first
   appearance in deltas. Script file references must be available on every peer;
   this is not an asset-transfer protocol. Renderer mesh lifetimes can be driven
@@ -159,8 +216,7 @@ These are numerical/headless checks, not visual verification of the arena.
   Do not expose the UDP prototype to untrusted networks.
 - UDP has **no fragmentation**: each encoded message must fit one datagram.
   Large scenes require packetization or another transport.
-- No browser transport yet (WebSocket/WebRTC/WebTransport adapters are future
-  work); WASM compilation alone does not make browser multiplayer available.
+- Browser transport is WebSocket only; no WebRTC/WebTransport adapters yet.
 - Late join and network correction transfer poses/velocities and shared script
   state, not server Rapier contact caches or combat internals. Scene/script
   versions must match; cross-platform bit determinism is not guaranteed.

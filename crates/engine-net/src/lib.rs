@@ -5,6 +5,8 @@ pub mod protocol;
 mod server;
 pub mod simulate;
 pub mod transport;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod websocket;
 
 pub use client::{ClientConfig, NetClient};
 use engine_runtime::Input;

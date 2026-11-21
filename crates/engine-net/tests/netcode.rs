@@ -497,6 +497,7 @@ fn snapshot(tick: u64, x: f32) -> Snapshot {
             angvel: [0.0; 3],
         }],
         spawned: vec![],
+        players: vec![],
         removed: vec![],
         script_state: json!({}),
     }

@@ -209,6 +209,7 @@ impl NetServer {
             return Ok(vec![]);
         }
         let mut messages = vec![];
+        let players: Vec<_> = self.clients.values().map(|client| client.entity).collect();
         for (&peer, client) in &mut self.clients {
             let full = Snapshot {
                 server_tick: tick,
@@ -223,6 +224,7 @@ impl NetServer {
                     .filter(|e| !self.initial_ids.contains(&e.id))
                     .collect(),
                 removed: vec![],
+                players: players.clone(),
                 script_state: self.simulation.net_script_state(),
                 baseline_tick: None,
             };

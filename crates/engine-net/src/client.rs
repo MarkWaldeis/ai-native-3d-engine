@@ -242,9 +242,7 @@ impl NetClient {
                 self.client_id = Some(client_id);
                 // Bootstrap late joiners at the authority tick; the first full
                 // snapshot supplies authoritative poses and script state.
-                while self.simulation.tick < server_tick {
-                    self.simulation.step(1, &[])?;
-                }
+                self.simulation.tick = server_tick;
                 self.history.clear();
                 self.checkpoint();
             }
@@ -456,8 +454,12 @@ impl NetClient {
     /// Definitions for the currently rendered set. Diff IDs between calls to create/remove meshes.
     /// Authoritative definitions override predicted spawns; delayed removals follow interpolation.
     pub fn entity_definitions(&self) -> Vec<Entity> {
+        self.entity_definitions_at(0.0)
+    }
+
+    pub fn entity_definitions_at(&self, now_tick_fraction: f64) -> Vec<Entity> {
         let scene = self.simulation.scene();
-        self.render_states(0.0)
+        self.render_states(now_tick_fraction)
             .into_iter()
             .filter_map(|state| {
                 let definition = self
