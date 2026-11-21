@@ -66,7 +66,8 @@ Balanced and Ultra use height fog instead of distance fog, in the existing HDR
 resolve pass. Sky pixels are unchanged; transparent surfaces that do not write
 depth inherit the fog at the background depth. Auto exposure meters the fogged
 scene when both options are on. Low and unsupported GPUs keep the existing
-distance fog.
+distance fog. Use `density: 0` to turn off both kinds of fog on supported
+Balanced and Ultra renders without allocating a depth texture for fog.
 
 Use `ai_graphics.color_grade: {"saturation":0.8,"contrast":1.25}` for a muted,
 higher-contrast look. Both controls range from 0 to 2; 1 is neutral and

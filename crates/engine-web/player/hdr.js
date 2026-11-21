@@ -273,7 +273,9 @@ export class HDRPipeline {
 
   resize(level, width, height, pixelRatio) {
     const meterEnabled = !!(level > 0 && this.supported && this.meterSupported && this.exposureConfig);
-    const fogEnabled = !!(level > 0 && this.supported && this.fogSupported && this.fogConfig?.density > 0);
+    const heightFogSelected = level > 0 && this.supported && this.fogSupported && !!this.fogConfig;
+    const fogEnabled = heightFogSelected && this.fogConfig.density > 0;
+    this.zeroDensityFog = heightFogSelected && this.fogConfig.density === 0;
     const settings = hdrSettings(level, this.supported, this.strength, width, height, pixelRatio, this.edgeAA,
       this.contactSupported && this.contactConfig.contactStrength > 0, meterEnabled || fogEnabled || !!this.colorGrade);
     const wideBloom = settings.bloom && level === 2 && this.scatterRatio > 0;
@@ -400,9 +402,20 @@ export class HDRPipeline {
 
   resetExposure() { this.exposureMeter?.reset(); }
 
+  renderWorld(scene, camera) {
+    if (!this.fogEnabled && !this.zeroDensityFog) {
+      this.renderer.render(scene, camera);
+      return;
+    }
+    const fog = scene.fog;
+    scene.fog = null;
+    try { this.renderer.render(scene, camera); }
+    finally { scene.fog = fog; }
+  }
+
   render(scene, camera, elapsed = 0) {
     const renderer = this.renderer;
-    if (!this.sceneTarget) { renderer.render(scene, camera); return; }
+    if (!this.sceneTarget) { this.renderWorld(scene, camera); return; }
     const previous = renderer.getRenderTarget(), autoReset = renderer.info.autoReset;
     renderer.info.autoReset = false;
     renderer.info.reset();
@@ -413,13 +426,7 @@ export class HDRPipeline {
     };
     try {
       renderer.setRenderTarget(this.sceneTarget);
-      const fog = scene.fog;
-      try {
-        if (this.fogEnabled) scene.fog = null;
-        renderer.render(scene, camera);
-      } finally {
-        if (this.fogEnabled) scene.fog = fog;
-      }
+      this.renderWorld(scene, camera);
       this.contact?.render(draw, camera);
       if (this.fogEnabled) {
         const {uniforms} = this.composite;

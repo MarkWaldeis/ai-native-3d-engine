@@ -505,6 +505,9 @@ export async function verifyGraphics(browser, base, errors, shots) {
           autoExposure:graphicsConfig({auto_exposure:true}, 'balanced').autoExposure,
         });
         const noDepth = new HDRPipeline(renderer, {...config, bloomStrength:0.2, contactStrength:0.8});
+        const zeroConfig = {...config, heightFog:{...config.heightFog,density:0}};
+        const zero = new HDRPipeline(renderer, zeroConfig);
+        const zeroHdr = new HDRPipeline(renderer, {...zeroConfig, bloomStrength:0.2});
         const pixels = new Uint8Array(4);
         const read = (x,y) => {
           gl.readPixels(x,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixels);
@@ -537,6 +540,12 @@ export async function verifyGraphics(browser, base, errors, shots) {
           mesh.scale.setScalar(1);
           pipeline.resize(0,96,96,1);
           const low = sample(-1,45);
+          zero.resize(1,96,96,1);
+          const noFog = sample(-1,45,-1,zero), noFogDirect = !zero.sceneTarget;
+          zeroHdr.resize(2,96,96,1);
+          const noFogHdr = sample(-1,45,-1,zeroHdr), noFogDepth = !zeroHdr.sceneTarget.depthTexture;
+          zero.resize(0,96,96,1);
+          const zeroLow = sample(-1,45,-1,zero);
           const check = gl.checkFramebufferStatus;
           let rejectDepth = true;
           gl.checkFramebufferStatus = function(target) {
@@ -547,8 +556,11 @@ export async function verifyGraphics(browser, base, errors, shots) {
           finally { gl.checkFramebufferStatus = check; }
           const bloomFallback = !!noDepth.bright && !noDepth.sceneTarget.depthTexture && !noDepth.fogEnabled;
           result.push({near,ground,sky,far,elevated,through,fogOnly,combined,meteredGround,meteredElevated,low,bloomFallback,
-            restored:scene.fog === fallback,error:gl.getError()});
-        } finally { noDepth.release(); metered.release(); contact.release(); pipeline.release(); renderer.dispose(); renderer.forceContextLoss(); }
+            noFog,noFogHdr,noFogDirect,noFogDepth,zeroLow,restored:scene.fog === fallback,error:gl.getError()});
+        } finally {
+          for (const effect of [zero,zeroHdr,noDepth,metered,contact,pipeline]) effect.release();
+          renderer.dispose(); renderer.forceContextLoss();
+        }
       }
       geometry.dispose(); material.dispose();
       return result;
@@ -562,6 +574,10 @@ export async function verifyGraphics(browser, base, errors, shots) {
       assert.ok(combined.every((value,index) => Math.abs(value-ground[index]) <= 2), JSON.stringify(result));
       assert.ok(meteredGround[2] < ground[2] - 20 && meteredElevated[2] > elevated[2] + 20, JSON.stringify(result));
       assert.deepEqual(low,[204,68,16]);
+      assert.deepEqual(result.noFog,[32,32,32]);
+      assert.deepEqual(result.noFogHdr,result.noFog);
+      assert.deepEqual(result.zeroLow,low);
+      assert.ok(result.noFogDirect && result.noFogDepth, JSON.stringify(result));
       assert.ok(fogOnly && bloomFallback && restored && error === 0, JSON.stringify(result));
     }
     for (const key of ['near','ground','elevated','through']) {
