@@ -143,6 +143,31 @@ mod tests {
         assert_eq!(game.terrain_tiles_wanted(0.0),"[]");
     }
     #[test]
+    fn preloaded_tiles_make_on_start_height_identical_on_first_load_and_restart() {
+        use engine_terrain::{web::*, Terrain, TerrainConfig};
+        let mut terrain = Terrain::generate(TerrainConfig {
+            size_m: [256.0; 2], samples: 3, ..Default::default()
+        }).unwrap();
+        terrain.tiles[0].heights[12] = 300.0;
+        let range = [0.0, 400.0];
+        let coarse = CoarseGrid::from_terrain(&terrain, 256.0).unwrap();
+        let manifest = WebManifest {version:1, config:terrain.manifest.config.clone(), grid:[1;2], height_range:range,
+            coarse:CoarseInfo {step:256.0,dims:coarse.dims,file:"coarse.bin".into()},tiles:"tiles/{x}_{z}.bin".into()};
+        let mut game = WebGame::new();
+        game.set_terrain("terrain.json", &serde_json::to_string(&manifest).unwrap(), &coarse.encode(range)).unwrap();
+        game.add_terrain_tile("terrain.json", 0, 0, &encode_tile(&terrain.tiles[0],3,range)).unwrap();
+        let scene = json!({"entities":[
+            {"id":1,"name":"terrain","kind":"box","size":[1,1,1],"transform":{"position":[1000,7,2000]},"props":{"ai_terrain":"terrain.json"}},
+            {"id":2,"name":"player","kind":"box","size":[1,1,1],"tags":["player"],"transform":{"position":[1128,0,2128]},
+             "script":{"source":"fn on_start(ctx) {ctx.set_position([1128.0,ctx.terrain_height(1128.0,2128.0),2128.0]);}"}}
+        ]}).to_string();
+        let first: Value = serde_json::from_str(&game.load_inner(&scene,"{}").unwrap()).unwrap();
+        let restart: Value = serde_json::from_str(&game.load_inner(&scene,"{}").unwrap()).unwrap();
+        assert_eq!(first["transforms"],restart["transforms"]);
+        let y = first["transforms"][1]["transform"]["position"][1].as_f64().unwrap();
+        assert!((y-307.0).abs()<0.01, "on_start height: {y}");
+    }
+    #[test]
     fn unchanged_transforms_are_omitted_and_reload_is_full() {
         let scene =
             json!({"entities":[{"id":1,"name":"static","kind":"box","size":[1,1,1]}]}).to_string();

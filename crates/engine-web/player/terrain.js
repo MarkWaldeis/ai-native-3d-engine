@@ -192,6 +192,28 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
       const bytes=await queue.get(tileURL(map,x,z)); game.add_terrain_tile(path,x,z,bytes);
     }));
   }
+  async function initialTiles() {
+    const centers=entities.filter(e=>e.tags?.includes('player') || e.rigidbody?.type==='dynamic').map(e=>e.transform?.position || [0,0,0]);
+    const wanted=new Map();
+    for(const entity of terrainEntities) {
+      const map=maps.get(entity.props.ai_terrain), c=map.manifest.config, offset=entity.transform?.position || [0,0,0];
+      const radius=(typeof entity.props.ai_terrain_radius==='number' ? entity.props.ai_terrain_radius : 512)+128;
+      for(const center of centers) {
+        const local=[center[0]-offset[0],center[2]-offset[2]];
+        const lower=local.map((v,i)=>Math.max(0,Math.min(map.manifest.grid[i],Math.ceil((v-radius)/c.tile_m)-1)));
+        const upper=local.map((v,i)=>Math.max(-1,Math.min(map.manifest.grid[i]-1,Math.floor((v+radius)/c.tile_m))));
+        for(let z=lower[1];z<=upper[1];z++) for(let x=lower[0];x<=upper[0];x++) {
+          const dx=local[0]-Math.max(x*c.tile_m,Math.min((x+1)*c.tile_m,local[0]));
+          const dz=local[1]-Math.max(z*c.tile_m,Math.min((z+1)*c.tile_m,local[1]));
+          if(dx*dx+dz*dz<=radius*radius) wanted.set(key(map,x,z),{map,x,z});
+        }
+      }
+    }
+    await Promise.all([...wanted.values()].map(async ({map,x,z})=>{
+      const bytes=await queue.get(tileURL(map,x,z));
+      game.add_terrain_tile(map.path,x,z,bytes); tileData(map,x,z,bytes);
+    }));
+  }
   function disposeTile(mesh) {
     mesh.removeFromParent();
     mesh.geometry.setIndex(null);
@@ -246,5 +268,6 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     return first ? first.offset[1]+coarseHeight(first.map,x-first.offset[0],z-first.offset[2]) : 0;
   }
   const api={preload:physicsTiles,update,heightAt,stats,physicsHeightAt:(x,z)=>game.terrain_height(x,z)};
+  await initialTiles();
   window.__aiTerrain=api; connectVisuals(); return api;
 }

@@ -59,6 +59,25 @@ test('scenes without terrain need no renderer, WASM calls or browser globals', a
   assert.equal(await createTerrain(null,[{props:{}}],null,null,null,null),null);
 });
 
+test('initialization preloads player and dynamic spawn tiles before load, deduplicating terrain offsets',async t=>{
+  const offset=[1000,7,2000];
+  const entities=[{props:{ai_terrain:'terrain.json',ai_terrain_radius:1},transform:{position:offset}},
+    {tags:['player'],transform:{position:[1128,0,2128]}},
+    {tags:['player'],transform:{position:[1128,0,2128]}},
+    {rigidbody:{type:'dynamic'},transform:{position:[1896,0,2896]}},
+    {rigidbody:{type:'static'},transform:{position:[1512,0,2512]}}];
+  const {api,inserted,requests}=await terrainFixture(t,{size:[1024,1024],tile:256,entities});
+  assert.deepEqual(inserted.map(([path,x,z])=>[path,x,z]).sort(),[[0,0],[0,1],[1,0],[2,3],[3,2],[3,3]].map(([x,z])=>['terrain.json',x,z]));
+  assert.equal(requests.filter(url=>url.includes('/tiles/')).length,6);
+  const load=()=>api.heightAt(1128,2128);
+  const first=load(); await api.preload(); const restart=load();
+  assert.ok(Math.abs(first-82)<.001); assert.equal(restart,first);
+});
+
+test('initial spawn preload rejects failed tiles rather than allowing a coarse-data load',async t=>{
+  await assert.rejects(terrainFixture(t,{entities:[{props:{ai_terrain:'terrain.json'}},{tags:['player']}],failTile:true}),/HTTP 404/);
+});
+
 test('terrain quantization decodes LE heights and rejects malformed and empty fields', () => {
   const bytes = new Uint8Array(20), view = new DataView(bytes.buffer);
   bytes.set(new TextEncoder().encode('AITC')); view.setUint32(4,2,true); view.setUint32(8,2,true);
