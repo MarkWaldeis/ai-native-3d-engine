@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { AssetStream } from './asset-streaming.js';
 import { HLOD } from './hlod.js';
 import { GLTFLoader } from './vendor/addons/loaders/GLTFLoader.js';
 import { ChunkGrid, batchKey, canInstance, entityRadius, selectLOD } from './streaming.js';
@@ -115,6 +116,50 @@ export class StreamingWorld {
     this.grid = new ChunkGrid(this.gridConfig); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
     this.activeBuilds=0;
+    this.streamTemplates=new Map();
+    this.assetStream = new AssetStream(async path=>{
+      const gltf=await assets.loader.loadAsync(path);
+      tuneAssetTextures(gltf.scene,assets.anisotropy);
+      return gltf;
+    },renderer,config,path=>{
+      for(const item of this.entities.values()) if(this.grid.loaded.has(item.key) && this.assetPaths(item.e).includes(path)) this.dirty.add(item.key);
+    },path=>{
+      for(const [key,parts] of this.streamTemplates) if(key===path) {
+        for(const part of parts) {part.geometry.dispose();part.material.dispose();part.dispose?.();}
+        this.streamTemplates.delete(key);
+      }
+    });
+  }
+  assetPaths(e) { return e.kind==='gltf' ? [...new Set([e.path,...Object.values(e.animator ? {} : e.props?.web_lods || {})].filter(Boolean))] : []; }
+  assetChoice(item) {
+    if(item.e.animator) return {request:item.e.path,path:this.assetStream.get(item.e.path) ? item.e.path : undefined};
+    const lods=item.e.props?.web_lods || {}, coarse=Object.keys(lods).map(Number).sort((a,b)=>b-a).map(i=>lods[i]).find(Boolean);
+    const desired=lods[item.level || 0] || item.e.path;
+    const ready=this.assetPaths(item.e).filter(path=>this.assetStream.get(path));
+    return {request:coarse && !ready.length ? coarse : desired,path:this.assetStream.get(desired) ? desired : ready.includes(coarse) ? coarse : ready[0]};
+  }
+  placeholder(e) {
+    const bounds=e.props?.web_mesh_bounds;
+    if(!bounds) return [];
+    const key=`placeholder:${JSON.stringify(bounds)}`;
+    if(!this.templates.has(key)) {
+      const geometry=new THREE.BoxGeometry(...bounds[0].map((v,i)=>bounds[1][i]-v));
+      geometry.translate(...bounds[0].map((v,i)=>(bounds[1][i]+v)/2));
+      this.templates.set(key,[{geometry,material:new THREE.MeshStandardMaterial({color:0x888888,wireframe:true}),matrix:new THREE.Matrix4()}]);
+    }
+    return this.templates.get(key);
+  }
+  streamedParts(item) {
+    const {path}=this.assetChoice(item), gltf=this.assetStream.get(path);
+    if(!gltf) return this.placeholder(item.e);
+    if(item.level===2 && !item.e.props?.web_lods?.[2] && !item.e.animator) {
+      if(!this.streamTemplates.has(path)) this.streamTemplates.set(path,this.impostor(gltf.scene));
+      return this.streamTemplates.get(path);
+    }
+    gltf.scene.updateMatrixWorld(true);
+    const parts=[];
+    gltf.scene.traverse(o=>{if(o.isMesh) parts.push({geometry:o.geometry,material:o.material,matrix:o.matrixWorld.clone()});});
+    return parts;
   }
   hideProxied(group, hidden = true) {
     for (const child of group.children) if (child.isInstancedMesh) child.visible = !hidden || !this.hlod.entities.has(child.userData.items[0].e.id);
@@ -179,7 +224,7 @@ export class StreamingWorld {
       renderer.autoClear = autoClear;
     }
     const geometry = new THREE.PlaneGeometry(span,span); geometry.translate(center.x,center.y,center.z);
-    return [{geometry,material:impostorMaterial(target.texture,center,views),matrix:new THREE.Matrix4(),billboard:true}];
+    return [{geometry,material:impostorMaterial(target.texture,center,views),matrix:new THREE.Matrix4(),billboard:true,dispose:()=>target.dispose()}];
   }
   add(e, object) {
     object?.removeFromParent();
@@ -219,7 +264,7 @@ export class StreamingWorld {
     }
     try {
       for (const items of buckets.values()) {
-        const parts = await this.template(items[0].e,items[0].level === 3 ? 2 : items[0].level || 0);
+        const parts = items[0].e.kind==='gltf' ? this.streamedParts(items[0]) : await this.template(items[0].e,items[0].level === 3 ? 2 : items[0].level || 0);
         if (this.builds.get(key) !== group) return;
         for (const part of parts) {
           const mesh = new THREE.InstancedMesh(part.geometry,part.material,items.length); mesh.userData.ids = new Map(); mesh.userData.items = items;
@@ -232,7 +277,7 @@ export class StreamingWorld {
       }
       if (this.builds.get(key) !== group) return;
       for (const object of objects) group.add(object);
-      group.userData.nearReady = true;
+      group.userData.nearReady = [...buckets.values()].every(items=>items[0].e.kind!=='gltf' || !!this.assetStream.get(this.assetChoice(items[0]).path));
       if (this.hlod?.isFar(key)) this.hideProxied(group);
       disposeChunk(old);
       this.groups.set(key,group);
@@ -253,6 +298,13 @@ export class StreamingWorld {
     const tasks = []; this.occludedChunks=0;
     const change = this.grid.update(camera.position.toArray());
     for (const key of change.unload) {
+      for(const {id} of this.grid.chunks.get(key)?.values() || []) {
+        const item=this.entities.get(id);
+        if(item?.object?.userData.streamedGltf) {
+          item.object.userData.streamedGltf(null,[]);
+          item.streamedPath=undefined; item.placeholder=false;
+        }
+      }
       disposeChunk(this.groups.get(key));
       disposeChunk(this.builds.get(key));
       this.groups.delete(key); this.builds.delete(key); this.dirty.delete(key);
@@ -277,7 +329,7 @@ export class StreamingWorld {
           }
         }
         if (item.object) item.object.visible = item.e.visible !== false && level !== 3;
-        if (item.object && item.e.kind === 'gltf' && !item.e.animator) {
+        if (item.object && item.e.kind === 'gltf' && !item.object.userData.streamedGltf && !item.e.animator) {
           const lodPath = item.e.props?.web_lods?.[level];
           if (lodPath) {
             item.lods ??= new Map(); item.lodTasks ??= new Map();
@@ -314,6 +366,24 @@ export class StreamingWorld {
         const bounds = this.occluder ? new THREE.Box3().setFromObject(group) : null;
         group.visible = !this.occluder?.occluded(`chunk:${key}`,camera.position,bounds);
         if (!group.visible) this.occludedChunks++;
+      }
+    }
+    const wanted=new Map(), pinned=new Set();
+    for(const item of this.entities.values()) if(this.grid.loaded.has(item.key) && item.e.kind==='gltf' && (!item.object || item.object.userData.streamedGltf)) {
+      for(const path of this.assetPaths(item.e)) pinned.add(path);
+      if(item.level===3 || item.e.visible===false) continue;
+      const [x,z]=item.key.split(',').map(Number), size=this.config.chunk_size;
+      const distance=Math.hypot(Math.max(x*size-camera.position.x,0,camera.position.x-(x+1)*size),Math.max(z*size-camera.position.z,0,camera.position.z-(z+1)*size));
+      const choice=this.assetChoice(item);
+      wanted.set(choice.request,Math.min(distance,wanted.get(choice.request) ?? Infinity));
+    }
+    this.assetStream.update(wanted,pinned);
+    for(const item of this.entities.values()) if(this.grid.loaded.has(item.key) && item.object?.userData.streamedGltf) {
+      const {path}=this.assetChoice(item), gltf=this.assetStream.get(path);
+      if(item.streamedPath!==path || item.streamedLevel!==item.level || item.streamedPath===undefined && !item.placeholder) {
+        const billboard=gltf && item.level===2 && !item.e.props?.web_lods?.[2] && !item.e.animator;
+        item.object.userData.streamedGltf(billboard?null:gltf,billboard?this.streamedParts(item):this.placeholder(item.e));
+        item.streamedPath=path; item.streamedLevel=item.level; item.placeholder=!gltf;
       }
     }
     const size=this.config.chunk_size;

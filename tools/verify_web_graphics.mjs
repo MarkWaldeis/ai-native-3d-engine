@@ -811,7 +811,8 @@ export async function verifyGraphics(browser, base, errors, shots) {
       const source = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2),color.map(value=>new THREE.MeshBasicMaterial({color:value})));
       source.position.x = 2;
       model.add(source);
-      const world = new StreamingWorld(scene,renderer,config,{load:async()=>({scene:model})});
+      const load=async()=>({scene:model});
+      const world = new StreamingWorld(scene,renderer,config,{anisotropy:1,loader:{loadAsync:load},load});
       const camera = new THREE.PerspectiveCamera(30,1,0.1,40);
       const samples = [];
       try {
@@ -827,6 +828,13 @@ export async function verifyGraphics(browser, base, errors, shots) {
             camera.position.fromArray(offset).multiplyScalar(10).add(center);
             camera.lookAt(center); camera.updateMatrixWorld();
             await Promise.all(world.update(camera));
+            if(batched) {
+              for(let attempt=0;attempt<20 && !world.assetStream.get('fixture');attempt++) {
+                await new Promise(resolve=>setTimeout(resolve,0));
+                await Promise.all(world.update(camera));
+              }
+              if(!world.assetStream.get('fixture')) throw new Error('Streamed impostor fixture did not become ready');
+            }
             await world.entities.get(entity.id).impostorTask;
             world.update(camera);
             if (batched && !instance) {

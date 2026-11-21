@@ -135,6 +135,17 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- GLB-Hintergrundstreaming: `asset_concurrency` (4) priorisiert nach nächstem
+  geladenem Chunk; ungewollte Warteschlangen-Einträge entfallen. Chunks warten
+  nicht auf GLBs: `web_mesh_bounds` liefert Platzhalter, sonst bleibt die Stelle
+  leer. Mit `web_lods` zuerst gröbste Autoren-LOD, dann gewünschte Distanzstufe.
+  `texture_uploads_per_frame` (2) begrenzt `initTexture`; Modelle erscheinen erst
+  nach allen Uploads. `asset_cache_mb` (256) ist ein geschätztes LRU-Ziel für
+  Geometrie/Texturen; geladene Chunk-Assets bleiben gepinnt, dürfen es übersteigen.
+  Ohne Welt-Streaming bleibt der alte Loader aktiv. Stats/Overlay/Bench:
+  `assetsQueued`, `assetsLoading`, `assetsLoaded`, `assetMB`,
+  `textureUploadsPending`, `assetEvictions`.
+
 - HLOD: `ai_world.hlod` (true), `hlod_distance` (1600 m, größer als
   `draw_distance`), `hlod_cluster` (4×4 Chunks), `hlod_min_radius` (1,5 m).
   Statische Fernobjekte werden mit Welttransforms/Farben zusammengeführt,

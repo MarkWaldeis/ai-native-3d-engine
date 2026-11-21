@@ -52,7 +52,7 @@ const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain, occluder;
 const enemies = new Map();
-const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0};
+const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0,occludedChunks:0,occludedTerrainTiles:0,occlusionTests:0,hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0,assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0};
 const loading = new Set();
 const benchMarks = {};
 function mark(name) {
@@ -144,6 +144,22 @@ function createObject(entity) {
     }
     case 'gltf': {
       object = new THREE.Group();
+      if(streaming) {
+        const container=object;
+        group.userData.streamedGltf=(gltf,parts)=>{
+          animations.remove(entity.id);
+          container.traverse(child=>{if(child.isSkinnedMesh) child.skeleton.dispose();});
+          container.clear();
+          if(gltf) {
+            const model=cloneSkinned(gltf.scene,gltf.animations), flags=sunShadowSettings(entity.props?.ai_sun_shadow);
+            model.traverse(child=>{child.userData.sharedAsset=true;if(child.isMesh) Object.assign(child,flags);});
+            container.add(model); animations.add(entity,model,model.animations);
+          } else for(const part of parts) {
+            const placeholder=new THREE.Mesh(part.geometry,part.material); placeholder.userData.sharedAsset=true; container.add(placeholder);
+          }
+        };
+        break;
+      }
       const task = assets.load(entity.path).then(gltf => {
         const model = cloneSkinned(gltf.scene,gltf.animations), flags = sunShadowSettings(entity.props?.ai_sun_shadow);
         model.traverse(child => { if (child.isMesh) Object.assign(child, flags); });
@@ -571,12 +587,13 @@ function frame(now) {
     Object.assign(stats,streaming?.hlod?.stats() || {hlodClusters:0,hlodDrawCalls:0,hlodTriangles:0});
     stats.occludedChunks=streaming?.occludedChunks || 0; stats.occlusionTests=occluder?.tests || 0;
     stats.loadedChunks = streaming?.grid.loaded.size || 0; stats.visibleInstances = 0;
+    Object.assign(stats,streaming?.assetStream.stats() || {assetsQueued:0,assetsLoading:0,assetsLoaded:0,assetMB:0,textureUploadsPending:0,assetEvictions:0});
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (effects.nature) Object.assign(stats, effects.nature.stats());
     if (statsOverlay) {
       const gpuTime = stats.renderGpuMs === null ? '—' : `${stats.renderGpuMs.toFixed(1)} ms`;
-      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
+      statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances${effects.nature ? ` · ${stats.quality}` : ''} · HLOD ${stats.hlodClusters} clusters/${stats.hlodDrawCalls} calls/${stats.hlodTriangles} triangles · assets ${stats.assetsQueued} queued/${stats.assetsLoading} loading/${stats.assetsLoaded} ready · ${stats.assetMB.toFixed(1)} MB · uploads ${stats.textureUploadsPending} · evictions ${stats.assetEvictions} · hidden ${stats.occludedChunks}/${stats.occludedTerrainTiles || 0} chunks/tiles · ${stats.occlusionTests} occlusion tests · CPU ${stats.renderCpuMs.toFixed(1)} ms · GPU ${gpuTime}`;
     }
     if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
