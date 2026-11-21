@@ -53,3 +53,11 @@ test('static server handles MIME types, missing files and favicon without consol
     assert.equal((await fetch(server.url+'/favicon.ico')).status,204);
   } finally {await server?.close();await rm(directory,{recursive:true,force:true});}
 });
+
+test('summary reports terrain counters and leaves absent terrain measurements missing',()=>{
+  const results={browserVersion:'test',config:{},scene:{entities:14998,colliders:4096},profiles:{desktop:{terrain:{loadedTiles:42,visibleTiles:8,triangles:123456,bytesFetched:2345678,pendingFetches:0}},mobile:{terrain:null}},violations:[]};
+  const report=summary(results);
+  assert.match(report,/Loaded tiles \(decoded LRU\)/);
+  assert.match(report,/desktop \| 42\.00 \| 8\.00 \| 123456\.00 \| 2345678\.00 \| 0\.00/);
+  assert.match(report,/mobile \| — \| — \| — \| — \| —/);
+});

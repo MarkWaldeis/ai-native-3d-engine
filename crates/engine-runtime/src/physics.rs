@@ -3,6 +3,7 @@ use rapier3d::prelude::*;
 use shared::components::{BodyType, Collider as Shape};
 use shared::scene::{Entity, Scene, Transform};
 use std::collections::{BTreeMap, BTreeSet};
+use crate::terrain_stream::{TerrainSources, SharedTerrain};
 
 pub(crate) enum Force {
     Impulse(u64, [f32; 3]),
@@ -21,7 +22,8 @@ pub(crate) struct Physics {
     ccd: CCDSolver,
     handles: BTreeMap<u64, RigidBodyHandle>,
     root: std::path::PathBuf,
-    terrain: BTreeMap<u64, (String, engine_terrain::Terrain)>,
+    terrain: BTreeMap<u64, (String, SharedTerrain)>,
+    pub(crate) terrain_sources: TerrainSources,
     terrain_handles: BTreeMap<(u64, u32, u32), ColliderHandle>,
 }
 
@@ -36,7 +38,7 @@ fn pose(t: &Transform) -> Isometry<Real> {
     )
 }
 
-fn nearby_terrain_tiles(
+pub(crate) fn nearby_terrain_tiles(
     config: &engine_terrain::TerrainConfig,
     offset: [f32; 3],
     centers: &[[f64; 2]],
@@ -151,6 +153,7 @@ impl Physics {
         Self {
             root,
             terrain: BTreeMap::new(),
+            terrain_sources: Default::default(),
             terrain_handles: BTreeMap::new(),
             pipeline: PhysicsPipeline::new(),
             islands: IslandManager::new(),
@@ -246,7 +249,7 @@ impl Physics {
         Ok(())
     }
 
-    fn reconcile_terrain(&mut self, scene: &Scene) -> Result<()> {
+    pub(crate) fn reconcile_terrain(&mut self, scene: &Scene) -> Result<()> {
         let mut wanted = BTreeSet::new();
         let mut live = BTreeSet::new();
         let centers: Vec<_> = scene
@@ -295,10 +298,15 @@ impl Physics {
                 }
             }
             if !self.terrain.contains_key(&entity.id) {
-                let file = engine_core::project_path(&self.root, std::path::Path::new(path))?;
+                if !self.terrain_sources.borrow().contains_key(path) {
+                    anyhow::ensure!(!self.root.as_os_str().is_empty(), "terrain {path} missing from bundled terrain sources");
+                    let file = engine_core::project_path(&self.root, std::path::Path::new(path))?;
+                    let terrain = engine_terrain::web::StreamedTerrain::from_terrain(&engine_terrain::Terrain::load(&file)?);
+                    self.terrain_sources.borrow_mut().insert(path.to_owned(), std::rc::Rc::new(std::cell::RefCell::new(terrain)));
+                }
                 self.terrain.insert(
                     entity.id,
-                    (path.to_owned(), engine_terrain::Terrain::load(&file)?),
+                    (path.to_owned(), self.terrain_sources.borrow()[path].clone()),
                 );
             }
             let radius = entity
@@ -310,10 +318,11 @@ impl Physics {
                 radius.is_finite() && radius >= 0.0,
                 "terrain radius must be nonnegative"
             );
-            let terrain = &self.terrain[&entity.id].1;
-            let config = &terrain.manifest.config;
+            let terrain = self.terrain[&entity.id].1.borrow();
+            let config = &terrain.config;
             for index in nearby_terrain_tiles(config, entity.transform.position, &centers, radius) {
-                let tile = &terrain.tiles[index];
+                let coord = (index as u32 % config.grid()[0], index as u32 / config.grid()[0]);
+                let Some(tile) = terrain.tiles.get(&coord) else { continue; };
                 let x = entity.transform.position[0] as f64 + tile.x as f64 * config.tile_m;
                 let z = entity.transform.position[2] as f64 + tile.z as f64 * config.tile_m;
                 let key = (entity.id, tile.x, tile.z);

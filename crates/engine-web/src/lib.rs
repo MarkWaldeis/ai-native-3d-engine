@@ -10,6 +10,7 @@ pub struct WebGame {
     simulation: Option<Simulation>,
     known: BTreeSet<u64>,
     transforms: BTreeMap<u64, shared::scene::Transform>,
+    terrains: BTreeMap<String, engine_terrain::web::StreamedTerrain>,
 }
 
 #[wasm_bindgen]
@@ -17,6 +18,33 @@ impl WebGame {
     #[wasm_bindgen(constructor)]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_terrain(&mut self, path: &str, manifest_json: &str, coarse_bytes: &[u8]) -> Result<(), JsValue> {
+        let terrain = serde_json::from_str::<engine_terrain::web::WebManifest>(manifest_json)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        let terrain = engine_terrain::web::StreamedTerrain::from_manifest(&terrain, coarse_bytes)
+            .map_err(|e| JsValue::from_str(&e.to_string()))?;
+        self.terrains.insert(path.to_owned(), terrain);
+        Ok(())
+    }
+
+    pub fn add_terrain_tile(&mut self, path: &str, x: u32, z: u32, bytes: &[u8]) -> Result<(), JsValue> {
+        let terrain = self.terrains.get_mut(path).ok_or_else(|| JsValue::from_str("unknown terrain"))?;
+        terrain.insert_tile(x,z,bytes).map_err(|e|JsValue::from_str(&e.to_string()))?;
+        if let Some(sim) = &mut self.simulation {
+            sim.insert_terrain_tile(path,x,z,bytes).map_err(|e|JsValue::from_str(&e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    pub fn terrain_tiles_wanted(&self, margin: f64) -> String {
+        let wanted: Vec<_> = self.simulation.as_ref().map(|s|s.terrain_tiles_wanted(margin)).unwrap_or_default().into_iter().map(|(path,x,z)|json!({"path":path,"x":x,"z":z})).collect();
+        serde_json::to_string(&wanted).unwrap()
+    }
+
+    pub fn terrain_height(&self, x: f64, z: f64) -> f64 {
+        self.simulation.as_ref().map_or(0.0,|s|s.terrain_height(x,z))
     }
 
     pub fn load(&mut self, scene_json: &str, scripts_json: &str) -> Result<String, JsValue> {
@@ -44,7 +72,7 @@ impl WebGame {
         let scene: Scene = serde_json::from_str(scene_json).map_err(|e| e.to_string())?;
         let scripts: BTreeMap<String, String> =
             serde_json::from_str(scripts_json).map_err(|e| e.to_string())?;
-        let simulation = Simulation::from_sources(scene, scripts).map_err(|e| e.to_string())?;
+        let simulation = Simulation::from_sources_with_terrain(scene, scripts, self.terrains.clone()).map_err(|e| e.to_string())?;
         self.simulation = Some(simulation);
         self.known.clear();
         self.transforms.clear();
@@ -95,6 +123,50 @@ impl WebGame {
 mod tests {
     use super::*;
     use serde_json::Value;
+    #[test]
+    fn terrain_bridge_loads_streams_and_preserves_tiles_on_reload() {
+        use engine_terrain::{Terrain, TerrainConfig, web::*};
+        let terrain=Terrain::generate(TerrainConfig {size_m:[512.0;2],samples:33,..Default::default()}).unwrap();
+        let coarse=CoarseGrid::from_terrain(&terrain,16.0).unwrap();
+        let manifest=WebManifest {version:1,config:terrain.manifest.config.clone(),grid:[2;2],height_range:terrain.manifest.height_range,coarse:CoarseInfo {step:16.0,dims:coarse.dims,file:"coarse.bin".into()},tiles:"tiles/{x}_{z}.bin".into()};
+        let mut game=WebGame::new();
+        assert_eq!(game.terrain_height(0.0,0.0),0.0);
+        assert_eq!(game.terrain_tiles_wanted(0.0),"[]");
+        game.set_terrain("terrain/0/terrain.json",&serde_json::to_string(&manifest).unwrap(),&coarse.encode(manifest.height_range)).unwrap();
+        let scene=json!({"entities":[{"id":1,"name":"terrain","kind":"box","size":[1,1,1],"tags":["player"],"props":{"ai_terrain":"terrain/0/terrain.json","ai_terrain_radius":1}}]}).to_string();
+        game.load_inner(&scene,"{}").unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&game.terrain_tiles_wanted(0.0)).unwrap(),json!([{"path":"terrain/0/terrain.json","x":0,"z":0}]));
+        game.add_terrain_tile("terrain/0/terrain.json",0,0,&encode_tile(&terrain.tiles[0],33,manifest.height_range)).unwrap();
+        assert_eq!(game.terrain_tiles_wanted(0.0),"[]");
+        assert!((game.terrain_height(11.0,12.0)-terrain.sample(11.0,12.0).unwrap() as f64).abs()<0.01);
+        game.load_inner(&scene,"{}").unwrap();
+        assert_eq!(game.terrain_tiles_wanted(0.0),"[]");
+    }
+    #[test]
+    fn preloaded_tiles_make_on_start_height_identical_on_first_load_and_restart() {
+        use engine_terrain::{web::*, Terrain, TerrainConfig};
+        let mut terrain = Terrain::generate(TerrainConfig {
+            size_m: [256.0; 2], samples: 3, ..Default::default()
+        }).unwrap();
+        terrain.tiles[0].heights[12] = 300.0;
+        let range = [0.0, 400.0];
+        let coarse = CoarseGrid::from_terrain(&terrain, 256.0).unwrap();
+        let manifest = WebManifest {version:1, config:terrain.manifest.config.clone(), grid:[1;2], height_range:range,
+            coarse:CoarseInfo {step:256.0,dims:coarse.dims,file:"coarse.bin".into()},tiles:"tiles/{x}_{z}.bin".into()};
+        let mut game = WebGame::new();
+        game.set_terrain("terrain.json", &serde_json::to_string(&manifest).unwrap(), &coarse.encode(range)).unwrap();
+        game.add_terrain_tile("terrain.json", 0, 0, &encode_tile(&terrain.tiles[0],3,range)).unwrap();
+        let scene = json!({"entities":[
+            {"id":1,"name":"terrain","kind":"box","size":[1,1,1],"transform":{"position":[1000,7,2000]},"props":{"ai_terrain":"terrain.json"}},
+            {"id":2,"name":"player","kind":"box","size":[1,1,1],"tags":["player"],"transform":{"position":[1128,0,2128]},
+             "script":{"source":"fn on_start(ctx) {ctx.set_position([1128.0,ctx.terrain_height(1128.0,2128.0),2128.0]);}"}}
+        ]}).to_string();
+        let first: Value = serde_json::from_str(&game.load_inner(&scene,"{}").unwrap()).unwrap();
+        let restart: Value = serde_json::from_str(&game.load_inner(&scene,"{}").unwrap()).unwrap();
+        assert_eq!(first["transforms"],restart["transforms"]);
+        let y = first["transforms"][1]["transform"]["position"][1].as_f64().unwrap();
+        assert!((y-307.0).abs()<0.01, "on_start height: {y}");
+    }
     #[test]
     fn unchanged_transforms_are_omitted_and_reload_is_full() {
         let scene =
