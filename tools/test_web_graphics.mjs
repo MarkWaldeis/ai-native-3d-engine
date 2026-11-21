@@ -175,6 +175,18 @@ test('spot lights keep an independent budget, follow local orientation, and remo
   assert.equal(scene.children.length, 0);
 });
 
+test('spotlight axes follow nonuniform and mirrored entity scales', () => {
+  const pool = new LocalLights(new THREE.Scene()), origin = new THREE.Vector3();
+  const transform = scale => ({position:[0,0,0], scale, rotation_deg:[0,0,0]});
+  pool.register({id:1, transform:transform([-2,1,0.5]), props:{ai_light:{type:'spot', direction:[1,0,-1]}}});
+  pool.update(origin, 0);
+  const spot = pool.slots.spot[0];
+  assert.ok(spot.target.position.distanceTo(new THREE.Vector3(-2,0,-0.5).normalize()) < 1e-10);
+  pool.move(1, transform([0,1,0]));
+  pool.update(origin, 0);
+  assert.ok(spot.target.position.distanceTo(new THREE.Vector3(1,0,-1).normalize()) < 1e-10);
+});
+
 test('HDR respects fallback, render-pixel budget, and quality levels', () => {
   for (const [level, supported, strength] of [[0, true, 1], [2, false, 1], [2, true, 0]]) {
     assert.deepEqual(hdrSettings(level, supported, strength, 2560, 1440, 1.5), {

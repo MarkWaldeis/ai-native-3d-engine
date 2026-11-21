@@ -112,7 +112,8 @@ shadows. The web player renders the closest 2, 4 or 8 point lights for low,
 balanced or ultra. Streamed worlds select around the player rather than the distant
 follow camera, so nearby fixtures stay lit without increasing the GPU budget.
 
-Set `type: "spot"` for a directional cone that follows the entity's rotation.
+Set `type: "spot"` for a directional cone that follows the entity's local axes
+under rotation and scale.
 It defaults to local −Z; set `direction` to aim along a different local vector.
 `outer_angle` sets the cone half-angle in degrees (1–89, default 35).
 `inner_angle` is the half-angle before the soft edge begins (defaults to 65%
