@@ -66,7 +66,7 @@ export function terrainSurface(T, material, water = 0.6, reliefMap, strength) {
   const maps=surfaceTextures(T),detail={value:0};
   const relief = reliefMap && Number.isFinite(strength) ? T.MathUtils.clamp(strength, 0, 1) : 0;
   material.customProgramCacheKey = () => relief > 0 ? 'terrain-relief' : 'terrain-surface';
-  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>0?1:0;};
+  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>1?1:0;};
   material.onBeforeCompile=shader=>{
     Object.assign(shader.uniforms,{surfaceAlbedo:{value:maps.albedo},surfaceNormal:{value:maps.normal},surfaceDetail:detail,surfaceWater:{value:water}});
     shader.vertexShader='varying vec3 vSurfaceWorld; varying vec3 vSurfaceNormal;\n'+shader.vertexShader;
@@ -123,7 +123,7 @@ export function terrainSurface(T, material, water = 0.6, reliefMap, strength) {
 export function roadSurface(T, material) {
   const maps=surfaceTextures(T),detail={value:0};
   material.roughness=1;material.metalness=0;
-  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>0?1:0;};
+  material.onBeforeRender=renderer=>{detail.value=Number(renderer.domElement.dataset.quality)>1?1:0;};
   material.onBeforeCompile=shader=>{
     Object.assign(shader.uniforms,{surfaceAlbedo:{value:maps.albedo},surfaceNormal:{value:maps.normal},surfaceDetail:detail});
     shader.vertexShader='varying vec3 vTrackLocal; varying vec3 vTrackWorld;\n'+shader.vertexShader;

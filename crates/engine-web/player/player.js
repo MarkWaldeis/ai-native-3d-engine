@@ -524,6 +524,7 @@ async function boot() {
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
   world = new THREE.Scene();
   effects = new GameEffects(renderer, world, ui.sky_color, graphics);
+  effects.nature?.setExclusions(source.entities);
   assets = new WebAssets(effects.graphics ? textureAnisotropy(effects.startLevel, renderer.capabilities.getMaxAnisotropy()) : 1);
   await Promise.all([effects.prepareEnvironment(), assets.preloadMaterialMaps(source.entities)]);
   const config = worldConfig(source.entities);

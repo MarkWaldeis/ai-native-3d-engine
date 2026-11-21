@@ -14,19 +14,36 @@ export function daylightDefaults(hour) {
 }
 
 export function foliageSettings(config, level) {
-  const density = [0.25,0.6,1][level], distance = [24,48,64][level];
-  return {density:density*(config?.density ?? 1),distance:Math.min(config?.distance ?? distance,distance),tileSize:16};
+  const density = [0.16,0.45,1.4][level], distance = [24,36,112][level];
+  return {density:density*(config?.density ?? 1),trees:config?.trees ?? 1,distance:Math.min(config?.distance ?? distance,distance),tileSize:16};
 }
 
-export function foliagePlacements(tx,tz,{density=1,size=16,water=-Infinity,sample=()=>0}={}) {
+export function foliagePlacements(tx,tz,{density=1,size=16,water=-Infinity,sample=()=>0,trees=1,exclude=()=>false}={}) {
   const hash = n => { let x = Math.imul(tx ^ 0x9e3779b9,tz ^ 0x85ebca6b) ^ Math.imul(n+1,0x27d4eb2d); x = Math.imul(x ^ x>>>16,0x45d9f3b); return ((x ^ x>>>16)>>>0)/4294967296; };
   const result=[];
   for(let i=0;i<Math.floor(220*density);i++) {
     const x=(tx+hash(i*4))*size,z=(tz+hash(i*4+1))*size,y=sample(x,z);
-    if (!Number.isFinite(y) || y < water || !(Math.abs(sample(x+0.5,z)-y)<=0.45) || !(Math.abs(sample(x,z+0.5)-y)<=0.45)) continue;
-    result.push({x,y,z,rotation:hash(i*4+2)*Math.PI*2,scale:0.65+hash(i*4+3)*0.8,tree:i%59===0});
+    if (!Number.isFinite(y) || y < water || exclude(x,z) || !(Math.abs(sample(x+0.5,z)-y)<=0.45) || !(Math.abs(sample(x,z+0.5)-y)<=0.45)) continue;
+    result.push({x,y,z,rotation:hash(i*4+2)*Math.PI*2,scale:0.65+hash(i*4+3)*0.8,tree:i%59===0&&hash(i+900)<trees,kind:hash(i+1700),hue:hash(i+2500)});
   }
   return result;
+}
+
+export function foliageExclusion(entities) {
+  const cells=new Map(),size=32;
+  for(const e of entities) {
+    const t=e.transform;
+    if(e.kind!=='box'||!e.tags?.includes('road')||!Array.isArray(e.size)||!e.size.every(Number.isFinite)||!t?.position?.every(Number.isFinite))continue;
+    const angle=(t.rotation_deg?.[1]||0)*Math.PI/180,c=Math.cos(angle),s=Math.sin(angle);
+    const road={x:t.position[0],z:t.position[2],hx:e.size[0]*Math.abs(t.scale?.[0]??1)/2+0.6,hz:e.size[2]*Math.abs(t.scale?.[2]??1)/2+0.6,c,s};
+    const rx=Math.abs(c)*road.hx+Math.abs(s)*road.hz,rz=Math.abs(s)*road.hx+Math.abs(c)*road.hz;
+    for(let x=Math.floor((road.x-rx)/size);x<=Math.floor((road.x+rx)/size);x++)for(let z=Math.floor((road.z-rz)/size);z<=Math.floor((road.z+rz)/size);z++) {
+      const key=`${x},${z}`;if(!cells.has(key))cells.set(key,[]);cells.get(key).push(road);
+    }
+  }
+  return (x,z)=>(cells.get(`${Math.floor(x/size)},${Math.floor(z/size)}`)||[]).some(r=>{
+    const dx=x-r.x,dz=z-r.z;return Math.abs(dx*r.c-dz*r.s)<=r.hx&&Math.abs(dx*r.s+dz*r.c)<=r.hz;
+  });
 }
 
 export function adaptQuality(state, fps, seconds, target = 42) {
