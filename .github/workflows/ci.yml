@@ -33,6 +33,7 @@ jobs:
         run: |
           npm install --prefix target/web-ci --no-save --package-lock=false playwright@1.65.1
           target/web-ci/node_modules/.bin/playwright install --with-deps --only-shell chromium
+          target/web-ci/node_modules/.bin/playwright install --with-deps webkit
       - name: Fresh exports (same entry point as Pages)
         run: |
           rm -rf target/m9-site target/web-release-shots
@@ -46,6 +47,13 @@ jobs:
       - name: Keyboard release checks and native-WASM parity
         env:
           PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
+        run: node tools/verify_web_release.mjs target/m9-site target/web-native.json
+      - name: WebKit iPhone and iPad release checks (required, no silent skip)
+        env:
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/target/web-ci/node_modules/playwright/index.mjs
+          BROWSER_ENGINE: webkit
+          SHOTS_DIR: target/web-release-shots/webkit
+          LIBGL_ALWAYS_SOFTWARE: '1'
         run: node tools/verify_web_release.mjs target/m9-site target/web-native.json
       - uses: actions/upload-artifact@v4
         if: always()
