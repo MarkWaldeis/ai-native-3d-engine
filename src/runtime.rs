@@ -44,7 +44,11 @@ impl Engine {
                     let path = save_path(project, path)?;
                     let bytes = serde_json::to_vec(&save)?;
                     if bytes.len() > engine_runtime::savegame::MAX_SAVE_BYTES { anyhow::bail!("save exceeds 4 MB limit"); }
-                    std::fs::write(path, bytes)?;
+                    atomic_save(&path, |file| {
+                        use std::io::Write;
+                        file.write_all(&bytes)?;
+                        Ok(())
+                    })?;
                 }
                 save
             }
@@ -166,4 +170,49 @@ fn save_path(project: &std::path::Path, value: &Value) -> anyhow::Result<std::pa
     let path = std::path::Path::new(value.as_str().ok_or_else(|| anyhow::anyhow!("save path must be a string"))?);
     if path.extension().and_then(|s| s.to_str()) != Some("json") { anyhow::bail!("save path must end in .json"); }
     engine_core::project_path(project, path)
+}
+
+fn atomic_save(path: &std::path::Path, write: impl FnOnce(&mut std::fs::File) -> anyhow::Result<()>) -> anyhow::Result<()> {
+    let parent = path.parent().ok_or_else(|| anyhow::anyhow!("save path requires a parent directory"))?;
+    let mut nonce = [0u8; 16];
+    getrandom::getrandom(&mut nonce).map_err(|_| anyhow::anyhow!("save nonce generation failed"))?;
+    let suffix: String = nonce.iter().map(|b| format!("{b:02x}")).collect();
+    let temporary = parent.join(format!(".ai-engine-save-{suffix}.tmp"));
+    let mut file = std::fs::OpenOptions::new().write(true).create_new(true).open(&temporary)?;
+    let result = (|| -> anyhow::Result<()> {
+        write(&mut file)?;
+        file.sync_all()?;
+        Ok(())
+    })();
+    drop(file);
+    let result = result.and_then(|()| { std::fs::rename(&temporary, path)?; Ok(()) });
+    if result.is_err() { let _ = std::fs::remove_file(&temporary); }
+    #[cfg(unix)]
+    if result.is_ok() { let _ = std::fs::File::open(parent).and_then(|directory| directory.sync_all()); }
+    result
+}
+
+#[cfg(test)]
+mod save_file_tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn atomic_save_replaces_only_complete_writes_and_cleans_failures() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+        std::fs::create_dir_all(&root).unwrap();
+        let dir=root.join(format!("atomic-save-test-{}",std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path=dir.join("save.json");
+        std::fs::write(&path,b"original").unwrap();
+        assert!(atomic_save(&path,|file| { file.write_all(b"partial")?; anyhow::bail!("injected write failure") }).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(),b"original");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(),1);
+        atomic_save(&path,|file| {file.write_all(b"complete")?; Ok(())}).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(),b"complete");
+        let directory=dir.join("directory.json");std::fs::create_dir_all(&directory).unwrap();
+        assert!(atomic_save(&directory,|file| {file.write_all(b"complete")?; Ok(())}).is_err());
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(),2);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
