@@ -151,7 +151,7 @@ export class StreamingWorld {
           if (lodPath) {
             item.lods ??= new Map(); item.lodTasks ??= new Map();
             if (!item.lodTasks.has(lodPath)) {
-              const task = loadAsset(lodPath).then(gltf => {
+              const task = this.assets.load(lodPath).then(gltf => {
                 if (this.entities.get(id) !== item) return;
                 const lod = gltf.scene.clone(true); item.lods.set(lodPath,lod); item.object.add(lod);
               });
