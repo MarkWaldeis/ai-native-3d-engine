@@ -38,6 +38,34 @@ impl Engine {
             .parent()
             .unwrap_or_else(|| std::path::Path::new("."));
         let value = match name {
+            "save_game" => {
+                let save = self.simulation.as_ref().ok_or_else(|| anyhow::anyhow!("no simulation; call play before save_game"))?.save_game();
+                if let Some(path) = args.get("path") {
+                    let path = save_path(project, path)?;
+                    let bytes = serde_json::to_vec_pretty(&save)?;
+                    if bytes.len() > engine_runtime::savegame::MAX_SAVE_BYTES { anyhow::bail!("save exceeds 4 MB limit"); }
+                    std::fs::write(path, bytes)?;
+                }
+                save
+            }
+            "load_game" => {
+                if self.simulation.is_some() { anyhow::bail!("already playing; call stop before load_game"); }
+                let save = match (args.get("path"), args.get("save")) {
+                    (Some(path), None) => {
+                        use std::io::Read;
+                        let mut bytes = Vec::new();
+                        std::fs::File::open(save_path(project, path)?)?.take((engine_runtime::savegame::MAX_SAVE_BYTES + 1) as u64).read_to_end(&mut bytes)?;
+                        if bytes.len() > engine_runtime::savegame::MAX_SAVE_BYTES { anyhow::bail!("save exceeds 4 MB limit"); }
+                        serde_json::from_slice(&bytes)?
+                    }
+                    (None, Some(save)) => save.clone(),
+                    _ => anyhow::bail!("load_game requires exactly one of path or save"),
+                };
+                let sim = Simulation::load_game(self.world.scene.clone(), project, save)?;
+                let state = sim.state();
+                self.simulation = Some(sim);
+                state
+            }
             "play" => {
                 if self.simulation.is_some() {
                     anyhow::bail!("already playing; call stop before play");
@@ -132,4 +160,10 @@ impl Engine {
         };
         Ok(text_result(value.to_string()))
     }
+}
+
+fn save_path(project: &std::path::Path, value: &Value) -> anyhow::Result<std::path::PathBuf> {
+    let path = std::path::Path::new(value.as_str().ok_or_else(|| anyhow::anyhow!("save path must be a string"))?);
+    if path.extension().and_then(|s| s.to_str()) != Some("json") { anyhow::bail!("save path must end in .json"); }
+    engine_core::project_path(project, path)
 }
