@@ -230,7 +230,9 @@ impl Simulation {
 
     fn sync_physics(&self) -> Result<()> {
         let mut physics = self.physics.borrow_mut();
-        physics.reconcile(&self.data.borrow().scene)?;
+        let data = self.data.borrow();
+        physics.reconcile(&data.scene)?;
+        physics.apply_poses(&data.scene, &data.dirty);
         physics.refresh_queries();
         Ok(())
     }

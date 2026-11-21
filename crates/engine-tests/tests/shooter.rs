@@ -172,6 +172,15 @@ fn raycasts_see_colliders_in_on_start_and_respect_region_changes_immediately() {
 
     let mut simulation = sim(json!([
         {"id":2,"name":"player","kind":"box","size":[1,1,1],"transform":{"position":[0,1,0]},"tags":["player"],
+         "script":inline(r#"fn on_tick(ctx, dt) { ctx.state_set("moved", ctx.raycast([0.0, 1.0, 0.0], [0.0, 0.0, -1.0], 50.0).hit); }"#)},
+        {"id":3,"name":"wall","kind":"box","size":[4,4,1],"transform":{"position":[0,1,-8]},"collider":{"shape":"box"},"rigidbody":{"type":"static"},
+         "script":inline(r#"fn on_start(ctx) { ctx.set_position([20.0, 1.0, -8.0]); }"#)}
+    ]));
+    simulation.step(1, &[]).unwrap();
+    assert_eq!(simulation.state()["state"]["moved"], false, "wall moved in on_start is no longer hit");
+
+    let mut simulation = sim(json!([
+        {"id":2,"name":"player","kind":"box","size":[1,1,1],"transform":{"position":[0,1,0]},"tags":["player"],
          "script":inline(r#"fn on_tick(ctx, dt) { ctx.state_set("far", ctx.raycast([0.0, 1.0, 0.0], [0.0, 0.0, -1.0], 400.0).hit); }"#)},
         {"id":3,"name":"far","kind":"box","size":[4,4,1],"transform":{"position":[0,1,-300]},"collider":{"shape":"box"},"rigidbody":{"type":"dynamic"}}
     ]));

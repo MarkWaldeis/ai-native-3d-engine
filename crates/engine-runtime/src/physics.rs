@@ -423,6 +423,18 @@ impl Physics {
         changed
     }
 
+    /// Copies script-set transforms of `dirty` entities onto their bodies.
+    pub(crate) fn apply_poses(&mut self, scene: &Scene, dirty: &BTreeSet<u64>) {
+        for entity in &scene.entities {
+            if dirty.contains(&entity.id) {
+                if let Some(handle) = self.handles.get(&entity.id) {
+                    self.bodies[*handle].set_position(pose(&entity.transform), true);
+                }
+            }
+        }
+        self.bodies.propagate_modified_body_positions_to_colliders(&mut self.colliders);
+    }
+
     pub(crate) fn step(
         &mut self,
         scene: &mut Scene,
@@ -432,13 +444,7 @@ impl Physics {
     ) -> Result<()> {
         self.reconcile(scene)?;
         self.apply_active(inactive);
-        for entity in &scene.entities {
-            if dirty.contains(&entity.id) {
-                if let Some(handle) = self.handles.get(&entity.id) {
-                    self.bodies[*handle].set_position(pose(&entity.transform), true);
-                }
-            }
-        }
+        self.apply_poses(scene, dirty);
         for force in forces {
             let (id, value, impulse) = match force {
                 Force::Impulse(id, v) => (id, v, true),
