@@ -25,6 +25,28 @@ pub struct NetEntityState {
     pub rotation_deg: [f32; 3],
     pub linvel: [f32; 3],
     pub angvel: [f32; 3],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ragdoll: Option<NetRagdollState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct NetRagdollState {
+    pub active: bool,
+    pub enabled: bool,
+    pub upright_rotation_deg: [f32; 3],
+    pub parts: Vec<NetBoneState>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+pub struct NetBoneState {
+    pub name: String,
+    pub position: [f32; 3],
+    pub rotation_deg: [f32; 3],
+    pub linvel: [f32; 3],
+    pub angvel: [f32; 3],
+    pub radius: f32,
+    pub half_height: f32,
+    pub sleeping: bool,
 }
 
 impl Simulation {
@@ -132,34 +154,56 @@ impl Simulation {
     pub fn net_entity_states(&self) -> Vec<NetEntityState> {
         let data = self.data.borrow();
         let physics = self.physics.borrow();
-        let mut states: Vec<_> = data.scene.entities.iter().map(|entity| {
-            let (linvel, angvel) = physics.net_velocities(entity.id);
-            NetEntityState {
-                id: entity.id,
-                position: entity.transform.position,
-                rotation_deg: entity.transform.rotation_deg,
-                linvel,
-                angvel,
-            }
-        }).collect();
+        let mut states: Vec<_> = data
+            .scene
+            .entities
+            .iter()
+            .map(|entity| {
+                let (linvel, angvel) = physics.net_velocities(entity.id);
+                NetEntityState {
+                    id: entity.id,
+                    position: entity.transform.position,
+                    rotation_deg: entity.transform.rotation_deg,
+                    linvel,
+                    angvel,
+                    ragdoll: physics.net_ragdoll_state(entity.id),
+                }
+            })
+            .collect();
         states.sort_by_key(|state| state.id);
         states
     }
 
     /// Correct known entities; unknown IDs are ignored, not spawned.
-    pub fn apply_net_entity_states(&mut self, states: &[NetEntityState]) {
+    pub fn apply_net_entity_states(&mut self, states: &[NetEntityState]) -> Result<()> {
+        let saved = self.save_state();
+        let result = self.apply_net_states_inner(states);
+        if result.is_err() {
+            self.restore_state(&saved);
+        }
+        result
+    }
+
+    fn apply_net_states_inner(&mut self, states: &[NetEntityState]) -> Result<()> {
         let mut data = self.data.borrow_mut();
         let mut physics = self.physics.borrow_mut();
         for state in states {
             if let Some(index) = data.entity_index(state.id) {
+                if let Some(ragdoll) = &state.ragdoll {
+                    physics.prepare_net_ragdoll(state.id, ragdoll)?;
+                }
                 let transform = &mut data.scene.entities[index].transform;
                 transform.position = state.position;
                 transform.rotation_deg = state.rotation_deg;
                 physics.apply_net_pose(state, transform);
+                if let Some(ragdoll) = &state.ragdoll {
+                    physics.apply_net_bones(state.id, ragdoll);
+                }
                 data.velocities.insert(state.id, state.linvel);
             }
         }
         physics.refresh_queries();
+        Ok(())
     }
 
     pub fn net_script_state(&self) -> Value {

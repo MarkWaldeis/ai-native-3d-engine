@@ -56,6 +56,62 @@ struct Collision {
 }
 
 impl Physics {
+    pub(crate) fn net_ragdoll_state(&self, id: u64) -> Option<crate::NetRagdollState> {
+        let rig = self.gameplay.rigs.get(&id)?;
+        let (x, y, z) = rig.upright.euler_angles();
+        Some(crate::NetRagdollState {
+            active: !rig.parts.is_empty(),
+            enabled: self.bodies[rig.parts.first().map_or(self.handles[&id], |p| p.0)].is_enabled(),
+            upright_rotation_deg: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+            parts: rig.config.parts().expect("validated rig").iter().zip(&rig.parts).map(|(part, (handle, _))| {
+                let body = &self.bodies[*handle];
+                let (x, y, z) = body.rotation().euler_angles();
+                crate::NetBoneState {
+                    name: part.name.into(),
+                    position: (*body.translation()).into(),
+                    rotation_deg: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+                    linvel: (*body.linvel()).into(),
+                    angvel: (*body.angvel()).into(),
+                    radius: part.radius * rig.config.scale,
+                    half_height: part.half_height * rig.config.scale,
+                    sleeping: body.is_sleeping(),
+                }
+            }).collect(),
+        })
+    }
+
+    pub(crate) fn prepare_net_ragdoll(&mut self, id: u64, state: &crate::NetRagdollState) -> Result<()> {
+        let rig = self.gameplay.rigs.get(&id).context("entity has no ragdoll preset")?;
+        let parts = rig.config.parts()?;
+        ensure!(state.parts.len() == if state.active { parts.len() } else { 0 }, "invalid ragdoll bone count");
+        ensure!(state.upright_rotation_deg.iter().all(|v| v.is_finite()), "non-finite ragdoll upright rotation");
+        for (bone, part) in state.parts.iter().zip(parts) {
+            ensure!(bone.name == part.name && bone.radius == part.radius * rig.config.scale && bone.half_height == part.half_height * rig.config.scale, "ragdoll bone definition differs from preset");
+            ensure!(bone.position.iter().chain(&bone.rotation_deg).chain(&bone.linvel).chain(&bone.angvel).all(|v| v.is_finite()), "non-finite ragdoll bone");
+        }
+        self.set_ragdoll(id, state.active)?;
+        self.gameplay.rigs.get_mut(&id).unwrap().upright = Rotation::from_euler_angles(
+            state.upright_rotation_deg[0].to_radians(), state.upright_rotation_deg[1].to_radians(), state.upright_rotation_deg[2].to_radians());
+        Ok(())
+    }
+
+    pub(crate) fn apply_net_bones(&mut self, id: u64, state: &crate::NetRagdollState) {
+        let rig = &self.gameplay.rigs[&id];
+        if !state.active {
+            self.bodies[self.handles[&id]].set_enabled(state.enabled);
+        }
+        for ((handle, _), bone) in rig.parts.iter().zip(&state.parts) {
+            let body = &mut self.bodies[*handle];
+            let transform = shared::scene::Transform { position: bone.position, rotation_deg: bone.rotation_deg, ..Default::default() };
+            body.set_position(pose(&transform), false);
+            body.set_linvel(bone.linvel.into(), false);
+            body.set_angvel(bone.angvel.into(), false);
+            body.set_enabled(state.enabled);
+            if bone.sleeping { body.sleep(); } else { body.wake_up(true); }
+        }
+        self.bodies.propagate_modified_body_positions_to_colliders(&mut self.colliders);
+    }
+
     pub(super) fn attach_gameplay(
         &mut self,
         entity: &Entity,
