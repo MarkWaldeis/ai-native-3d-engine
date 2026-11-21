@@ -14,6 +14,14 @@ use std::{
 
 const PLAYER_FILES: &[(&str, &str)] = &[
     (
+        "nature.js",
+        include_str!("../crates/engine-web/player/nature.js"),
+    ),
+    (
+        "nature-settings.js",
+        include_str!("../crates/engine-web/player/nature-settings.js"),
+    ),
+    (
         "streaming.js",
         include_str!("../crates/engine-web/player/streaming.js"),
     ),

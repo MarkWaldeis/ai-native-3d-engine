@@ -102,6 +102,11 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
 
 ## Große Web-Welten / Streaming
 
+- `ai_graphics`: `time_of_day`, `foliage:{density,distance}`, `water:{level,color}`,
+  `fog_density`; deprecated Alias `ai_render` überschreibt gleiche Felder.
+  Vegetation/Wasser folgen der bestehenden Grafikqualität; Terrain-Sampler:
+  `window.__aiEngineVisuals.setHeightSampler((x,z)=>y)`. Siehe docs/WEB_GRAPHICS.md.
+
 - Optionales Player-Prop `ai_world` (Objekt oder JSON-String): `chunk_size` (128 m),
   `stream_radius` (512 m), `draw_distance` (480 m), `lod_distances` ([100,260] m),
   `hysteresis` (16 m), `instancing` (true). Automatisch aktiv ab >1000 Entities
