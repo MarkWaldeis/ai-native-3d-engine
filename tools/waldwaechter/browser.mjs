@@ -81,7 +81,15 @@ try {
           const start=page.getByRole('button',{name:'Spielen',exact:true});
           if(profile==='desktop')await start.click();else await start.tap();
           await page.locator('#modal').waitFor({state:'hidden'});
-          const advance=n=>page.evaluate(count=>{advanceFrames(count);return snapshot;},n);
+          const advance=async n=>{
+            let result;
+            for(let left=n;left>0;left-=10)result=await page.evaluate(count=>{
+              advanceFrames(count);
+              document.getElementById('game').getContext('webgl2')?.finish();
+              return snapshot;
+            },Math.min(left,10));
+            return result;
+          };
           let snapshot=await advance(2);
           assert.equal(snapshot.state.score,0);assert.equal(snapshot.state.won,false);
           await page.waitForFunction(()=>{

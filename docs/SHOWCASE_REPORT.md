@@ -114,7 +114,7 @@ virtueller Uhr gefahren; das ist **kein FPS-, Akkulaufzeit- oder Gerätebudget**
 Weitere Grenzen:
 
 Lokale Abschlussprüfung (lean Dev-/Test-Build, Debugsymbole und Incremental aus):
-**231 Cargo-Tests bestanden, 0 fehlgeschlagen, 1 vorhandener Shooter-Langtest
+**240 Cargo-Tests bestanden, 0 fehlgeschlagen, 1 vorhandener Shooter-Langtest
 ignoriert; 196 Node-Tests bestanden, 0 fehlgeschlagen.** Frische Exporte aller
 bisherigen drei Spiele plus Material Studio bestanden die vollständigen
 Chromium-/WebKit-Release-Checks. Waldwächter bestand zusätzlich alle drei
@@ -126,7 +126,9 @@ Dev-Build lag die gemessene Tick-p95 bei **0,998–1,199 ms**, das Maximum bei
 **22,556 ms**, einschließlich kalter Pfadplanung; keine Hardware-/60-FPS-Zusage.
 Die erste Screenshot-Aufnahme erfasste noch Streaming-Platzhalter. Die Prüfung
 wartet nun ausdrücklich auf die vorhandene Asset-Queue, ohne Streaming-Code
-zu ändern. Geladene Start- und Siegansichten wurden tatsächlich angesehen:
+zu ändern. Software-GPU-Prüfungen verarbeiten die UI-Frames in Zehnerblöcken mit
+GPU-Abschluss statt einer ungebremsten 650-Frame-Befehlswarteschlange; keine
+Rendering- oder Qualitätsänderung am Spiel. Geladene Start- und Siegansichten wurden tatsächlich angesehen:
 `/Users/devin/shots/showcase/{chromium-desktop-start,webkit-iPhone-13-start,
 webkit-iPhone-13-win,webkit-iPad-Pro-11-win}.png`.
 
