@@ -35,7 +35,12 @@ fn analytic_height(x, z) {
 
 fn ground_height(ctx, x, z) {
     let h = ();
-    try { h = ctx.terrain_height(x, z); } catch { h = (); }
+    let available = ctx.state_get("_has_terrain");
+    if available == () {
+        available = ctx.find_by_tag("terrain").len > 0;
+        ctx.state_set("_has_terrain", available);
+    }
+    if available { try { h = ctx.terrain_height(x, z); } catch { h = (); } }
     if h == () { h = analytic_height(x, z); }
     // Bridge decks and roads over the river sit at water + 3.6.
     let rx = -900.0 + 420.0 * sin(z / 900.0) + 160.0 * sin(z / 370.0 + 1.0);

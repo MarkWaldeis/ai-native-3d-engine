@@ -90,6 +90,7 @@ fn shooter_full_generated_world_runs_120_ticks_without_script_errors() {
         serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
     let count = scene.entities.len();
     assert!(count <= 15_000, "{count} entities exceeds density budget");
+    assert!(!scene.entities.iter().any(|e| e.tags.iter().any(|tag| tag == "terrain_fallback")));
     for name in [
         "player",
         "bridge-marker",
@@ -125,6 +126,34 @@ fn shooter_missing_objectives_are_skipped_without_errors() {
     let state = simulation.state();
     assert_eq!(state["state"]["won"], true);
     assert_eq!(state["state"]["kills"], 0);
+}
+
+#[test]
+fn shooter_heightfield_matches_analytic_placements() {
+    let mut scene: Scene = serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
+    let helpers = std::fs::read_to_string(root().join("examples/open_world_shooter/scripts/_terrain.rhai.part")).unwrap();
+    for entity in &mut scene.entities { entity.script = None; }
+    scene.entities.iter_mut().find(|e| e.name == "player").unwrap().script = Some(Script::Inline {
+        source: format!("{helpers}\n{}", r#"
+fn on_start(ctx) {
+    for name in ["player", "intel", "radio-tower", "commander", "tree-50", "lz-tree-0"] {
+        let id = ctx.find_by_name(name);
+        let p = ctx.entity_position(id);
+        let actual = ctx.terrain_height(p[0], p[2]);
+        ctx.state_set("height_"+name, actual);
+        ctx.state_set("error_"+name, abs(actual - analytic_height(p[0], p[2])));
+    }
+}
+"#),
+    });
+    let simulation = Simulation::new(scene, &root()).unwrap();
+    let state = simulation.state();
+    assert!(!simulation.failed, "{state}");
+    for name in ["player", "intel", "radio-tower", "commander", "tree-50", "lz-tree-0"] {
+        let error = state["state"][format!("error_{name}")].as_f64().unwrap();
+        assert!(error < 0.15, "{name}: height interpolation error {error}m");
+        println!("Shooter terrain {name}: height={}, analytic error={error:.6}m",state["state"][format!("height_{name}")]);
+    }
 }
 
 #[test]

@@ -258,7 +258,6 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
             }
             entity.props["web_mesh_bounds"]=bounds[&original].clone();
             *path = assets[&original].clone();
-
         }
         if let Some(lods)=entity.props.get_mut("web_lods") {
             for path in lods.as_object_mut().context("web_lods must be an object")?.values_mut(){
