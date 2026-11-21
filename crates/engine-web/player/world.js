@@ -112,6 +112,7 @@ export class StreamingWorld {
     this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
     this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
+  setOcclusion(occluder) { this.occluder=occluder; }
   async template(e, level) {
     const key = `${batchKey(e)}:${level}`;
     if (this.templates.has(key)) return this.templates.get(key);
@@ -236,7 +237,7 @@ export class StreamingWorld {
     this.dummy.updateMatrix(); mesh.setMatrixAt(index,this.matrix.copy(this.dummy.matrix).multiply(local));
   }
   update(camera) {
-    const tasks = [];
+    const tasks = []; this.occludedChunks=0;
     const change = this.grid.update(camera.position.toArray());
     for (const key of change.unload) {
       disposeChunk(this.groups.get(key));
@@ -289,6 +290,12 @@ export class StreamingWorld {
           item.object.children[0].visible = level !== 2 || !item.impostor;
           if (item.impostor) item.impostor.visible = level === 2;
         }
+      }
+      const group = this.groups.get(key);
+      if (group) {
+        const bounds = this.occluder ? new THREE.Box3().setFromObject(group) : null;
+        group.visible = !this.occluder?.occluded(`chunk:${key}`,camera.position,bounds);
+        if (!group.visible) this.occludedChunks++;
       }
     }
     for (const key of this.dirty) if (this.grid.loaded.has(key)) { this.dirty.delete(key); const task = this.rebuild(key); tasks.push(task); task.catch(error => { console.error(error); }); }
