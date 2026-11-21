@@ -104,7 +104,7 @@ fn shooter_full_generated_world_runs_120_ticks_without_script_errors() {
     simulation
         .step(
             120,
-            &[Input {
+            &[Input { entity: None,
                 tick: 0,
                 action: "fire".into(),
                 value: 1.0,
@@ -173,12 +173,12 @@ fn shooter_drone_can_be_shot_down_and_falls_before_removal() {
         .step(
             30,
             &[
-                Input {
+                Input { entity: None,
                     tick: 0,
                     action: "look_pitch".into(),
                     value: (8.35_f64 / 25.0).atan(),
                 },
-                Input {
+                Input { entity: None,
                     tick: 0,
                     action: "fire".into(),
                     value: 1.0,
@@ -202,8 +202,8 @@ fn shooter_dynamic_player_and_hitscan_are_blocked_by_cover() {
     }));
     let mut simulation = Simulation::new(serde_json::from_value(scene).unwrap(), &root()).unwrap();
     simulation.step(120, &[
-        Input {tick:0,action:"move_z".into(),value:-1.0},
-        Input {tick:0,action:"fire".into(),value:1.0},
+        Input { entity: None,tick:0,action:"move_z".into(),value:-1.0},
+        Input { entity: None,tick:0,action:"fire".into(),value:1.0},
     ]).unwrap();
     let snapshot = simulation.scene();
     let player = snapshot.entities.iter().find(|e| e.name == "player").unwrap();
@@ -217,13 +217,13 @@ fn shooter_dynamic_player_and_hitscan_are_blocked_by_cover() {
 fn shooter_reload_exposes_animation_time_and_refills_from_reserve() {
     let scene: Scene = serde_json::from_value(read("examples/open_world_shooter/tests/combat.json")).unwrap();
     let mut simulation = Simulation::new(scene, &root()).unwrap();
-    simulation.step(1, &[Input {tick:0,action:"fire".into(),value:1.0}]).unwrap();
+    simulation.step(1, &[Input { entity: None,tick:0,action:"fire".into(),value:1.0}]).unwrap();
     simulation.step(1, &[
-        Input {tick:1,action:"fire".into(),value:0.0},
-        Input {tick:1,action:"reload".into(),value:1.0},
+        Input { entity: None,tick:1,action:"fire".into(),value:0.0},
+        Input { entity: None,tick:1,action:"reload".into(),value:1.0},
     ]).unwrap();
     assert!(simulation.state()["state"]["_reload"].as_f64().unwrap() > 0.0);
-    simulation.step(121, &[Input {tick:2,action:"reload".into(),value:0.0}]).unwrap();
+    simulation.step(121, &[Input { entity: None,tick:2,action:"reload".into(),value:0.0}]).unwrap();
     assert_eq!(simulation.state()["state"]["ammo"],30);
     assert_eq!(simulation.state()["state"]["ammo_reserve"],149);
     assert_eq!(simulation.state()["state"]["_reload"],0.0);
@@ -239,7 +239,7 @@ fn shooter_player_walks_across_both_generated_bridges_without_jumping() {
         scene.entities.iter_mut().find(|e| e.name == "player").unwrap().transform.position = [center[0] - 110.0, 50.0, center[2]];
         let mut simulation = Simulation::new(scene, &root()).unwrap();
         simulation.step(240, &[]).unwrap();
-        simulation.step(1, &[Input {tick:240,action:"move_x".into(),value:1.0}]).unwrap();
+        simulation.step(1, &[Input { entity: None,tick:240,action:"move_x".into(),value:1.0}]).unwrap();
         for _ in 0..48 {
             simulation.step(60, &[]).unwrap();
             let snapshot = simulation.scene();
@@ -269,13 +269,13 @@ fn shooter_player_stays_inside_each_terrain_edge_and_can_walk_back() {
             let mut simulation = Simulation::new(scene, &root()).unwrap();
             simulation.step(300, &[]).unwrap();
             simulation.step(180, &[
-                Input {tick:300,action:action.into(),value:sign as f64},
-                Input {tick:300,action:"sprint".into(),value:1.0},
+                Input { entity: None,tick:300,action:action.into(),value:sign as f64},
+                Input { entity: None,tick:300,action:"sprint".into(),value:1.0},
             ]).unwrap();
             let snapshot = simulation.scene();
             let p = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
             assert!(p[axis].abs() <= 3260.01, "axis={axis}, sign={sign}: escaped at {p:?}");
-            simulation.step(180, &[Input {tick:480,action:action.into(),value:-sign as f64}]).unwrap();
+            simulation.step(180, &[Input { entity: None,tick:480,action:action.into(),value:-sign as f64}]).unwrap();
             let snapshot = simulation.scene();
             let p = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
             assert!(p[axis].abs() < 3254.0, "axis={axis}, sign={sign}: could not walk back at {p:?}");
@@ -309,8 +309,8 @@ fn on_tick(ctx,dt) {
         simulation.step(60, &[]).unwrap();
         let snapshot = simulation.scene();
         let before = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
-        simulation.step(1, &[Input {tick:60,action:"force_fall".into(),value:1.0}]).unwrap();
-        simulation.step(60, &[Input {tick:61,action:"force_fall".into(),value:0.0}]).unwrap();
+        simulation.step(1, &[Input { entity: None,tick:60,action:"force_fall".into(),value:1.0}]).unwrap();
+        simulation.step(60, &[Input { entity: None,tick:61,action:"force_fall".into(),value:0.0}]).unwrap();
         let snapshot = simulation.scene();
         let after = snapshot.entities.iter().find(|e| e.name == "player").unwrap().transform.position;
         for axis in 0..3 {

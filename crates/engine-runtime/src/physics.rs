@@ -5,6 +5,7 @@ use shared::scene::{Entity, Scene, Transform};
 use std::collections::{BTreeMap, BTreeSet};
 use crate::terrain_stream::{TerrainSources, SharedTerrain};
 
+#[derive(Clone)]
 pub(crate) enum Force {
     Impulse(u64, [f32; 3]),
     Velocity(u64, [f32; 3]),
@@ -15,12 +16,12 @@ pub(crate) struct Physics {
     islands: IslandManager,
     broad: BroadPhaseMultiSap,
     narrow: NarrowPhase,
-    bodies: RigidBodySet,
+    pub(super) bodies: RigidBodySet,
     colliders: ColliderSet,
     joints: ImpulseJointSet,
     multibody: MultibodyJointSet,
     ccd: CCDSolver,
-    handles: BTreeMap<u64, RigidBodyHandle>,
+    pub(super) handles: BTreeMap<u64, RigidBodyHandle>,
     root: std::path::PathBuf,
     terrain: BTreeMap<u64, (String, SharedTerrain)>,
     pub(crate) terrain_sources: TerrainSources,
@@ -28,6 +29,9 @@ pub(crate) struct Physics {
     query: QueryPipeline,
     owners: std::collections::HashMap<RigidBodyHandle, u64>,
 }
+
+#[path = "net_physics.rs"]
+mod net_physics;
 
 pub(crate) struct RayHit {
     pub id: u64,

@@ -24,7 +24,14 @@
     <div class="joystick-area"><div id="joystick" role="application" aria-label="Joystick: Bewegen"><div class="joystick-ring"></div><div id="stick"></div><span>BEWEGEN</span></div></div>
     <button id="action" aria-label="Aktion oder Springen"><span>↑</span>AKTION</button>
   </div>
-  <footer><span id="help">WASD / Pfeile · Leertaste: Aktion</span><div><button id="mute" aria-pressed="false">Ton an</button><button id="logs-toggle">Protokoll</button><button id="fullscreen">Vollbild</button></div></footer>
+  <footer><span id="help">WASD / Pfeile · Leertaste: Aktion</span><div><button id="input-settings" disabled>Steuerung</button><button id="mute" aria-pressed="false">Ton an</button><button id="logs-toggle">Protokoll</button><button id="fullscreen">Vollbild</button></div></footer>
+  <dialog id="input-panel" aria-labelledby="input-title">
+    <div class="input-heading"><h2 id="input-title">Steuerung</h2><button id="input-close" aria-label="Steuerung schließen">Schließen</button></div>
+    <p>Tastatur und Gamepad individuell belegen. Währenddessen bleibt das Spiel pausiert.</p>
+    <p id="input-status" role="status" aria-live="polite"></p>
+    <ul id="input-bindings"></ul>
+    <button id="input-reset">Standard wiederherstellen</button>
+  </dialog>
   <pre id="logs" hidden></pre>
   <section id="modal" class="modal" data-screen="start" aria-labelledby="modal-title">
     <div class="modal-card">

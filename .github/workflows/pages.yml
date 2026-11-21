@@ -35,6 +35,8 @@ jobs:
           mv examples/lantern_maze/web target/site/lantern_maze
       - name: Add German landing page
         run: cp crates/engine-web/landing.html target/site/index.html && cp crates/engine-web/favicon.svg target/site/favicon.svg && touch target/site/.nojekyll
+      - name: Package opt-in on-device QA companion
+        run: node tools/device_qa/package.mjs target/site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

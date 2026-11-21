@@ -15,6 +15,7 @@ mod swarm;
 pub mod http;
 mod blender;
 mod runtime;
+mod netcode;
 mod qa;
 mod authoring;
 mod batch;
@@ -220,7 +221,8 @@ impl Engine {
                 "query_entities" | "get_scene_summary" => Ok(text_result(self.authoring_query(name,args)?.to_string())),
                 "terrain_generate" | "terrain_import" | "terrain_info" | "terrain_sample" => engine_mcp::terrain::execute(name, args, self.assets_dir.parent().unwrap_or(Path::new("."))),
                 "write_script" => self.write_script(args),
-                "play" | "step" | "stop" | "get_sim_state" | "simulate" | "query" => self.runtime_tool(name, args),
+                "play" | "step" | "stop" | "get_sim_state" | "simulate" | "query" | "save_game" | "load_game" => self.runtime_tool(name, args),
+                "net_simulate" => self.net_simulate(args),
                 "blender_status" => {
                     Ok(text_result(match self.blender.request(json!({"command":"ping"})) {
                         Ok(info) => json!({"connected":true, "info":info}),

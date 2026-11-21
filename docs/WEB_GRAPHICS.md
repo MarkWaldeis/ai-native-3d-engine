@@ -20,6 +20,25 @@ Platzhalter bis zum erneuten Anfordern nach Freigabe. Kleine Demos ohne Streamin
 bleiben unverändert. Stats, Overlay und Benchmark melden `assetsQueued`,
 `assetsLoading`, `assetsLoaded`, `assetMB`, `textureUploadsPending`, `assetEvictions`.
 
+## Hierarchische Fern-LOD
+
+`ai_world.hlod` ist bei Welt-Streaming standardmäßig aktiv. `hlod_cluster:4`
+fasst 4×4 Chunks zusammen; `hlod_distance:1600` erweitert Nebel und Kamerareichweite.
+`hlod_min_radius:1.5` filtert kleine Details. Statische Primitive werden stark
+vereinfacht, GLBs verwenden `web_mesh_bounds`; dynamische/animierte Objekte,
+Skripte und unsichtbare Entities sind keine Proxys. Welttransforms und Farben
+werden in eine gemeinsame Vertexfarben-Geometrie gebacken, ohne Schattenwurf.
+
+Nur vollständig außerhalb `draw_distance` liegende Chunks wechseln nach einer
+Hysterese zur Fern-LOD. Zusammenhängende Indexbereiche ergeben meist einen Draw
+Call pro Cluster. Ein Aufbau pro Frame begrenzt Lastspitzen; entfernte Geometrie
+wird freigegeben, Änderungen invalidieren den Cluster. Beim Rückwechsel bleibt
+der Proxy bis zur fertigen Nah-Geometrie stehen. Beim ersten Laden können ferne
+Cluster daher zeitversetzt erscheinen. `hlod:false` lässt den alten Pfad unverändert.
+`?stats=1` und Benchmarks zeigen `hlodClusters`, `hlodDrawCalls`, `hlodTriangles`.
+Terrain-Occlusion kann unabhängig über `StreamingWorld.setHlodOcclusion(occluder)`
+mit `occluded(key,eye,box)` angebunden werden.
+
 Terrain-Verdeckung: `ai_world.occlusion` aktiviert standardmäßig gemeinsame
 Höhenfeldproben für Chunk-Gruppen und Terrain-Kacheln (auch ohne Chunk-Streaming).
 `occlusion_margin` (2 m) toleriert Höhenfehler; nahe Boxen und Kameras unter dem
@@ -262,11 +281,14 @@ graphics defaults are unchanged. `ai_render` is a deprecated object/JSON alias:
 it is merged over `ai_graphics`. `quality=high` and `quality=medium` both mean
 balanced; ultra/low/legacy retain their existing meanings.
 
-`foliage` accepts true or `{density,distance}` (density 0–4, distance 16–128 m,
-with preset distance caps of 24/48/64 m).
-Grass tufts and broadleaf trees are deterministic GPU instances on independent
+`foliage` accepts true or `{density,distance,trees}` (density 0–4, trees 0–1 with 0 disabling procedural trees, distance 16–128 m,
+with preset distance caps of 24/36/112 m).
+Short tapered grass, leafy clumps, occasional flowers and broadleaf trees are deterministic GPU instances on independent
 16-m tiles, with wind and distance fade. Camera-near trees shrink away to avoid
 blocking gameplay. Placement skips water and steep/non-finite sampled ground.
+The player supplies authored road footprints to exclude ground cover; ultra uses
+sparse, wider four-triangle tufts beyond 40 m. Balanced/low skip terrain detail
+texture samples and use smaller water masks.
 Default heights raycast static support meshes or fall back to zero; terrain may
 replace this with `window.__aiEngineVisuals.setHeightSampler((x,z)=>y)`.
 `water` accepts false or `{level,color}` and uses animated procedural normals,
@@ -298,3 +320,20 @@ Set `props.ai_terrain_detail` to a strength from 0 to 1 on a terrain entity
 procedural detail to the layered terrain on slopes and flats without tile seams,
 extra geometry, or requests. The detail fades from 25 to 90 m so distant
 terrain keeps its existing shading. Terrain heights and colliders are unchanged.
+
+### Valley haze and clouds
+
+`haze: true` or `{density,height,falloff}` enables height-dependent aerial
+perspective, with warmer scattering toward the sun. `height` is the low-valley
+reference elevation in world metres; the default density/height/falloff are
+0.002/18/0.045. Low uses a linear height approximation and omits sun scattering.
+`clouds: true` or `{coverage:0.48}` enables slowly drifting layered procedural
+clouds on the sky dome (four noise octaves on ultra, two on balanced, off on low).
+Clouds are not baked into the environment; the existing PMREM stays unchanged.
+Both features default off and add no postprocessing stack.
+
+`shadow_extent` also accepts `{low,balanced,ultra}` widths in metres, and
+`shadow_map_size` accepts per-tier power-of-two sizes from 256 to 4096 (clamped to
+the GPU limit). Rio Verde authors widths 24/64/144 m and maps 512/1024/4096;
+ultra therefore covers approximately 72 m either side of the target. The existing
+sun-space texel grid stabilizes each tier. This is a single map, not cascades.

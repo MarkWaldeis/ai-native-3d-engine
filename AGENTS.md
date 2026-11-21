@@ -146,6 +146,16 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   `assetsQueued`, `assetsLoading`, `assetsLoaded`, `assetMB`,
   `textureUploadsPending`, `assetEvictions`.
 
+- HLOD: `ai_world.hlod` (true), `hlod_distance` (1600 m, größer als
+  `draw_distance`), `hlod_cluster` (4×4 Chunks), `hlod_min_radius` (1,5 m).
+  Statische Fernobjekte werden mit Welttransforms/Farben zusammengeführt,
+  GLBs durch lokale Bounds ersetzt. Ein Cluster-Aufbau pro Frame, gemeinsame
+  Materialien und zusammenhängende Chunk-Indexbereiche sparen Draw Calls.
+  Chunkweiser Wechsel mit Hysterese; bei asynchroner Nah-LOD bleibt der Proxy
+  bis zur Bereitschaft erhalten. `hlod:false` erhält den bisherigen Renderpfad.
+  Nebel/Kamera reichen bis `hlod_distance`; Stats/Bench: `hlodClusters`,
+  `hlodDrawCalls`, `hlodTriangles`. Optionaler Occluder über `setHlodOcclusion`.
+
 - `ai_world.occlusion` (Default true), `occlusion_margin` (Default 2 m): Terrain-
   Strahlproben blenden verdeckte Chunks und Terrain-Kacheln konservativ aus.
   Neun obere Boxpunkte, zwei verdeckte Ergebnisse vor Ausblenden, sofort sichtbar
@@ -173,6 +183,32 @@ benutzt. GPU-Screenshot-Tests melden `SKIP`, falls kein Renderer verfügbar ist.
   dieselben Werte stehen immer in `window.__engineStats`.
 - `python3 tools/gen_large_world.py target/large_world.json` erzeugt die große
   Demo (nicht einchecken); danach regulär mit `--export-web` exportieren.
+
+## Eingabe / Gamepad
+
+Web-Player: WASD/Pfeile, Leertaste sowie Standard-Gamepads (linker Stick/D-Pad:
+Bewegen, rechter Stick: Zielen, A: Aktion, RT: Feuer, X: Nachladen, L3: Sprint,
+Start: Pause). A startet auch das sichtbare Start-/Neustart-Modal.
+Player-Prop `ai_input` (Objekt/JSON): `bindings`, `deadzone` (0.15),
+`look_sensitivity` (1 rad/s), `invert_y` (false). Footer „Steuerung“ pausiert,
+erlaubt Neubelegung und speichert pro Spieltitel lokal. Touch-Steuerung wird bei
+groben Zeigern oder erster Touch-Eingabe sichtbar. Schema/Details: `docs/INPUT.md`.
+Checks: `node --test tools/test_web_*.mjs`, Web-Export und Release-Parität.
+
+## Multiplayer / Netcode
+
+- `engine-net`: 60-Hz-Autorität, `net_player`-Slots nach ID, eigene Inputs,
+  Prediction/Rollback, Snapshot-Deltas und 100-ms-Interpolation; `shared/` frozen.
+- MCP `net_simulate {clients:2,ticks:600,rtt_ms:120,jitter_ms:20,loss:0.05,seed:1,
+  inputs:[[{tick:0,action:"move_x",value:1}],[]]}`: isoliert von Authoring/Play;
+  optional `scene` als JSON oder projektgebundener Pfad. Positionsvergleich am
+  gleichen Tick; `null` bedeutet kein Vergleich, nicht Konvergenz.
+- Arena: `examples/net_arena/`; `cargo run -p engine-net --example loopback --
+  --scene examples/net_arena/scene.json --rtt-ms 120 --jitter-ms 20 --loss 0.05`.
+- Checks: `cargo test -p engine-net`; `cargo test -p engine-tests --test netcode`;
+  `cargo build -p engine-net --target wasm32-unknown-unknown`. Doku: `docs/NETCODE.md`.
+  Kein Spawn-Replikat, keine Auth/Verschlüsselung, kein UDP-Fragmentieren;
+  Browser-Transport fehlt noch.
 
 ## Shooter / First Person
 
@@ -243,6 +279,15 @@ Noch keine Texturen/Multi-Material-Darstellung; eine Grundfarbe pro Objekt.
 E2E: `cargo test -p engine-tests --test blender_bridge -- --nocapture` (SKIP ohne Blender).
 Demo: `blender/sync_demo.py`; Vergleichsbilder in `docs/blender_sync_demo.png`
 und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt gültig).
+
+## Persistente Spielstände
+
+`save_game {path?}` speichert die aktive Simulation; `load_game {path?|save?}`
+startet sie nach `stop` aus der Autorenszene. Pfade: projektgebundene `.json`.
+Version 1 speichert Entity-Deltas, Tick, Zustand, Flags, Inventar und Geschwindigkeiten.
+Rhai: `flag_set/flag`, `inventory_add/remove/count`; fehlende Flags liefern `()`.
+Beim Laden nur `on_load(ctx)`, nicht `on_start`; `base_changed` meldet Basisänderungen.
+Web: F5/F9 oder `window.__aiSaveGame/__aiLoadGame`, lokal pro Spielpfad.
 
 ## Gameplay / M3
 

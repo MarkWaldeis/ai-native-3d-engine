@@ -1,11 +1,20 @@
 # ai-native-3d-engine
 
+Persistent savegames: MCP `save_game {path?}` / `load_game {path?|save?}` store
+versioned world deltas, quest flags, inventory and body velocities, without changing
+the authoring scene. Rhai `on_load(ctx)` replaces `on_start` on restore.
+WebGame exposes the same save/load API; the web player uses F5/F9 and per-game
+localStorage (`window.__aiSaveGame()` / `window.__aiLoadGame()`).
+
 Charakteranimation (Blender-Armature/Actions, deterministische State-Machine,
 Rhai-Parameter, MCP-Lint und sim-getriebene Web-Crossfades):
 [Pipeline und reproduzierbarer Milo-Rig](docs/CHARACTER_ANIMATION.md).
 
 44-km²-Web-Baseline (FPS, Speicher, Ladezeiten; Desktop/Mobile):
 [Benchmark-Anleitung und Referenzwerte](docs/BENCHMARK.md).
+
+Multiplayer-Netcode (60-Hz-Server, Prediction/Reconciliation, Interpolation,
+MCP `net_simulate`, reproduzierbare Netz-Arena): [Modell und Checks](docs/NETCODE.md).
 
 ## Mit Claude Code / Devin / Cursor verbinden
 
