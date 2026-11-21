@@ -27,6 +27,26 @@ a prefiltered environment map for diffuse and specular lighting on PBR
 materials, including existing GLBs. Zero environment intensity disables
 the environment lighting; zero bloom strength disables the post-process.
 
+For authored reflections, set `environment_map` in `ai_graphics` to a
+project-relative Radiance RGBE `.hdr` file. Use a 2:1 equirectangular
+panorama (64–4096 pixels wide, up to 32 MiB, standard `-Y +X` orientation).
+Export validates and bundles it locally. It becomes both the background and
+the source of reflected light; set `environment_background: false` to keep the
+procedural sky visible while using the HDR map for lighting. The map doesn't
+change the authored sun or fog; align the sun direction with the image when
+needed. If the asset fails to load, the player uses the procedural sky.
+
+**Try it:** Export the material studio to compare chrome, copper, clearcoat and
+neon under the same studio lighting. Its HDR map can be regenerated with
+`python3 examples/material_studio/make_studio_map.py`.
+
+```sh
+cargo run -- --export-web examples/material_studio/scene.json target/site/material_studio
+python3 -m http.server 8000 --directory target/site
+```
+
+Open `http://localhost:8000/material_studio/?quality=ultra`.
+
 Preview a preset without editing the scene using
 `?quality=low`, `?quality=balanced`, `?quality=ultra`, or `?quality=legacy`.
 The first three enable the enhanced renderer and fix the quality tier.

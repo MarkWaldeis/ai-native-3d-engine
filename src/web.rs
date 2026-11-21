@@ -6,6 +6,7 @@ use shared::{
 };
 use std::{
     collections::BTreeMap,
+    io::Read,
     path::{Path, PathBuf},
     process::Command,
 };
@@ -31,14 +32,8 @@ const PLAYER_FILES: &[(&str, &str)] = &[
         "graphics-settings.js",
         include_str!("../crates/engine-web/player/graphics-settings.js"),
     ),
-    (
-        "hdr.js",
-        include_str!("../crates/engine-web/player/hdr.js"),
-    ),
-    (
-        "sky.js",
-        include_str!("../crates/engine-web/player/sky.js"),
-    ),
+    ("hdr.js", include_str!("../crates/engine-web/player/hdr.js")),
+    ("sky.js", include_str!("../crates/engine-web/player/sky.js")),
     (
         "materials.js",
         include_str!("../crates/engine-web/player/materials.js"),
@@ -66,6 +61,10 @@ const PLAYER_FILES: &[(&str, &str)] = &[
     (
         "vendor/addons/loaders/GLTFLoader.js",
         include_str!("../crates/engine-web/player/vendor/addons/loaders/GLTFLoader.js"),
+    ),
+    (
+        "vendor/addons/loaders/RGBELoader.js",
+        include_str!("../crates/engine-web/player/vendor/addons/loaders/RGBELoader.js"),
     ),
     (
         "vendor/addons/utils/BufferGeometryUtils.js",
@@ -166,6 +165,7 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
     let mut scripts = BTreeMap::<String, String>::new();
     let mut script_paths = BTreeMap::<String, String>::new();
     let mut assets = BTreeMap::<String, String>::new();
+    let has_environment = bundle_environment(&mut scene, &root, &mut files)?;
     for entity in &mut scene.entities {
         if let Some(script) = &entity.script {
             engine_runtime::Simulation::check_script(script, &entity.name, &root)?;
@@ -245,8 +245,151 @@ pub fn export_bundle(scene: &Scene, root: &Path, out: &Path, pkg: &Path) -> Resu
         std::fs::write(path, bytes)?;
     }
     Ok(
-        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":assets.len(),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
+        json!({"out_dir":out.canonicalize()?.display().to_string(),"entry":"index.html","files":files.keys().collect::<Vec<_>>(),"scripts":script_paths.len(),"assets":assets.len() + usize::from(has_environment),"entities":scene.entities.len(),"serve":"Serve this folder over HTTP/HTTPS, not file://"}),
     )
+}
+
+fn bundle_environment(
+    scene: &mut Scene,
+    root: &Path,
+    files: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<bool> {
+    let authored = scene
+        .entities
+        .iter_mut()
+        .find(|entity| entity.tags.iter().any(|tag| tag == "player"))
+        .and_then(|entity| entity.props.get_mut("ai_graphics"));
+    let Some(authored) = authored else {
+        return Ok(false);
+    };
+    let mut config = match authored.as_str() {
+        Some(text) => serde_json::from_str(text).unwrap_or(Value::Null),
+        None => authored.clone(),
+    };
+    let Some(path) = config.get_mut("environment_map") else {
+        return Ok(false);
+    };
+    let path = path
+        .as_str()
+        .map(Path::new)
+        .context("ai_graphics.environment_map must be a project-relative .hdr path")?;
+    anyhow::ensure!(
+        path.is_relative()
+            && path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("hdr")),
+        "ai_graphics.environment_map must be a project-relative .hdr path"
+    );
+    let file = engine_core::project_path(root, path)
+        .context("invalid ai_graphics.environment_map path")?;
+    anyhow::ensure!(
+        file.is_file(),
+        "environment map not found: {}",
+        path.display()
+    );
+    const MAX_BYTES: usize = 32 * 1024 * 1024;
+    let mut bytes = Vec::new();
+    std::fs::File::open(&file)?
+        .take((MAX_BYTES + 1) as u64)
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(bytes.len() <= MAX_BYTES, "environment map exceeds 32 MiB");
+    check_environment_header(&bytes)
+        .with_context(|| format!("invalid Radiance environment map: {}", path.display()))?;
+    let target = "assets/environment.hdr";
+    files.insert(target.to_owned(), bytes);
+    config["environment_map"] = json!(target);
+    *authored = config;
+    Ok(true)
+}
+
+fn check_environment_header(bytes: &[u8]) -> Result<()> {
+    let mut lines = bytes[..bytes.len().min(4096)].split_inclusive(|&byte| byte == b'\n');
+    let mut offset = 0;
+    let mut read = || -> Result<&str> {
+        let line = lines
+            .next()
+            .filter(|line| line.ends_with(b"\n") && line.len() <= 128)
+            .context("missing or oversized Radiance header line")?;
+        offset += line.len();
+        Ok(std::str::from_utf8(line)?.trim_end_matches(['\r', '\n']))
+    };
+    anyhow::ensure!(
+        matches!(read()?, "#?RADIANCE" | "#?RGBE"),
+        "expected Radiance HDR signature"
+    );
+    let mut format = None;
+    loop {
+        let line = read()?.trim_ascii();
+        if line.is_empty() {
+            break;
+        }
+        if let Some(value) = line.strip_prefix("FORMAT=") {
+            format = Some(value);
+        }
+        anyhow::ensure!(
+            line.split_ascii_whitespace().next() != Some("-Y"),
+            "expected a blank line before dimensions"
+        );
+    }
+    anyhow::ensure!(
+        format == Some("32-bit_rle_rgbe"),
+        "expected Radiance RGBE format"
+    );
+    let dimensions: Vec<_> = read()?.split_ascii_whitespace().collect();
+    let ["-Y", height, "+X", width] = dimensions[..] else {
+        bail!("expected Radiance -Y/+X orientation");
+    };
+    anyhow::ensure!(
+        [width, height]
+            .iter()
+            .all(|value| value.bytes().all(|b| b.is_ascii_digit())),
+        "expected decimal Radiance dimensions"
+    );
+    let width: usize = width.parse()?;
+    let height: usize = height.parse()?;
+    anyhow::ensure!(
+        (64..=4096).contains(&width) && width % 2 == 0 && height == width / 2,
+        "environment map must be a 2:1 panorama (64–4096 pixels wide)"
+    );
+    let image = &bytes[offset..];
+    anyhow::ensure!(image.len() >= 4, "missing RGBE pixel data");
+    if image[..2] != [2, 2] || image[2] & 0x80 != 0 {
+        anyhow::ensure!(
+            image.len() == width * height * 4,
+            "invalid flat RGBE pixel data length"
+        );
+    } else {
+        check_environment_scanlines(image, width, height)?;
+    }
+    Ok(())
+}
+
+fn check_environment_scanlines(mut image: &[u8], width: usize, height: usize) -> Result<()> {
+    let [hi, lo] = (width as u16).to_be_bytes();
+    for _ in 0..height {
+        image = image
+            .strip_prefix(&[2, 2, hi, lo])
+            .context("invalid RGBE scanline header")?;
+        for _ in 0..4 {
+            let mut pixels = 0;
+            while pixels < width {
+                let (&packet, rest) = image.split_first().context("truncated RGBE scanline")?;
+                let (count, bytes) = if packet > 128 {
+                    (usize::from(packet - 128), 1)
+                } else {
+                    (usize::from(packet), usize::from(packet))
+                };
+                pixels += count;
+                anyhow::ensure!(count > 0 && pixels <= width, "invalid RGBE scanline packet");
+                image = rest
+                    .get(bytes..)
+                    .context("truncated RGBE scanline packet")?;
+            }
+        }
+    }
+    anyhow::ensure!(image.is_empty(), "unexpected data after RGBE scanlines");
+    Ok(())
 }
 
 fn embedded_glb(bytes: &[u8]) -> Result<()> {

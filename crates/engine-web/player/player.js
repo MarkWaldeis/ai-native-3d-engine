@@ -469,6 +469,7 @@ async function boot() {
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};
   const preset = new URLSearchParams(location.search).get('quality');
   effects = new GameEffects(renderer, world, ui.sky_color, graphicsConfig(props?.ai_graphics, preset, ui.sky_color));
+  await effects.prepareEnvironment();
   const config = worldConfig(source.entities);
   if (config) {
     streaming = new StreamingWorld(world,renderer,config);

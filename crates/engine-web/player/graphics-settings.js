@@ -35,6 +35,8 @@ export function graphicsConfig(authored, preset, skyColor) {
     sunDirection: direction(config.sun_direction),
     sunIntensity: bounded(config.sun_intensity, 3, 0, 12),
     environmentIntensity: bounded(config.environment_intensity, 0.66, 0, 3),
+    environmentMap: config.environment_map === 'assets/environment.hdr' ? config.environment_map : null,
+    environmentBackground: config.environment_background !== false,
     exposure: bounded(config.exposure, 1, 0.1, 4),
     bloomStrength: bounded(config.bloom_strength, 0.22, 0, 2),
     bloomThreshold: bounded(config.bloom_threshold, 1.1, 0, 8),
