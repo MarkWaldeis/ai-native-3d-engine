@@ -15,12 +15,39 @@ registerHooks({resolve(specifier,context,nextResolve) {
 const THREE=await import('three');
 const {HLOD,groupRuns}=await import('../crates/engine-web/player/hlod.js');
 const {StreamingWorld}=await import('../crates/engine-web/player/world.js');
+const {WebAssets}=await import('../crates/engine-web/player/world.js');
 const {worldConfig,selectLOD}=await import('../crates/engine-web/player/streaming.js');
 const config=(patch={})=>worldConfig([{tags:['player'],props:{ai_world:{chunk_size:32,stream_radius:160,draw_distance:100,lod_distances:[20,60],hysteresis:10,hlod_distance:500,...patch}}}]);
 const entity=(id=1,position=[144,2,0],patch={})=>({id,kind:'box',size:[4,4,4],color:[0.2,0.4,0.6],transform:{position,scale:[1,1,1],rotation_deg:[0,0,0]},...patch});
 function camera(x=0) {
   const c=new THREE.PerspectiveCamera(80,1,0.1,1000);c.position.set(x,5,0);c.lookAt(144,2,0);c.updateMatrixWorld();return c;
 }
+
+test('GLB bounds proxies survive unloaded and evicted sources and retain ownership until streamed models are ready',async()=>{
+  const assets=new WebAssets();let loads=0,resolve;
+  assets.loader={loadAsync:()=>{loads++;return new Promise(done=>{resolve=done;});}};
+  const world=new StreamingWorld(new THREE.Scene(),{},config({stream_radius:32,asset_cache_mb:0.000001}),assets);
+  world.add(entity(1,[144,2,0],{kind:'gltf',path:'model',props:{web_mesh_bounds:[[-2,-2,-2],[2,2,2]]}}));
+  const eye=camera();
+  await Promise.all(world.update(eye));await new Promise(done=>setImmediate(done));
+  assert.equal(loads,0);assert.equal(world.hlod.isFar('4,0'),true);
+  const cluster=[...world.hlod.clusters.values()][0],geometry=cluster.mesh.geometry;
+  assert.ok(geometry.index.count>0);
+  eye.position.x=144;eye.updateMatrixWorld();
+  await Promise.all(world.update(eye));await new Promise(done=>setImmediate(done));
+  assert.equal(loads,1);assert.equal(world.hlod.isFar('4,0'),true);
+  assert.equal(world.groups.get('4,0').userData.nearReady,false);
+  const scene=new THREE.Group();scene.add(new THREE.Mesh(new THREE.BoxGeometry(),new THREE.MeshStandardMaterial()));
+  resolve({scene,animations:[]});await new Promise(done=>setImmediate(done));
+  await Promise.all(world.update(eye));await Promise.all(world.update(eye));
+  assert.equal(world.hlod.isFar('4,0'),false);
+  assert.equal(world.groups.get('4,0').userData.nearReady,true);
+  eye.position.x=-100;eye.lookAt(144,2,0);eye.updateMatrixWorld();
+  await Promise.all(world.update(eye));
+  assert.equal(world.assetStream.get('model'),null);assert.equal(world.assetStream.stats().assetEvictions,1);
+  assert.equal(world.hlod.isFar('4,0'),true);assert.equal(cluster.mesh.geometry,geometry);
+  assert.equal(cluster.mesh.visible,true);assert.equal(loads,1);
+});
 
 test('merged proxies filter static size/visibility and bake transforms, bounds and colors',()=>{
   const scene=new THREE.Scene(),hlod=new HLOD(scene,config());
