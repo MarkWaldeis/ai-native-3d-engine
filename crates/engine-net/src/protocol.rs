@@ -19,6 +19,7 @@ pub struct InputFrame {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ClientMessage {
+    Pause,
     Hello {
         name: String,
     },

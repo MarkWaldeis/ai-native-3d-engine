@@ -7,7 +7,7 @@ use crate::{
 use anyhow::Result;
 use shared::scene::Scene;
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     io::ErrorKind,
     net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs},
     sync::{
@@ -20,7 +20,7 @@ use std::{
 };
 use tungstenite::{
     accept_hdr_with_config,
-    handshake::server::{Request, Response},
+    handshake::server::{Callback, ErrorResponse, Request, Response},
     http::{StatusCode, Uri},
     protocol::WebSocketConfig,
     Error, Message,
@@ -29,6 +29,7 @@ use tungstenite::{
 #[derive(Debug)]
 enum Event {
     Packet(PeerId, Vec<u8>),
+    Activity(PeerId),
     Closed(PeerId),
 }
 
@@ -41,6 +42,7 @@ pub struct WsServer {
     next: PeerId,
     stopped: Arc<AtomicBool>,
     allow_origins: Arc<Vec<String>>,
+    active: BTreeSet<PeerId>,
 }
 
 impl WsServer {
@@ -66,6 +68,7 @@ impl WsServer {
             next: 1,
             stopped: Arc::new(AtomicBool::new(false)),
             allow_origins: Arc::new(allow_origins),
+            active: BTreeSet::new(),
         })
     }
     pub fn local_addr(&self) -> Result<SocketAddr> {
@@ -119,6 +122,9 @@ impl WsServer {
                 Err(_) => self.disconnect(peer),
             }
         }
+        for peer in std::mem::take(&mut self.active) {
+            server.activity(peer);
+        }
         while let Some(peer) = self.take_disconnected() {
             server.disconnect(peer);
         }
@@ -165,6 +171,9 @@ impl Transport for WsServer {
                     return Ok(Some((peer, bytes)))
                 }
                 Ok(Event::Packet(..)) => (),
+                Ok(Event::Activity(peer)) => {
+                    self.active.insert(peer);
+                }
                 Ok(Event::Closed(peer)) => self.disconnect(peer),
                 Err(_) => return Ok(None),
             }
@@ -209,6 +218,25 @@ fn origin_allowed(request: &Request, allow_origins: &[String]) -> bool {
         || allow_origins.iter().any(|allowed| allowed == origin)
 }
 
+struct OriginCheck(Vec<String>);
+
+impl Callback for OriginCheck {
+    fn on_request(
+        self,
+        request: &Request,
+        response: Response,
+    ) -> std::result::Result<Response, ErrorResponse> {
+        if origin_allowed(request, &self.0) {
+            Ok(response)
+        } else {
+            let mut denied =
+                tungstenite::http::Response::new(Some("Origin not allowed".to_owned()));
+            *denied.status_mut() = StatusCode::FORBIDDEN;
+            Err(denied)
+        }
+    }
+}
+
 fn connection(
     socket: TcpStream,
     peer: PeerId,
@@ -224,22 +252,9 @@ fn connection(
         .max_message_size(Some(4 * 1024 * 1024))
         .max_frame_size(Some(4 * 1024 * 1024))
         .max_write_buffer_size(8 * 1024 * 1024);
-    let allow_origins = allow_origins.to_vec();
-    let mut ws = accept_hdr_with_config(
-        socket,
-        move |request: &Request, response: Response| {
-            if origin_allowed(request, &allow_origins) {
-                Ok(response)
-            } else {
-                let mut denied =
-                    tungstenite::http::Response::new(Some("Origin not allowed".to_owned()));
-                *denied.status_mut() = StatusCode::FORBIDDEN;
-                Err(denied)
-            }
-        },
-        Some(config),
-    )?;
+    let mut ws = accept_hdr_with_config(socket, OriginCheck(allow_origins.to_vec()), Some(config))?;
     ws.get_mut().set_nonblocking(true)?;
+    let mut last_ping = Instant::now();
     while !stopped.load(Ordering::Relaxed) {
         for _ in 0..64 {
             match ws.read() {
@@ -250,10 +265,19 @@ fn connection(
                     events.try_send(Event::Packet(peer, bytes.to_vec()))?
                 }
                 Ok(Message::Close(_)) => return Ok(()),
+                Ok(Message::Pong(_)) => events.try_send(Event::Activity(peer))?,
                 Ok(_) => (),
                 Err(e) if blocked(&e) => break,
                 Err(e) => return Err(e.into()),
             }
+        }
+        if last_ping.elapsed() >= Duration::from_secs(1) {
+            if let Err(error) = ws.write(Message::Ping(Vec::new().into())) {
+                if !blocked(&error) {
+                    return Err(error.into());
+                }
+            }
+            last_ping = Instant::now();
         }
         for _ in 0..64 {
             match outgoing.try_recv() {

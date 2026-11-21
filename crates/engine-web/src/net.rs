@@ -18,6 +18,8 @@ pub struct NetGame {
     last_now: Option<f64>,
     last_hello: Option<f64>,
     closed: bool,
+    background: bool,
+    resync_pending: bool,
 }
 
 #[wasm_bindgen]
@@ -42,9 +44,27 @@ impl NetGame {
         self.closed = true;
         self.pending.clear();
     }
+    pub fn set_background(&mut self, background: bool) -> Result<String, JsValue> {
+        self.background_inner(background)
+            .map_err(|error| JsValue::from_str(&error))
+    }
 }
 
 impl NetGame {
+    fn background_inner(&mut self, background: bool) -> Result<String, String> {
+        if self.background != background {
+            self.background = background;
+            self.resync_pending = true;
+            if let Some(client) = &mut self.client {
+                client.set_paused(true);
+                if background && !self.closed && client.entity_id().is_some() {
+                    return serde_json::to_string(&ClientMessage::Pause)
+                        .map_err(|error| error.to_string());
+                }
+            }
+        }
+        Ok(String::new())
+    }
     fn load_inner(&mut self, scene_json: &str, scripts_json: &str) -> Result<String, String> {
         let scene: Scene = serde_json::from_str(scene_json).map_err(|e| e.to_string())?;
         let sources: BTreeMap<String, String> =
@@ -61,11 +81,32 @@ impl NetGame {
         if self.closed {
             return Ok(());
         }
-        if self.pending.len() >= 256 {
-            return Err("network receive queue overflow".into());
+        let message = decode(message.as_bytes()).map_err(|e| e.to_string())?;
+        if self.pending.len() >= 128 {
+            self.resync_pending = true;
+            if let Some(client) = &mut self.client {
+                client.set_paused(true);
+            }
         }
-        self.pending
-            .push_back(decode(message.as_bytes()).map_err(|e| e.to_string())?);
+        self.pending.push_back(message);
+        if self.background || self.resync_pending {
+            self.drain_pending(self.last_now.unwrap_or(0.0))?;
+        }
+        Ok(())
+    }
+    fn drain_pending(&mut self, now: f64) -> Result<(), String> {
+        let client = self
+            .client
+            .as_mut()
+            .ok_or("load a scene before receiving")?;
+        while let Some(message) = self.pending.pop_front() {
+            self.clock_tick = match &message {
+                ServerMessage::Welcome { server_tick, .. } => *server_tick,
+                ServerMessage::Snapshot(snapshot) => snapshot.server_tick,
+            } as f64;
+            self.clock_ms = Some(now);
+            client.receive(message, now).map_err(|e| e.to_string())?;
+        }
         Ok(())
     }
     fn tick_inner(&mut self, inputs_json: &str, now: f64) -> Result<String, String> {
@@ -73,17 +114,29 @@ impl NetGame {
             return Err("network time must be finite and monotonic".into());
         }
         let actions: Actions = serde_json::from_str(inputs_json).map_err(|e| e.to_string())?;
-        let client = self.client.as_mut().ok_or("load a scene before tick")?;
+        if self
+            .last_now
+            .is_some_and(|previous| now - previous > 1000.0)
+        {
+            self.resync_pending = true;
+            if let Some(client) = &mut self.client {
+                client.set_paused(true);
+            }
+        }
         self.last_now = Some(now);
         let mut outgoing = vec![];
-        while let Some(message) = self.pending.pop_front() {
-            let tick = match &message {
-                ServerMessage::Welcome { server_tick, .. } => *server_tick,
-                ServerMessage::Snapshot(snapshot) => snapshot.server_tick,
-            };
-            self.clock_tick = tick as f64;
+        self.drain_pending(now)?;
+        if self.background {
+            return self.snapshot(outgoing);
+        }
+        let client = self.client.as_mut().ok_or("load a scene before tick")?;
+        if self.resync_pending {
+            client.resync().map_err(|e| e.to_string())?;
+            self.clock_tick = client
+                .latest_snapshot()
+                .map_or(self.clock_tick, |snapshot| snapshot.server_tick as f64);
             self.clock_ms = Some(now);
-            client.receive(message, now).map_err(|e| e.to_string())?;
+            self.resync_pending = false;
         }
         if !self.closed {
             let message = if client.entity_id().is_some() {
@@ -183,6 +236,67 @@ mod tests {
         {"id":1,"name":"player","kind":"box","size":[1,1,1],"tags":["net_player"],
         "script":{"source":"fn on_tick(ctx,dt) { let p=ctx.position();ctx.set_position([p[0]+ctx.input(\"move_x\")*dt,p[1],p[2]]); }"}}
     ]})).unwrap()
+    }
+
+    #[test]
+    fn stalled_animation_frames_do_not_overflow_the_snapshot_queue() {
+        for background in [false, true] {
+            let scene = scene();
+            let mut game = NetGame::new();
+            game.load_inner(&serde_json::to_string(&scene).unwrap(), "{}")
+                .unwrap();
+            let mut server = NetServer::new(
+                scene,
+                BTreeMap::new(),
+                ServerConfig {
+                    snapshot_interval: 1,
+                    timeout_ticks: 10,
+                    ..ServerConfig::default()
+                },
+            )
+            .unwrap();
+            let welcome = server
+                .receive(
+                    1,
+                    ClientMessage::Hello {
+                        name: "background".into(),
+                    },
+                )
+                .unwrap()
+                .unwrap();
+            game.receive_inner(&serde_json::to_string(&welcome).unwrap())
+                .unwrap();
+            game.tick_inner("{\"move_x\":1}", 0.0).unwrap();
+            let pause = game.background_inner(background).unwrap();
+            if !pause.is_empty() {
+                server
+                    .receive(1, decode(pause.as_bytes()).unwrap())
+                    .unwrap();
+            }
+            for _ in 0..1000 {
+                server.activity(1);
+                for (_, snapshot) in server.tick().unwrap() {
+                    game.receive_inner(&serde_json::to_string(&snapshot).unwrap())
+                        .unwrap();
+                }
+            }
+            assert_eq!(server.assigned_entity(1), Some(1));
+            if background {
+                assert_eq!(
+                    game.client.as_ref().unwrap().simulation().tick,
+                    ClientConfig::default().initial_lead_ticks
+                );
+            }
+            game.background_inner(false).unwrap();
+            let result: Value =
+                serde_json::from_str(&game.tick_inner("{}", 60_000.0).unwrap()).unwrap();
+            assert!(
+                result["tick"].as_u64().unwrap() <= 1000 + ClientConfig::default().max_lead_ticks
+            );
+            assert!(game.client.as_ref().unwrap().stats().corrections <= 1);
+            assert!(game.pending.is_empty());
+            assert_eq!(result["connected"], true);
+        }
     }
 
     #[test]

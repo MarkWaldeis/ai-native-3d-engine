@@ -65,6 +65,7 @@ pub struct NetClient {
     first_snapshot_ms: Option<f64>,
     smooth_offset: [f32; 3],
     smooth_tick: u64,
+    paused: bool,
 }
 
 impl NetClient {
@@ -116,6 +117,7 @@ impl NetClient {
             first_snapshot_ms: None,
             smooth_offset: [0.0; 3],
             smooth_tick: 0,
+            paused: false,
         };
         client.checkpoint();
         Ok(client)
@@ -137,6 +139,34 @@ impl NetClient {
     }
     pub fn predicted_states_at(&self, tick: u64) -> Option<&[NetEntityState]> {
         self.history.get(&tick).map(|c| c.entities.as_slice())
+    }
+
+    /// Continue decoding snapshots without running prediction or reconciliation.
+    pub fn set_paused(&mut self, paused: bool) {
+        self.paused = paused;
+        if paused {
+            self.sent_at.clear();
+        }
+    }
+
+    /// Discard suspended inputs and bootstrap directly from the latest authority.
+    pub fn resync(&mut self) -> Result<()> {
+        let snapshot = self.latest_snapshot().cloned();
+        self.frames.clear();
+        self.history.clear();
+        self.sent_at.clear();
+        self.last_actions.clear();
+        self.stats.rtt_ms = 0.0;
+        self.stats.lead_ticks = self.config.initial_lead_ticks;
+        self.paused = false;
+        if let Some(snapshot) = snapshot {
+            self.simulation.tick = snapshot.server_tick;
+            self.reconcile(&snapshot)?;
+        } else {
+            self.checkpoint();
+        }
+        self.smooth_offset = [0.0; 3];
+        Ok(())
     }
 
     fn checkpoint(&mut self) {
@@ -321,7 +351,9 @@ impl NetClient {
         } else if snapshot.server_tick.is_multiple_of(120) && measured + 1 < self.stats.lead_ticks {
             self.stats.lead_ticks = self.stats.lead_ticks.saturating_sub(1).max(1);
         }
-        self.reconcile(&snapshot)?;
+        if !self.paused {
+            self.reconcile(&snapshot)?;
+        }
         self.interpolator.push(&snapshot);
         self.ack = Some(snapshot.server_tick);
         self.snapshots.insert(snapshot.server_tick, snapshot);
@@ -355,7 +387,7 @@ impl NetClient {
             || predicted.is_none_or(|c| {
                 c.script != snapshot.script_state
                     || c.pending_starts != snapshot.pending_starts
-                    || snapshot.next_id.is_some_and(|next|c.next_id!=next)
+                    || snapshot.next_id.is_some_and(|next| c.next_id != next)
                     || snapshot.spawned.iter().any(|definition| {
                         c.definitions
                             .iter()
@@ -422,8 +454,11 @@ impl NetClient {
         self.simulation.apply_net_entity_states(&snapshot.entities);
         self.simulation
             .apply_net_script_state(snapshot.script_state.clone());
-        self.simulation.apply_net_pending_starts(&snapshot.pending_starts)?;
-        if let Some(next_id)=snapshot.next_id {self.simulation.apply_net_next_id(next_id)?;}
+        self.simulation
+            .apply_net_pending_starts(&snapshot.pending_starts)?;
+        if let Some(next_id) = snapshot.next_id {
+            self.simulation.apply_net_next_id(next_id)?;
+        }
         self.history.retain(|at, _| *at < tick);
         self.checkpoint();
         let mut previous = self
@@ -519,13 +554,20 @@ impl NetClient {
 
 fn same_definition(a: &Entity, b: &Entity) -> bool {
     let mut a = a.clone();
-    let same_animator=match (&a.animator,&b.animator) {
-        (Some(a),Some(b)) => a.clips==b.clips && a.machine==b.machine && a.speed==b.speed && a.blend_time==b.blend_time,
-        (None,None) => true,
+    let same_animator = match (&a.animator, &b.animator) {
+        (Some(a), Some(b)) => {
+            a.clips == b.clips
+                && a.machine == b.machine
+                && a.speed == b.speed
+                && a.blend_time == b.blend_time
+        }
+        (None, None) => true,
         _ => false,
     };
-    if !same_animator { return false; }
-    a.animator=b.animator.clone();
+    if !same_animator {
+        return false;
+    }
+    a.animator = b.animator.clone();
     a.transform.position = b.transform.position;
     a.transform.rotation_deg = b.transform.rotation_deg;
     a == *b

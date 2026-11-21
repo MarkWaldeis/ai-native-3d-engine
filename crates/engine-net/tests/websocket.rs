@@ -125,6 +125,64 @@ fn origin_handshakes(allowed_origins: Vec<String>, cases: &[(Option<&str>, bool)
 }
 
 #[test]
+fn websocket_pongs_keep_idle_player_slot_alive_without_inputs() -> Result<()> {
+    let mut transport = WsServer::bind("127.0.0.1:0")?;
+    let addr = transport.local_addr()?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let signal = stop.clone();
+    let handle = thread::spawn(move || -> Result<()> {
+        let mut server = NetServer::new(
+            scene(),
+            BTreeMap::new(),
+            ServerConfig {
+                timeout_ticks: 90,
+                snapshot_interval: 1,
+                ..ServerConfig::default()
+            },
+        )?;
+        while !signal.load(Ordering::Relaxed) {
+            transport.tick(&mut server)?;
+            thread::sleep(Duration::from_secs_f64(engine_net::TICK_MS / 1000.0));
+        }
+        Ok(())
+    });
+    let _worker = Worker {
+        stop,
+        handle: Some(handle),
+    };
+    let mut socket = connect(addr)?;
+    socket.send(Message::Binary(
+        encode(&ClientMessage::Hello {
+            name: "idle".into(),
+        })?
+        .into(),
+    ))?;
+    assert!(matches!(
+        receive(&mut socket)?,
+        ServerMessage::Welcome { entity_id: 1, .. }
+    ));
+    let mut latest = 0;
+    while latest < 150 {
+        if let ServerMessage::Snapshot(snapshot) = receive(&mut socket)? {
+            latest = snapshot.server_tick;
+        }
+    }
+    socket.send(Message::Binary(
+        encode(&ClientMessage::Hello {
+            name: "still here".into(),
+        })?
+        .into(),
+    ))?;
+    loop {
+        if let ServerMessage::Welcome { entity_id, .. } = receive(&mut socket)? {
+            assert_eq!(entity_id, 1);
+            break;
+        }
+    }
+    Ok(())
+}
+
+#[test]
 fn two_websocket_clients_move_converge_and_disconnect_frees_slot() -> Result<()> {
     let transport = WsServer::bind("127.0.0.1:0")?;
     let addr = transport.local_addr()?;

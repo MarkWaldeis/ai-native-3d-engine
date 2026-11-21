@@ -335,7 +335,7 @@ async function restart(save = null) {
     ? game.load(JSON.stringify(source), JSON.stringify(scripts))
     : game.load_game(JSON.stringify(source), JSON.stringify(scripts), save);
   if (netEndpoint) {
-    net = new BrowserNet(game, netEndpoint, fail);
+    net = new BrowserNet(game, netEndpoint, fail, undefined, {onDisconnect: showNetworkDisconnect});
     window.__engineNet = net.status;
   }
   await terrain?.preload();
@@ -351,7 +351,7 @@ async function restart(save = null) {
   }
   camera.position.fromArray(source.camera.position); camera.lookAt(...source.camera.target); updateCamera(true);
   if (streaming) await Promise.all(streaming.update(camera));
-  accumulator = 0; previous = performance.now(); ready = true;
+  accumulator = 0; previous = performance.now(); ready = true; $('pause').disabled = false;
   mark('assetsReady');
 }
 
@@ -480,12 +480,18 @@ for (const event of ['pointerup', 'pointercancel', 'lostpointercapture']) $('act
 });
 window.addEventListener('resize', () => { resetInput(); if (renderer && camera) resize(); });
 
-// Hidden tabs still pump Rust with neutral inputs; authority never pauses with the UI.
-setInterval(() => {
-  if (!net || !ready || !document.hidden) return;
-  try { const result = net.tick({}, performance.now()); if (result) apply(result); }
-  catch (error) { fail(error); }
-}, 250);
+function showNetworkDisconnect() {
+  if (mode === 'error' || (!modal.hidden && modal.dataset.screen === 'disconnected')) return;
+  fps?.stop(); running = false; resetInput(); mode = 'restart';
+  $('state').textContent = 'Verbindung getrennt';
+  modal.hidden = false; modal.dataset.screen = 'disconnected';
+  $('modal-badge').textContent = 'MULTIPLAYER'; $('modal-symbol').textContent = '↻';
+  $('modal-title').textContent = 'Verbindung getrennt';
+  $('modal-text').textContent = 'Der Server ist nicht erreichbar. Verbinde dich erneut, um weiterzuspielen.';
+  $('modal-note').textContent = 'Der Server bestimmt deinen aktuellen Spielstand.';
+  $('start').textContent = 'Neu verbinden'; $('start').disabled = false;
+  $('restart').hidden = true; $('pause').disabled = true;
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -514,7 +520,7 @@ function frame(now) {
     if (net) {
       const result = net.tick(running ? controls() : {}, now);
       if (result) apply(result);
-      if (!net.status.connected && net.socket.readyState >= 2) $('state').textContent = 'Verbindung getrennt · Seite neu laden';
+      if (!net.status.connected && net.socket.readyState >= 2) showNetworkDisconnect();
     } else if (running) {
       previewRemaining = Math.max(0, previewRemaining - elapsed);
       if (previewRemaining === 0) stopPreview();

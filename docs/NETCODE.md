@@ -170,8 +170,13 @@ connection receives a different `net_player` slot. The camera follows that slot;
 the HUD shows Spieler N, estimated ping and connected player count. Push the
 brown crates toward the centre. The gold box at the back is script-spawned and
 replaced every three seconds; all clients see the same authoritative lifecycle.
-Pause/hidden tabs send neutral input but do not pause the server. Disconnects
-free slots; reload after a disconnect to rejoin. There are four arena slots.
+Pausing/hiding sends neutral input but does not pause the server. Server-driven
+WebSocket pings and browser-generated pongs keep hidden tabs connected without
+depending on JavaScript timers. Hidden tabs suspend prediction and retain bounded
+reconstructed snapshots. Returning to the foreground discards stale inputs,
+jumps to the latest authority, and resets the clock/RTT estimate. A closed
+connection offers **Neu verbinden**, which reloads the client and requests a free
+slot. There are four arena slots.
 
 `?net` (empty) defaults to the current hostname on port 7790 (`wss` on HTTPS).
 Alternatively set `props.ai_net` to a WS URL or `{ "url": "ws://..." }` on the

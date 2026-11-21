@@ -134,6 +134,39 @@ fn discarded_predicted_spawn_restores_authoritative_allocation_cursor() -> Resul
 }
 
 #[test]
+fn pausing_neutralizes_held_inputs_and_discards_future_frames() -> Result<()> {
+    let mut server=NetServer::new(support::scene(),BTreeMap::new(),ServerConfig::default())?;
+    server.receive(1,ClientMessage::Hello{name:"pause".into()})?;
+    server.receive(1,ClientMessage::Input{frames:(0..3).map(|tick|InputFrame{tick,seq:tick,actions:BTreeMap::from([("move_x".into(),1.0)])}).collect(),ack_snapshot_tick:None})?;
+    server.tick()?;
+    server.receive(1,ClientMessage::Pause)?;
+    server.receive(99,ClientMessage::Pause)?;
+    for _ in 0..3 {
+        server.tick()?;
+        assert_eq!(server.simulation().net_entity_states().iter().find(|entity|entity.id==2).unwrap().linvel[0],0.0);
+    }
+    assert_eq!(server.assigned_entity(1),Some(2));
+    assert_eq!(server.assigned_entity(99),None);
+    Ok(())
+}
+
+#[test]
+fn transport_activity_keeps_an_idle_slot_without_inputs_but_silence_still_expires() -> Result<()> {
+    let mut server=NetServer::new(support::scene(),BTreeMap::new(),ServerConfig{timeout_ticks:3,..ServerConfig::default()})?;
+    server.receive(1,ClientMessage::Hello{name:"idle".into()})?;
+    for _ in 0..30 {
+        server.activity(1);
+        server.tick()?;
+        assert_eq!(server.assigned_entity(1),Some(2));
+    }
+    server.activity(99);
+    assert_eq!(server.assigned_entity(99),None);
+    for _ in 0..4 {server.tick()?;}
+    assert_eq!(server.assigned_entity(1),None);
+    Ok(())
+}
+
+#[test]
 fn zero_latency_prediction_is_bit_exact_without_corrections() -> Result<()> {
     let mut server = NetServer::new(support::scene(), BTreeMap::new(), ServerConfig::default())?;
     let config = ClientConfig {

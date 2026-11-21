@@ -13,14 +13,29 @@ export function netURL(pageURL, authored = null) {
 }
 
 export class BrowserNet {
-  constructor(game, url, onError, Socket = globalThis.WebSocket) {
+  constructor(game, url, onError, Socket = globalThis.WebSocket, {document = globalThis.document, onDisconnect = () => {}} = {}) {
     this.game = game; this.socket = new Socket(url); this.socket.binaryType = 'arraybuffer';
     this.status = {connected:false,my_entity:null,rtt:0,corrections:0,entity_count:0,players:0,positions:{},spawned:0,removed:0};
     this.socket.onmessage = event => {
       try { game.receive(typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data)); }
       catch (error) { this.close(); onError(error); }
     };
-    this.socket.onclose = () => { game.disconnect(); this.status.connected = false; this.status.players = 0; };
+    this.document = document;
+    this.visibilityChanged = () => {
+      try {
+        this.setBackground(document.hidden);
+      } catch (error) { this.close(); onError(error); }
+    };
+    document?.addEventListener('visibilitychange', this.visibilityChanged);
+    if (document?.hidden) this.setBackground(true);
+    this.socket.onopen = () => {
+      try {
+        this.setBackground(false);
+        this.tick({}, performance.now());
+        if (document) this.visibilityChanged();
+      } catch (error) { this.close(); onError(error); }
+    };
+    this.socket.onclose = () => { this.close(); onDisconnect(); };
     this.socket.onerror = () => { this.status.connected = false; };
   }
   tick(inputs, now) {
@@ -38,8 +53,13 @@ export class BrowserNet {
     });
     return result;
   }
+  setBackground(hidden) {
+    const message=this.game.set_background(hidden);
+    if (message && this.socket.readyState === 1) this.socket.send(message);
+  }
   close() {
-    this.socket.onclose = this.socket.onmessage = this.socket.onerror = null;
+    this.document?.removeEventListener('visibilitychange', this.visibilityChanged);
+    this.socket.onopen = this.socket.onclose = this.socket.onmessage = this.socket.onerror = null;
     this.game.disconnect(); this.status.connected = false; this.status.players = 0; this.socket.close();
   }
 }

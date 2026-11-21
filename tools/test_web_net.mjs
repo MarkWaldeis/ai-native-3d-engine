@@ -18,13 +18,52 @@ class Socket {
   send(bytes) {this.sent.push(bytes);}
   close() {this.readyState=3;this.onclose?.();}
 }
-function fixture() {
+function fixture(options = {}) {
   const received=[], calls=[], errors=[];
   const result={outgoing:['protocol bytes'],connected:true,my_entity:3,players:2,stats:{rtt_ms:12,corrections:4},
     transforms:[{id:3,transform:{position:[1,2,3]}}],spawned:[{id:3}],removed:[]};
-  const game={receive:bytes=>received.push(bytes),tick:(inputs,now)=>{calls.push([JSON.parse(inputs),now]);return JSON.stringify(result);},disconnect(){this.closed=true;}};
-  return {game,received,calls,errors,result,net:new BrowserNet(game,'ws://localhost:7790',error=>errors.push(error),Socket)};
+  const game={receive:bytes=>received.push(bytes),tick:(inputs,now)=>{calls.push([JSON.parse(inputs),now]);return JSON.stringify(result);},set_background(){},disconnect(){this.closed=true;}};
+  return {game,received,calls,errors,result,net:new BrowserNet(game,'ws://localhost:7790',error=>errors.push(error),Socket,options)};
 }
+
+test('visibility forwards the Rust pause packet and resumes without JS gameplay or timers', () => {
+  const document = new EventTarget(); document.hidden = false;
+  const {net,game,calls} = fixture({document});
+  const background=[]; game.set_background=value=>{background.push(value);return value?'Rust pause bytes':'';};
+  net.socket.readyState=1;
+  net.tick({move_x:1},0);
+  document.hidden=true; document.dispatchEvent(new Event('visibilitychange'));
+  assert.equal(calls.length,1);
+  assert.equal(net.socket.sent.at(-1),'Rust pause bytes');
+  assert.deepEqual(background,[true]);
+  document.hidden=false; document.dispatchEvent(new Event('visibilitychange'));
+  assert.deepEqual(background,[true,false]);
+  net.close();
+  document.hidden=true; document.dispatchEvent(new Event('visibilitychange'));
+  assert.deepEqual(background,[true,false]);
+});
+
+test('remote disconnect notifies the UI once but intentional restart does not', () => {
+  let disconnected=0;
+  const first=fixture({onDisconnect:()=>disconnected++});
+  first.net.socket.close();
+  assert.equal(disconnected,1); assert.equal(first.net.status.connected,false);
+  const second=fixture({onDisconnect:()=>disconnected++});
+  second.net.close();
+  assert.equal(disconnected,1);
+});
+
+test('opening a socket while hidden sends the Rust handshake before suspending prediction', () => {
+  const document=new EventTarget(); document.hidden=true;
+  const {net,game,calls}=fixture({document});
+  const background=[]; game.set_background=value=>{background.push(value);return '';};
+  net.socket.readyState=1; net.socket.onopen();
+  assert.deepEqual(background,[false,true]);
+  assert.deepEqual(net.socket.sent,['protocol bytes']);
+  assert.ok(calls.length>0); assert.deepEqual(calls[0][0],{});
+  net.close();
+  assert.equal(net.socket.onopen,null);
+});
 
 test('transport preserves text/binary bytes and forwards only Rust-derived presentation data', () => {
   const {net,game,received,calls}=fixture();
