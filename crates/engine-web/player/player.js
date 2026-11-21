@@ -552,7 +552,7 @@ async function boot() {
   game = new WebGame();
   terrain = await createTerrain(THREE, source.entities, game, world, stats, fail);
   if(terrain) {
-    occluder=new TerrainOcclusion(terrain.heightAt,{enabled:config?.occlusion ?? true,margin:config?.occlusion_margin ?? 2});
+    occluder=new TerrainOcclusion(terrain.occluderHeightAt,{enabled:config?.occlusion ?? true,margin:config?.occlusion_margin ?? 2});
     streaming?.setOcclusion(occluder); terrain.setOcclusion(occluder);
   }
   camera = new THREE.PerspectiveCamera(source.camera.fov_deg, innerWidth / innerHeight, 0.05, 2000);

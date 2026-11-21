@@ -217,3 +217,16 @@ test('visuals receives offset-aware coarse/full-res heights immediately or on a 
     assert.deepEqual(errors,[]);
   }
 });
+
+test('occluder sampler ignores hidden terrain and returns NaN outside the map', async t=>{
+  const {api}=await terrainFixture(t,{entities:[{props:{ai_terrain:'terrain.json'},transform:{position:[10,0,0]}}]});
+  assert.ok(Math.abs(api.occluderHeightAt(11,1)-api.heightAt(11,1))<1e-6);
+  assert.ok(Number.isNaN(api.occluderHeightAt(9,1)));
+  assert.ok(Number.isNaN(api.occluderHeightAt(14,1)));
+  assert.ok(Number.isFinite(api.heightAt(9,1)));
+});
+
+test('invisible terrain never occludes', async t=>{
+  const {api}=await terrainFixture(t,{entities:[{visible:false,props:{ai_terrain:'terrain.json'}}]});
+  assert.ok(Number.isNaN(api.occluderHeightAt(1,1)));
+});

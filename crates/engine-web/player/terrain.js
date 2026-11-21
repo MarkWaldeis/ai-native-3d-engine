@@ -64,7 +64,7 @@ async function fetchBytes(url) {
 export async function createTerrain(THREE, entities, game, world, engineStats, onError) {
   const terrainEntities = entities.filter(e => typeof e.props?.ai_terrain === 'string');
   if (!terrainEntities.length) return null;
-  const queue = new TileQueue(fetchBytes), maps = new Map(), chunks = [], decoded = new Map(), indices = new Map();
+  const queue = new TileQueue(fetchBytes), maps = new Map(), chunks = [], decoded = new Map(), indices = new Map(), layers = [];
   const frustum = new THREE.Frustum(), viewProjection = new THREE.Matrix4();
   let occluder, occludedTerrainTiles=0;
   let lastPoll = -Infinity, lastRender = -Infinity;
@@ -93,11 +93,13 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     if(typeof authored==='string') {try {authored=JSON.parse(authored);} catch {authored=null;}}
     terrainSurface(THREE,material,Number.isFinite(authored?.water?.level)?authored.water.level:0.6);
     const offset = entity.transform?.position || [0, 0, 0];
+    const layer = {map, offset, visible: entity.visible !== false, chunks: []};
     for (let z = 0; z < map.manifest.grid[1]; z++) for (let x = 0; x < map.manifest.grid[0]; x++) {
-      const chunk = {map, x, z, offset, material, visible: entity.visible !== false, mesh: null, stride: null};
+      const chunk = {map, x, z, offset, material, visible: layer.visible, mesh: null, stride: null};
       if(chunk.visible) {chunk.coarse = buildMesh(chunk, null, 1); world.add(chunk.coarse);}
-      chunks.push(chunk);
+      chunks.push(chunk); layer.chunks.push(chunk);
     }
+    if (layer.visible) layers.push(layer);
   }
 
   function coarseHeight(map, x, z) {
@@ -272,7 +274,19 @@ export async function createTerrain(THREE, entities, game, world, engineStats, o
     const first=chunks[0];
     return first ? first.offset[1]+coarseHeight(first.map,x-first.offset[0],z-first.offset[2]) : 0;
   }
-  const api={setOcclusion:value=>{occluder=value;},preload:physicsTiles,update,heightAt,stats,physicsHeightAt:(x,z)=>game.terrain_height(x,z)};
+  function occluderHeightAt(x,z) {
+    let best=NaN;
+    for(const layer of layers) {
+      const c=layer.map.manifest.config,lx=x-layer.offset[0],lz=z-layer.offset[2];
+      if(!(lx>=0 && lz>=0 && lx<=c.size_m[0] && lz<=c.size_m[1])) continue;
+      const grid=layer.map.manifest.grid,tx=Math.min(grid[0]-1,Math.floor(lx/c.tile_m)),tz=Math.min(grid[1]-1,Math.floor(lz/c.tile_m));
+      const chunk=layer.chunks[tz*grid[0]+tx],data=decoded.get(key(layer.map,tx,tz));
+      const h=layer.offset[1]+(data ? sampleTile(data,c,tx,tz,lx,lz) : coarseHeight(layer.map,lx,lz));
+      if(chunk.visible && !(h<=best)) best=h;
+    }
+    return best;
+  }
+  const api={occluderHeightAt,setOcclusion:value=>{occluder=value;},preload:physicsTiles,update,heightAt,stats,physicsHeightAt:(x,z)=>game.terrain_height(x,z)};
   await initialTiles();
   window.__aiTerrain=api; connectVisuals(); return api;
 }
