@@ -50,7 +50,7 @@ fn shooter_scripts_compile_and_share_the_terrain_helpers() {
     }
 }
 
-fn physics_arena(placements: &[(&str, [f32; 3])]) -> Simulation {
+fn physics_arena_scene(placements: &[(&str, [f32; 3])]) -> Scene {
     let mut scene: Scene =
         serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
     scene.entities.retain_mut(|entity| {
@@ -62,7 +62,11 @@ fn physics_arena(placements: &[(&str, [f32; 3])]) -> Simulation {
             entity.name == "terrain"
         }
     });
-    Simulation::new(scene, &root()).unwrap()
+    scene
+}
+
+fn physics_arena(placements: &[(&str, [f32; 3])]) -> Simulation {
+    Simulation::new(physics_arena_scene(placements), &root()).unwrap()
 }
 
 fn rifle_input(tick: u64, action: &str, value: f64) -> Input {
@@ -105,6 +109,33 @@ fn shooter_headshots_double_rifle_damage_and_kill_into_a_ragdoll() {
     assert_eq!(headshot.state()["state"]["kills"], 1);
     assert_eq!(headshot.state()["state"]["health"].as_f64(), Some(100.0));
     assert!(!headshot.take_events()["fx"].as_array().unwrap().iter().any(|e| e["kind"] == "muzzle"));
+}
+
+#[test]
+fn shooter_save_reload_restores_the_dead_soldier_as_a_ragdoll() {
+    let scene = physics_arena_scene(&[
+        ("player", [-2688.0, 30.9, -2688.0]),
+        ("alpha-soldier-0", [-2688.0, 30.0, -2698.0]),
+        ("alpha-soldier-1", [-2678.0, 30.0, -2698.0]),
+    ]);
+    let mut simulation = Simulation::new(scene.clone(), &root()).unwrap();
+    simulation.step(9, &[rifle_input(0, "fire", 1.0)]).unwrap();
+    let before = simulation.ragdoll_states();
+    assert_eq!(before.as_array().unwrap().len(), 1);
+    let save = simulation.save_game().unwrap();
+    assert_eq!(save["state"]["kills"], 1);
+    let mut loaded = Simulation::load_game(scene, &root(), save).unwrap();
+    let after = loaded.ragdoll_states();
+    assert_eq!(after.as_array().unwrap().len(), 1);
+    assert_eq!(after[0]["id"], before[0]["id"]);
+    assert_eq!(after[0]["parts"].as_array().unwrap().len(), 11);
+    for axis in 0..3 {
+        let before = before[0]["parts"][0]["position"][axis].as_f64().unwrap();
+        let after = after[0]["parts"][0]["position"][axis].as_f64().unwrap();
+        assert!((before - after).abs() < 0.001, "pelvis moved from {before} to {after}");
+    }
+    loaded.step(1, &[rifle_input(9, "fire", 0.0)]).unwrap();
+    assert_eq!(loaded.state()["state"]["kills"], 1);
 }
 
 #[test]

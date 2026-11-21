@@ -182,7 +182,7 @@ impl Physics {
             .is_some_and(|rig| rig.config.activate_on_death)
     }
 
-    pub(super) fn set_ragdoll(&mut self, id: u64, active: bool) -> Result<()> {
+    pub(crate) fn set_ragdoll(&mut self, id: u64, active: bool) -> Result<()> {
         let rig = self
             .gameplay
             .rigs

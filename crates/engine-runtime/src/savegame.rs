@@ -242,6 +242,23 @@ impl Simulation {
                     sim.data.borrow_mut().velocities.insert(body.id, body.linvel);
                 }
             }
+            let data = sim.data.borrow();
+            let mut restored = BTreeSet::new();
+            for entity in &data.scene.entities {
+                let id = entity.id;
+                if data.combat.health.get(&id).is_some_and(|hp| *hp <= 0.0)
+                    && physics.ragdoll_activates_on_death(id)
+                    && !physics.ragdoll_active(id)
+                {
+                    physics.set_ragdoll(id, true)?;
+                    restored.insert(id);
+                }
+            }
+            if !restored.is_empty() {
+                // A saved ragdoll's entity transform is already its pelvis pose.
+                physics.apply_poses(&data.scene, &restored);
+                physics.refresh_queries();
+            }
         }
         sim.tick = save.tick;
         sim.loading = false;
