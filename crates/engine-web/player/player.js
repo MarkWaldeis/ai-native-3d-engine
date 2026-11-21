@@ -17,6 +17,9 @@ import { replacesWater } from './nature-settings.js';
 import { HudLayout } from './hud-renderer.js';
 import { InputSystem, InputEdges, keyboardHelp, gamepadHelp } from './input.js';
 import { InputSettings } from './input-settings.js';
+import { parseTextConfig } from './sdf-font.js';
+import { SdfAtlas, SdfLabel } from './sdf-text.js';
+import { hudTemplate, countHudTags } from './hud-layout.js';
 
 const $ = id => document.getElementById(id);
 const modal = $('modal');
@@ -49,6 +52,8 @@ window.__engineAnimations = animations;
 let previous = 0, accumulator = 0, joystickCenter;
 const objects = new Map();
 const ragdolls = new Map();
+const textLabels = new Map(), textEntities = new Map();
+let textAtlas, textTotals = {}, textWarnings = [];
 const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, gpuTimer, playerId, fps;
 let terrain, occluder, hudLayout;
@@ -119,7 +124,7 @@ function createObject(entity) {
   if (replacesWater(entity, effects.graphics)) return;
   const config = entity.props?.ai_physics;
   const physics = typeof config === 'string' ? JSON.parse(config) : config;
-  if (!physics?.ragdoll && streaming?.batched(entity)) { streaming.add(entity); return; }
+  if (entity.props?.ai_text === undefined && !physics?.ragdoll && streaming?.batched(entity)) { streaming.add(entity); return; }
   const group = new THREE.Group();
   let object;
   switch (entity.kind) {
@@ -177,6 +182,14 @@ function createObject(entity) {
   group.userData.color = entity.color;
   group.userData.tags = entity.tags || []; world.add(group); objects.set(entity.id, group);
   effects.decorate(group);
+  if (entity.props?.ai_text !== undefined) {
+    const { config, warnings } = parseTextConfig(entity.props.ai_text);
+    textWarnings.push(...warnings);
+    textAtlas ||= new SdfAtlas();
+    const label = new SdfLabel(textAtlas, config);
+    if (!config.offset) label.boundsObject = object;
+    group.add(label); textLabels.set(entity.id, label);
+  }
   if (group.userData.tags.some(tag => ['player','portal','goal'].includes(tag)) || isCollectible(group.userData, ui.collectible_tag)) objectives.set(entity.id,group);
   streaming?.add(entity,group);
   if (group.userData.tags.includes('enemy')) enemies.set(entity.id, group);
@@ -230,9 +243,11 @@ function apply(result) {
     if (object && isCollectible(object.userData, ui.collectible_tag)) effects.burst(object.position, object.userData.tags.includes('crystal'));
   }
   latest = result;
+  for (const id of result.removed) { textLabels.get(id)?.dispose(); textLabels.delete(id); textEntities.delete(id); }
   for(const id of result.removed){animations.remove(id);animations.states.delete(id);}
   for (const id of result.removed) { enemies.delete(id); effects.localLights?.remove(id); streaming?.remove(id); transforms.delete(id); objectives.delete(id); const object = objects.get(id); if (object) disposeObject(object); objects.delete(id); }
   for (const entity of result.spawned) {
+    textEntities.set(entity.id, entity);
     effects.localLights?.register(entity);
     createObject(entity);
   }
@@ -246,6 +261,11 @@ function apply(result) {
     object.rotation.set(...transform.rotation_deg.map(THREE.MathUtils.degToRad), 'ZYX');
   }
   applyRagdolls(result.ragdolls);
+  if (textLabels.size) {
+    const left = countHudTags(textEntities.values());
+    for (const label of textLabels.values()) label.setText(hudTemplate(label.config.text, result.state, textTotals, left));
+  }
+  stats.sdfLabels = textLabels.size; stats.sdfGlyphs = textAtlas?.glyphs.size || 0;
   fps?.apply(result, objects.get(playerId));
   if (feedback.collect) {
     audio.play('collect');
@@ -273,7 +293,7 @@ function apply(result) {
     if (!fragments.length) { const span = document.createElement('span'); span.textContent = 'Spiel bereit'; fragments.push(span); }
     $('state').replaceChildren(...fragments);
   }
-  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...result.logs.slice(-12)].join('\n');
+  $('logs').textContent = [...(hudLayout?.warnings || []), ...(inputSettings?.warnings || []), ...textWarnings, ...(textAtlas?.warnings || []), ...result.logs.slice(-12)].join('\n');
   if (running && (result.state.won === true || result.state.gewonnen === true)) showWin();
 }
 
@@ -378,6 +398,9 @@ async function restart(save = null) {
   lastFeedback = null; lastHUD = ''; effects.reset(); $('state').classList.remove('collected');
   animations.clear();
   hudLayout?.reset(source.entities);
+  for (const label of textLabels.values()) label.dispose();
+  textLabels.clear(); textEntities.clear(); textAtlas?.dispose(); textAtlas = null;
+  textTotals = countHudTags(source.entities); textWarnings = [];
   applyRagdolls();
   streaming?.reset(); transforms.clear(); objectives.clear(); enemies.clear(); playerId = undefined; fps?.reset();
   for (const object of objects.values()) disposeObject(object); objects.clear();
@@ -575,6 +598,7 @@ function frame(now) {
     effects.update(elapsed, streaming ? streaming.activeObjects() : objects, camera, running, rawElapsed, streamedFocus);
     effects.localLights?.update(streamedFocus || camera.position, effects.level);
     if (fps) fps.frame(elapsed, fpsMarkers()); else { updateShadows(); updateObjective(); }
+    for (const label of textLabels.values()) label.update(camera);
     if (gpuTimer) {
       gpuTimer.begin();
       const renderStart = performance.now();
