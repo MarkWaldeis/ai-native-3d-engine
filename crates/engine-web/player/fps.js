@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { applyLook, combatCues, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
+import { applyLook, combatCues, defeated, fpsInputs, reloadDip, weaponBob } from './fps_core.js';
 import { ShooterFx, flashTexture } from './fx.js';
 import { ShooterHud } from './hud.js';
 
@@ -47,13 +47,14 @@ export class FirstPerson {
   }
   mountModel(model, authored = false) {
     if (this.model) this.weapon.remove(this.model);
-    this.model = model; this.weapon.add(model);
+    this.model = model; model.removeFromParent();
     if (authored) {
       const box = new THREE.Box3().setFromObject(model), size = box.getSize(new THREE.Vector3());
       const scale = 0.4 / Math.max(size.x, size.y, size.z, 1e-3); model.scale.multiplyScalar(scale);
       const center = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3()); model.position.sub(center);
       model.userData.muzzle = new THREE.Vector3(0, 0.02, -0.2 / model.scale.x);
     }
+    this.weapon.add(model);
     model.traverse(o => { if (o.isMesh) { o.castShadow = false; o.frustumCulled = false; } });
     model.updateMatrix(); this.muzzleFlash.position.copy(model.userData.muzzle).applyMatrix4(model.matrix); this.weapon.add(this.muzzleFlash);
   }
@@ -116,7 +117,7 @@ export class FirstPerson {
     const reload = Number(result.state._reload) || 0;
     if (reload > 0 && this.reloadTotal === 0) this.reloadTotal = reload;
     if (reload <= 0) this.reloadTotal = 0;
-    this.reloadRemaining = reload; this.dead = Number(result.state.health) <= 0;
+    this.reloadRemaining = reload; this.dead = defeated(result.state);
   }
   worldMuzzle() {
     if (!this.model) return null;
