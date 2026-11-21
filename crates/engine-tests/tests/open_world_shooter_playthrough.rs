@@ -205,6 +205,7 @@ fn walking_path(p: [f32; 3], goal: [f32; 3], blocked: &BTreeSet<Cell>) -> VecDeq
 }
 
 #[test]
+#[ignore = "full campaign; run with --release --ignored"]
 fn full_generated_mission_is_winnable_using_only_player_inputs() {
     let scene: Scene = serde_json::from_str(
         &std::fs::read_to_string(root().join("examples/open_world_shooter/scene.json")).unwrap(),

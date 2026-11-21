@@ -32,7 +32,7 @@ There is no requirement to clear optional Outpost Charlie.
 ## Native end-to-end reproduction
 
 ```sh
-cargo test --release -p engine-tests --test open_world_shooter_playthrough -- --nocapture
+cargo test --release -p engine-tests --test open_world_shooter_playthrough -- --ignored --nocapture
 ```
 
 This loads the unmodified full generated scene and uses the browser's authored
@@ -43,4 +43,5 @@ enemy positions or player transforms. The only speed boost is `travel_speed=4`.
 It asserts every mission stage, required kills, intel collection, victory and
 no below-terrain fall, and prints ticks, health and mean/max simulation-step
 milliseconds (CPU only; excluding loading, route planning and rendering).
-The same test also runs in the default workspace suite; debug builds are slower.
+The full campaign is ignored in the default workspace suite; run it explicitly
+with the release command above.
