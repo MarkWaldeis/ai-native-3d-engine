@@ -140,6 +140,22 @@ export class StreamingWorld {
         }
         if (item.object) item.object.visible = item.e.visible !== false && level !== 3;
         if (item.object && item.e.kind === 'gltf') {
+          const lodPath = item.e.props?.web_lods?.[level];
+          if (lodPath) {
+            item.lods ??= new Map(); item.lodTasks ??= new Map();
+            if (!item.lodTasks.has(lodPath)) {
+              const task = loadAsset(lodPath).then(gltf => {
+                if (this.entities.get(id) !== item) return;
+                const lod = gltf.scene.clone(true); item.lods.set(lodPath,lod); item.object.add(lod);
+              });
+              item.lodTasks.set(lodPath,task); tasks.push(task); task.catch(error => console.error(error));
+            }
+            item.object.children[0].visible = !item.lods.has(lodPath);
+            for (const [path,lod] of item.lods) lod.visible = path === lodPath;
+            if (item.impostor) item.impostor.visible = false;
+            continue;
+          }
+          for (const lod of item.lods?.values() || []) lod.visible = false;
           if (level === 2 && !item.impostorTask) {
             item.impostorTask = this.template(item.e,2).then(([part]) => {
               if (!this.entities.has(id)) return;

@@ -8,6 +8,7 @@ export function worldConfig(entities) {
   const large = entities.length > 1000 || entities.some(e => Math.max(...(e.transform?.position || []).map(Math.abs)) > 1000);
   if (!value && !large) return null;
   const config = {...defaults, ...value};
+  if (config.camera_distance !== undefined && (!(config.camera_distance > 0) || !Number.isFinite(config.camera_distance))) throw new RangeError('Invalid ai_world.camera_distance');
   for (const key of ['chunk_size','stream_radius','draw_distance','hysteresis','sim_radius','sim_hysteresis']) if (!(config[key] > 0) || !Number.isFinite(config[key])) throw new RangeError(`Invalid ai_world.${key}`);
   if (!Array.isArray(config.lod_distances) || config.lod_distances.length !== 2 || !(config.lod_distances[0] > 0 && config.lod_distances[1] > config.lod_distances[0])) throw new RangeError('Invalid LOD distances');
   return config;

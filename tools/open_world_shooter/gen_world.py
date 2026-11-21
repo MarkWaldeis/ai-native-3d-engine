@@ -73,7 +73,7 @@ class Scene:
         path = info.get("high", f"{ASSETS}/{label}.glb")
         props = fields.pop("props", {})
         if info.get("low"):
-            props["ai_lod_low"] = info["low"]
+            props["web_lods"] = {"1": info["low"], "2": info["low"]}
         e = self.add(name, "gltf", [x, (height(x, z) if y is None else y) + lift, z], path=path,
                      rotation_deg=[0.0, yaw, 0.0], scale=[scale] * 3, **fields)
         if props:
@@ -142,8 +142,7 @@ def glb_bytes(positions, normals, colors, indices):
     def pad(b, fill=b"\0"):
         return b + fill * ((4 - len(b) % 4) % 4)
     pos = struct.pack(f"<{len(positions) * 3}f", *[c for p in positions for c in p])
-    nor = struct.pack(f"<{len(normals) * 3}b", *[max(-127, min(127, round(c * 127))) for n in normals for c in n])
-    nor = pad(nor)
+    nor = struct.pack(f"<{len(normals) * 3}f", *[c for n in normals for c in n])
     col = struct.pack(f"<{len(colors) * 4}B", *[v for c in colors for v in (round(c[0] * 255), round(c[1] * 255), round(c[2] * 255), 255)])
     idx = pad(struct.pack(f"<{len(indices)}H", *indices))
     blob = pos + nor + col + idx
@@ -158,13 +157,13 @@ def glb_bytes(positions, normals, colors, indices):
         "buffers": [{"byteLength": len(blob)}],
         "bufferViews": [
             {"buffer": 0, "byteOffset": 0, "byteLength": len(pos), "target": 34962},
-            {"buffer": 0, "byteOffset": o1, "byteLength": len(normals) * 3, "target": 34962},
+            {"buffer": 0, "byteOffset": o1, "byteLength": len(nor), "target": 34962},
             {"buffer": 0, "byteOffset": o2, "byteLength": len(col), "target": 34962},
             {"buffer": 0, "byteOffset": o3, "byteLength": len(indices) * 2, "target": 34963},
         ],
         "accessors": [
             {"bufferView": 0, "componentType": 5126, "count": len(positions), "type": "VEC3", "min": mins, "max": maxs},
-            {"bufferView": 1, "componentType": 5120, "normalized": True, "count": len(normals), "type": "VEC3"},
+            {"bufferView": 1, "componentType": 5126, "count": len(normals), "type": "VEC3"},
             {"bufferView": 2, "componentType": 5121, "normalized": True, "count": len(colors), "type": "VEC4"},
             {"bufferView": 3, "componentType": 5123, "count": len(indices), "type": "SCALAR"},
         ],
@@ -217,10 +216,10 @@ def build(scene, rng, density, with_terrain_entity):
         "win_text": "Zitadelle eingenommen – Mission erfüllt!",
         "badge": "Rio Verde", "win_badge": "Sieg",
         "hud_keys": ["health", "ammo", "ammo_reserve", "kills", "objective"],
-        "sky_color": [0.55, 0.68, 0.72],
+        "sky_color": "#8cadb8",
     }
     sx, sz = LZ[0] + 12, LZ[1] + 12
-    E.add("player", "sphere", [sx, height(sx, sz) + 0.9, sz], radius=0.45, segments=12,
+    E.add("player", "cylinder", [sx, height(sx, sz) + 0.9, sz], radius=0.4, height=1.8, segments=12,
           color=[0.2, 0.3, 0.2, 1], tags=["player", "always_active"],
           collider={"shape": "capsule", "radius": 0.4, "half_height": 0.5},
           rigidbody={"type": "kinematic", "mass": 80}, script=f"{GAME}/scripts/player.rhai",
@@ -228,7 +227,7 @@ def build(scene, rng, density, with_terrain_entity):
               "ai_fps": {"eye_height": 1.65, "move_speed": 5.5, "sprint_speed": 9.0, "jump_speed": 5.0, "mouse_sens": 0.0022},
               "ai_viewmodel": f"{ASSETS}/rifle_viewmodel.glb",
               "ai_render": {"preset": "high", "sky": "tropical", "fog": 0.0011, "time_of_day": 16.5, "shadows": True, "foliage": True},
-              "ai_world": {"chunk_size": 128, "stream_radius": 640, "draw_distance": 600, "lod_distances": [70, 220],
+              "ai_world": {"chunk_size": 128, "stream_radius": 640, "draw_distance": 600, "lod_distances": [70, 220], "camera_distance": 24,
                            "sim_radius": 260, "sim_hysteresis": 30},
               "ai_ui": player_ui,
           })
@@ -461,7 +460,7 @@ def main():
         write_fallback_terrain(game / "terrain_fallback", scene)
     doc = {
         "name": "Operation Rio Verde",
-        "camera": {"position": [LZ[0] - 20, height(*LZ) + 12, LZ[1] - 20], "target": [LZ[0] + 12, height(*LZ) + 2, LZ[1] + 12], "fov_deg": 70},
+        "camera": {"position": [LZ[0] + 30, height(*LZ) + 12, LZ[1] + 30], "target": [LZ[0] + 12, height(*LZ) + 2, LZ[1] + 12], "fov_deg": 70},
         "light_dir": [-0.45, 1.0, 0.35],
         "ambient": 0.45,
         "entities": scene.entities,

@@ -27,6 +27,8 @@ jobs:
         run: rm -rf target/site && cargo run -- --export-web examples/coin_game/scene.json target/site/coin_game
       - name: Export Sky Garden
         run: cargo run -- --export-web examples/sky_garden/scene.json target/site/sky_garden
+      - name: Export Operation Rio Verde
+        run: cargo run -- --export-web examples/open_world_shooter/scene.json target/site/open_world_shooter
       - name: Export Laternen-Labyrinth
         run: |
           cargo run -- --project examples/lantern_maze --export-web scene.json web
