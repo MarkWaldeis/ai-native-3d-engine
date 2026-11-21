@@ -92,7 +92,15 @@ export async function verifyLanternTouch(browser,base,shots,errors) {
     await page.waitForFunction(()=>document.getElementById('start')?.disabled===false,null,{polling:50});
     await page.evaluate(async()=>{
       const {WebGame}=await import('./pkg/engine_web.js');
-      for(const method of ['load','tick']){const original=WebGame.prototype[method];WebGame.prototype[method]=function(...args){const result=original.apply(this,args);window.snapshot=JSON.parse(result);return result;};}
+      const transforms=new Map();
+      for(const method of ['load','tick']){const original=WebGame.prototype[method];WebGame.prototype[method]=function(...args){
+        const result=original.apply(this,args),snapshot=JSON.parse(result);
+        if(method==='load')transforms.clear();
+        for(const entity of snapshot.transforms)transforms.set(entity.id,entity);
+        for(const id of snapshot.removed)transforms.delete(id);
+        window.snapshot={...snapshot,transforms:[...transforms.values()]};
+        return result;
+      };}
     });
     await page.getByRole('button',{name:'Spielen',exact:true}).click();
     await verifyLantern(page,shots,true);
