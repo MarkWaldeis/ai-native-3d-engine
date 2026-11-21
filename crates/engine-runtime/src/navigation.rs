@@ -139,8 +139,13 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
             }
         }
         let shape = if let Some(collider) = physics.collider {
+            let compound = matches!(&collider, crate::physics_config::Geometry::Compound { .. });
             e.props["ai_physics"] = json!({"collider":collider});
-            e.props["ai_physics"].clone()
+            if compound {
+                json!([e.props["ai_physics"], "independent_compound_parts"])
+            } else {
+                e.props["ai_physics"].clone()
+            }
         } else if matches!(e.mesh, PrimitiveKind::Gltf { .. }) {
             json!({"kind":"gltf","content":file_hash})
         } else {
@@ -159,7 +164,7 @@ pub fn bake(scene: &Scene, root: &Path, params: NavParams) -> Result<(NavMesh, V
     }
     let mut physics = crate::physics::Physics::new(root.into());
     physics.reconcile(&geometry)?;
-    physics.refresh_queries();
+    physics.prepare_nav_queries();
     let boxes = physics.nav_bounds();
     let mut bounds = params.bounds.unwrap_or([
         f32::INFINITY,

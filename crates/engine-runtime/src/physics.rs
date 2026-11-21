@@ -205,6 +205,25 @@ impl Physics {
         self.query.update(&self.colliders);
     }
 
+    pub(crate) fn prepare_nav_queries(&mut self) {
+        let compounds: Vec<_> = self.colliders.iter().filter_map(|(handle, collider)| {
+            let parent = collider.parent()?;
+            let parts = collider.shape().as_compound()?.shapes().to_vec();
+            Some((handle, parent, *collider.position_wrt_parent()?, parts))
+        }).collect();
+        for (handle, parent, pose, parts) in compounds {
+            self.colliders.remove(handle, &mut self.islands, &mut self.bodies, false);
+            for (local, shape) in parts {
+                self.colliders.insert_with_parent(
+                    ColliderBuilder::new(shape).position(pose * local).build(),
+                    parent,
+                    &mut self.bodies,
+                );
+            }
+        }
+        self.refresh_queries();
+    }
+
     pub(crate) fn nav_bounds(&self) -> Vec<(u64, [f32; 3], [f32; 3])> {
         self.colliders.iter().filter(|(_, c)| !c.is_sensor()).map(|(_, c)| {
             let a=c.compute_aabb();

@@ -35,6 +35,25 @@ fn applied_force_is_cleared_after_one_tick() {
 }
 
 #[test]
+fn nav_bake_does_not_treat_a_wall_as_part_of_the_supporting_floor() {
+    let scene = serde_json::from_value(json!({"entities":[
+        {"id":1,"name":"floor and wall","kind":"box","size":[1,1,1],
+         "props":{"ai_physics":{"collider":{"shape":"compound","parts":[
+            {"shape":"box","half_extents":[4,0.5,4],"position":[0,-0.5,0]},
+            {"shape":"box","half_extents":[0.05,1.5,4],"position":[0.7,1.5,0]}
+         ]}}}}
+    ]})).unwrap();
+    let params = shared::navigation::NavParams {
+        cell_size: 1.0,
+        ..Default::default()
+    };
+    let (mesh, _) = engine_runtime::navigation::bake(&scene, std::path::Path::new("."), params).unwrap();
+    let cells: Vec<_> = mesh.tiles.iter().flat_map(|tile| &tile.polygons).map(|poly| poly.cell).collect();
+    assert!(cells.contains(&[-2, 0]));
+    assert!(!cells.contains(&[0, 0]));
+}
+
+#[test]
 fn ray_only_hitbox_does_not_trigger_an_overlapping_sensor() {
     let mut simulation = sim(json!([
         {"id":1,"name":"target","kind":"box","size":[1,1,1],"collider":{"shape":"box"},
