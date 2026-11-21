@@ -19,7 +19,52 @@ use std::rc::Rc;
 mod region_tests;
 
 pub const DT: f32 = 1.0 / 60.0;
-pub const MAX_ENTITIES: usize = 1024;
+pub const MAX_ENTITIES: usize = 32768;
+
+#[cfg(test)]
+mod entity_limit_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn large_scenes_load_but_loading_and_scripted_spawns_remain_bounded() {
+        assert_eq!(MAX_ENTITIES, 32768);
+        let mut scene = Scene::default();
+        for id in 1..=1025 {
+            scene.entities.push(serde_json::from_value(json!({
+                "id": id, "name": format!("entity-{id}"), "kind": "box", "size": [1,1,1]
+            })).unwrap());
+        }
+        let mut simulation = Simulation::from_sources(scene, BTreeMap::new()).unwrap();
+        simulation.step(1, &[]).unwrap();
+        let entity = simulation.scene().entities[0].clone();
+        let mut oversized = Scene::default();
+        oversized.entities = vec![entity.clone(); MAX_ENTITIES + 1];
+        let error = Simulation::from_sources(oversized, BTreeMap::new()).err().unwrap();
+        assert!(error.to_string().contains("at most 32768 entities"));
+
+        let scene: Scene = serde_json::from_value(json!({"entities": [{
+            "id": 1, "name": "spawner", "kind": "box", "size": [1,1,1],
+            "script": {"source": "fn on_tick(ctx, dt) { ctx.spawn_entity(#{kind: \"box\", size: [1,1,1]}); }"}
+        }]})).unwrap();
+        let simulation = Simulation::from_sources(scene, BTreeMap::new()).unwrap();
+        {
+            let mut data = simulation.data.borrow_mut();
+            for id in 2..MAX_ENTITIES as u64 {
+                let mut next = entity.clone();
+                next.id = id;
+                data.scene.entities.push(next);
+            }
+            data.next_id = MAX_ENTITIES as u64;
+        }
+        simulation.hook(1, "on_tick").unwrap();
+        assert_eq!(simulation.data.borrow().scene.entities.len(), MAX_ENTITIES);
+        let error = simulation.hook(1, "on_tick").unwrap_err();
+        assert!(error.to_string().contains("simulation entity limit exceeded"));
+        assert_eq!(simulation.data.borrow().scene.entities.len(), MAX_ENTITIES);
+        assert!(Simulation::from_sources(Scene::default(), BTreeMap::new()).is_ok());
+    }
+}
 pub const MAX_TICKS: u64 = 36_000;
 
 struct Data {
@@ -141,7 +186,7 @@ impl Simulation {
             data,
             engine,
             scripts: BTreeMap::new(),
-            physics: Physics::new(),
+            physics: Physics::new(root.clone()),
             root,
             sources,
             active_region: None,

@@ -1,0 +1,5 @@
+{
+  "comment": "Software-rendered CI smoke budgets, not performance targets. Tighten FPS budgets as streaming lands. Heap is CDP JSHeapUsedSize in MiB, not total process memory.",
+  "desktop": {"loadAssetsReadyMs": 120000, "minAvgFps": 0.5, "maxJsHeapMB": 2048},
+  "mobile": {"loadAssetsReadyMs": 120000, "minAvgFps": 0.1, "maxJsHeapMB": 2048}
+}

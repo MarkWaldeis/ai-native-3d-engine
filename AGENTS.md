@@ -42,6 +42,25 @@ Danach: `cargo build` / `cargo build --release` / `cargo test --workspace`.
 
 ## Build (macOS / Linux)
 
+## Terrain (CPU / native Physik)
+
+`crates/engine-terrain`: deterministische unabhängige 256-m-Kacheln, PNG16/R16-
+Import, Manifest + f32-Höhen mit Halo, lokale Meshes und f64-Floating-Origin-API.
+44-km²-Preset: 26×26 Kacheln mit 129 Proben pro Kante. Randkacheln werden
+aufgefüllt; Sample-API prüft die echte Kartengrenze. `shared/` bleibt unverändert.
+MCP-Katalog/Dispatcher ergänzen Terrain lokal in `engine-mcp`, Pfade projektgebunden.
+Tools: `terrain_generate`, `terrain_import`, `terrain_info`, `terrain_sample`.
+`props.ai_terrain` referenziert das Manifest relativ zum Projektroot;
+`ai_terrain_radius` (Default 512 m) begrenzt native Rapier-Collider um Player und
+dynamische Körper. Nur Translation, keine Terrain-Rotation/Skalierung.
+Floating-Origin ist eine explizite API, kein automatischer Umbau der f32-Szene.
+Blender: `blender/terrain_heightmap.py`, nach Sculpting `--bake-active`;
+PNG16 + `.import.json`, Blender XY/Z → Engine XZ/Y, R16 Little Endian.
+Tests: `cargo test -p engine-tests --test terrain`; Release-Messung:
+`cargo run --release -p engine-terrain --example generate`. Kein Web-LOD hier.
+
+### Installation
+
 Stable Rust via rustup installieren, dann `cargo build --workspace` und
 `cargo test --workspace`. Bei frischer Installation ggf. `source "$HOME/.cargo/env"`.
 Die Windows-GNU-Linker-Konfiguration ist target-spezifisch und wird hier nicht
@@ -207,6 +226,30 @@ und `docs/blender_sync_reference.png` (macOS; bestehender Windows-QA-Pfad bleibt
   (query/Assertions). Fehlgeschlagene Assertions bleiben Reports, keine Exceptions.
 - Test: `cargo test -p engine-tests --test ai_qa -- --nocapture`.
   Sichtgeprüftes Beispiel-Kontaktblatt: `docs/contact_sheet.png`.
+
+## Large-World-Benchmark
+
+- Anleitung/Referenz: `docs/BENCHMARK.md`; Generator: `tools/bench/gen_large_world.py`.
+  Standard: 6633×6633 m, 14997 Entities, 4096 statische Boden-Collider.
+  `MAX_ENTITIES` ist 32768, auch für Skript-Spawns; Dichte nicht heimlich reduzieren.
+- Setup: `rustup target add wasm32-unknown-unknown`,
+  `cargo install wasm-bindgen-cli --version 0.2.100 --locked`,
+  `npm ci --prefix tools/bench`, `npx --prefix tools/bench playwright install chromium`.
+- `bash tools/bench/run.sh --channel chromium --swiftshader --duration 20`:
+  generiert, leert nur `target/bench/site/large_world`, exportiert und misst beide
+  Profile. Exportziel muss neu/leer und projekt-relativ sein, nicht `/tmp/...`.
+  System-Chrome: `--channel chrome`; Mobile ist Chromium-Emulation mit 4× CPU,
+  kein Safari-Test. SwiftShader setzt `--use-angle=swiftshader`,
+  `--enable-unsafe-swiftshader`, `--ignore-gpu-blocklist`.
+- `?bench` aktiviert `window.__aiEngineBench` (`ready`, `marks`, `stats()`).
+  Marks: `bootStart`, `sceneFetched`, `wasmInitialized`, `webGameLoaded`,
+  `assetsReady`, `firstFrameAfterStart` (`ai-engine:`-Präfix in Performance API).
+- Ergebnisse: `target/bench/results/{results.json,summary.md,desktop.png,mobile.png}`;
+  Log: `target/bench/pipeline.log`. Baseline: `--baseline <results.json>`;
+  Budgets: `tools/bench/budgets.json` sind Smoke-Untergrenzen, später verschärfen.
+  `.github/workflows/bench.yml` lädt Artefakte auch bei Fehlern hoch.
+- Checks: `npm --prefix tools/bench test`, `node --test tools/test_web_*.mjs`,
+  `python3 -m unittest discover -s tools/bench -p 'test_*.py'` sowie Runtime-/Web-Export-Tests.
 
 ## Crates (Übersicht)
 

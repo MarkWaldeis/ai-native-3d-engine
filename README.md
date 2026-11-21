@@ -1,5 +1,8 @@
 # ai-native-3d-engine
 
+44-km²-Web-Baseline (FPS, Speicher, Ladezeiten; Desktop/Mobile):
+[Benchmark-Anleitung und Referenzwerte](docs/BENCHMARK.md).
+
 ## Mit Claude Code / Devin / Cursor verbinden
 
 ```sh
@@ -664,6 +667,37 @@ entity remains a failed assertion with `actual:null` and an explanatory message.
 Tests: `cargo test -p engine-tests --test ai_qa -- --nocapture`.
 
 ## Roadmap
+
+### Gekacheltes Terrain (CPU)
+
+`engine-terrain` erzeugt deterministische Ridged-fBm-Höhenfelder unabhängig pro
+Kachel. `TerrainConfig::preset_44km2()` umfasst 44 km², standardmäßig 256 m pro
+Kachel und 129 Randproben (26×26 Kacheln; letzte Kachel ragt über die Kartengrenze).
+`terrain_generate {out_dir,size_m?:[x,z],tile_m?,samples?,height_scale?,seed?}`
+schreibt `terrain.json` und Little-Endian-f32-Kacheln mit Normalen-Halo.
+`terrain_import {heightmap,out_dir,...}` liest Graustufen-PNG16 oder Little-Endian
+R16 (`width,height` erforderlich); Zeilen laufen von Minimum nach Maximum Z,
+0–65535 entspricht 0–`height_scale` Metern. `terrain_info {path}` und
+`terrain_sample {path,x,z}` lesen das Ergebnis. Alle Pfade bleiben im Projekt;
+Ausgabeordner müssen neu/leer sein. Import resampelt bilinear auf das Kachelraster.
+
+`blender/terrain_heightmap.py` erstellt ein Displace-Grid und bäckt PNG16 plus
+MCP-Importargumente. Nach Sculpting erneut mit `--bake-active` ausführen;
+Blender XY/Z entspricht Engine XZ/Y. Werte außerhalb des Höhenbereichs werden
+geklammert. Beispiel: `blender -b --factory-startup --python
+blender/terrain_heightmap.py -- --out assets/terrain.png`.
+
+Szenen-Entity: `props.ai_terrain:"assets/map/terrain.json"`, optional
+`props.ai_terrain_radius:512`. Native Rapier-Höhenfeld-Collider werden in stabiler
+Reihenfolge um dynamische Körper/Player geladen und entfernt. Terrain unterstützt
+Translation, keine Rotation/Skalierung. Meshes sind kachellokal, einschließlich
+grenzübergreifender zentraler Normalendifferenzen. `WorldPos`/`FloatingOrigin`
+stellen f64-Weltpositionen und gerasterte f32-Konvertierung bereit; bestehende
+Szenen-/Simulationskoordinaten bleiben f32 (kein automatisches Runtime-Rebasing).
+Web-Streaming/LOD ist nicht Teil dieser CPU-Pipeline.
+
+Tests: `cargo test -p engine-tests --test terrain`; Messung bei Standardauflösung:
+`cargo run --release -p engine-terrain --example generate`.
 
 - [x] deterministic conflict resolution (`expected_revision` CAS + rollback)
 - [x] glTF/GLB mesh import (`spawn_primitive kind:"gltf"` → `assets/*.glb` → GPU)

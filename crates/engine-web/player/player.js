@@ -22,6 +22,27 @@ const transforms = new Map(), objectives = new Map();
 let streaming, statsOverlay, playerId;
 const stats = window.__engineStats = {fps:0,drawCalls:0,triangles:0,loadedChunks:0,visibleInstances:0};
 const loading = new Set();
+const benchMarks = {};
+function mark(name) {
+  if (benchMarks[name] !== undefined) return;
+  benchMarks[name] = performance.mark(`ai-engine:${name}`).startTime;
+}
+if (new URLSearchParams(location.search).has('bench')) {
+  window.__aiEngineBench = {
+    get ready() { return ready; },
+    marks: benchMarks,
+    stats() {
+      return {
+        drawCalls: renderer?.info.render.calls ?? 0,
+        triangles: renderer?.info.render.triangles ?? 0,
+        geometries: renderer?.info.memory.geometries ?? 0,
+        textures: renderer?.info.memory.textures ?? 0,
+        entities: transforms.size,
+        simTicks: latest?.tick ?? 0,
+      };
+    },
+  };
+}
 const followTarget = new THREE.Vector3();
 const cameraOffset = new THREE.Vector3();
 const lookDirection = new THREE.Vector3();
@@ -269,7 +290,9 @@ async function restart() {
   streaming?.reset(); transforms.clear(); objectives.clear(); playerId = undefined;
   for (const object of objects.values()) disposeObject(object); objects.clear();
   for (const shadow of shadows.values()) { world.remove(shadow); shadow.geometry.dispose(); shadow.material.dispose(); } shadows.clear();
-  apply(JSON.parse(game.load(JSON.stringify(source), JSON.stringify(scripts))));
+  const initial = game.load(JSON.stringify(source), JSON.stringify(scripts));
+  mark('webGameLoaded');
+  apply(JSON.parse(initial));
   await Promise.all([...loading]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
   const player = transforms.get(playerId);
@@ -279,7 +302,9 @@ async function restart() {
     if (lookDirection.length() > 0.1) lookDirection.normalize();
   }
   camera.position.fromArray(source.camera.position); camera.lookAt(...source.camera.target); updateCamera(true);
+  if (streaming) await Promise.all(streaming.update(camera));
   accumulator = 0; previous = performance.now(); ready = true;
+  mark('assetsReady');
 }
 
 function startRunning() {
@@ -403,6 +428,7 @@ function frame(now) {
     stats.cameraPosition = camera.position.toArray(); stats.playerPosition = objects.get(playerId)?.position.toArray();
     world.traverseVisible(o => { if (o.isInstancedMesh) stats.visibleInstances += o.count; });
     if (statsOverlay) statsOverlay.textContent = `${stats.fps.toFixed(1)} fps · ${stats.drawCalls} calls · ${stats.triangles} triangles · ${stats.loadedChunks} chunks · ${stats.visibleInstances} instances`;
+    if (running) mark('firstFrameAfterStart');
   } catch (error) { ready = false; fail(error); }
 }
 
@@ -424,6 +450,7 @@ function updateObjective() {
 
 async function fetchJson(path) { const response = await fetch(path); if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`); return response.json(); }
 async function boot() {
+  mark('bootStart');
   $('game').addEventListener('webglcontextlost', event => {
     event.preventDefault(); fail(new Error('Die Grafikverbindung wurde unterbrochen. Bitte lade die Seite neu.'));
   });
@@ -434,7 +461,10 @@ async function boot() {
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.outputColorSpace = THREE.SRGBColorSpace; renderer.setClearColor(0xa0bdd5);
   world = new THREE.Scene();
-  [source, scripts] = await Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json'), init()]);
+  [[source, scripts]] = await Promise.all([
+    Promise.all([fetchJson('./scene.json'), fetchJson('./scripts.json')]).then(result => { mark('sceneFetched'); return result; }),
+    init().then(result => { mark('wasmInitialized'); return result; }),
+  ]);
   if (mode === 'error') throw new Error('Die Grafik ist nicht verfügbar. Bitte lade die Seite neu.');
   const authoredUI = source.entities.find(e => e.tags?.includes('player'))?.props?.ai_ui;
   ui = typeof authoredUI === 'string' ? JSON.parse(authoredUI) : authoredUI || {};

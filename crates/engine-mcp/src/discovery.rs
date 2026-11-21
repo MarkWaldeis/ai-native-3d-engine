@@ -4,6 +4,7 @@ use shared::mcp_protocol::builtin_tools;
 
 pub(crate) fn tools() -> Value {
     let mut tools = serde_json::to_value(builtin_tools()).unwrap();
+    tools.as_array_mut().unwrap().extend(crate::terrain::tools());
     for tool in tools.as_array_mut().unwrap() {
         let name = tool["name"].as_str().unwrap();
         let read_only = matches!(
@@ -22,6 +23,8 @@ pub(crate) fn tools() -> Value {
                 | "get_revision"
                 | "get_screenshot"
                 | "list_assets"
+                | "terrain_info"
+                | "terrain_sample"
         );
         let additive = matches!(
             name,
@@ -34,6 +37,8 @@ pub(crate) fn tools() -> Value {
                 | "release_entities"
                 | "blender_start"
                 | "play"
+                | "terrain_generate"
+                | "terrain_import"
         );
         tool["annotations"] =
             json!({"readOnlyHint":read_only,"destructiveHint":!read_only && !additive});
@@ -47,6 +52,13 @@ pub fn agent_guide() -> String {
     guide.push_str("\n## Tool catalogue / Werkzeugkatalog (generated)\n\n");
     for tool in builtin_tools() {
         guide.push_str(&format!("- **{}**: {}\n", tool.name, tool.description));
+    }
+    for tool in crate::terrain::tools() {
+        guide.push_str(&format!(
+            "- **{}**: {}\n",
+            tool["name"].as_str().unwrap(),
+            tool["description"].as_str().unwrap()
+        ));
     }
     guide
 }

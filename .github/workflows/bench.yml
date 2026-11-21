@@ -1,0 +1,78 @@
+name: Large-world browser benchmark
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Frame sampling duration in seconds per profile
+        default: '20'
+        required: true
+        type: string
+      profiles:
+        description: Comma-separated profiles (desktop,mobile)
+        default: desktop,mobile
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: large-world-bench-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache matching WASM bindings generator
+        id: wasm-bindgen
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/wasm-bindgen
+          key: wasm-bindgen-cli-${{ runner.os }}-${{ runner.arch }}-0.2.100
+      - name: Install matching WASM bindings generator
+        if: steps.wasm-bindgen.outputs.cache-hit != 'true'
+        run: cargo install wasm-bindgen-cli --version 0.2.100 --locked
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/bench/package-lock.json
+      - name: Install browser benchmark dependencies
+        working-directory: tools/bench
+        run: npm ci
+      - name: Install bundled Chromium and system libraries
+        working-directory: tools/bench
+        run: npx playwright install --with-deps chromium
+      - name: Generate, export and benchmark
+        env:
+          BENCH_SKIP_NPM_CI: '1'
+          BENCH_DURATION: ${{ inputs.duration || '20' }}
+          BENCH_PROFILES: ${{ inputs.profiles || 'desktop,mobile' }}
+          BENCH_CHANNEL: chromium
+        run: bash tools/bench/run.sh --swiftshader
+      - name: Publish benchmark summary
+        if: always()
+        run: |
+          if [ -f target/bench/results/summary.md ]; then
+            cat target/bench/results/summary.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Benchmark did not produce a summary; see job logs and artifacts.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: large-world-bench
+          path: target/bench/
+          if-no-files-found: warn

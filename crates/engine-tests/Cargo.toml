@@ -5,6 +5,8 @@ edition = "2021"
 description = "Headless end-to-end integration tests for the whole workspace"
 
 [dependencies]
+engine-terrain = { path = "../engine-terrain" }
+png = "0.17"
 ai-engine = { path = "../.." }
 shared = { path = "../../shared" }
 engine-core = { path = "../engine-core" }
