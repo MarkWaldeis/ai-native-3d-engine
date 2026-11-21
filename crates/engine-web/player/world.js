@@ -24,8 +24,9 @@ export class StreamingWorld {
     if (this.templates.has(key)) return this.templates.get(key);
     const promise = (async () => {
       if (e.kind === 'gltf') {
-        const gltf = await loadAsset(e.path);
-        if (level === 2) return this.impostor(gltf.scene);
+        const lodPath = e.props?.web_lods?.[level];
+        const gltf = await loadAsset(lodPath || e.path);
+        if (level === 2 && !lodPath) return this.impostor(gltf.scene);
         gltf.scene.updateMatrixWorld(true);
         const parts = [];
         gltf.scene.traverse(o => { if (o.isMesh) parts.push({geometry:o.geometry,material:o.material,matrix:o.matrixWorld.clone()}); });

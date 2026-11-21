@@ -353,8 +353,9 @@ curl http://127.0.0.1:7777/mcp -H 'Content-Type: application/json' \
 
 ### Atomic changes and Blender ownership (M7)
 
-`apply_batch {mode:"atomic",expected_revision,commands:[...]}` permits only
-`spawn_primitive`, `set_transform`, `set_color`, `remove_entity`, `set_camera`.
+`apply_batch {mode:"atomic",expected_revision,commands:[...]}` permits
+`spawn_primitive`, `set_transform`, `set_color`, `remove_entity`, `set_camera`
+and the reversible `prefab_*` authoring tools.
 It commits one revision/snapshot and one journal entry, or changes neither scene,
 revision, journal nor assets on rejection. No per-command CAS, nested batches,
 `write_script`, Blender tools, load/rollback, save or export are permitted inside.
@@ -406,6 +407,26 @@ task ID, actor, lease, TTL and previous owner (1024-event retention). This curso
 is independent of `get_changes_since` scene revisions: task coordination does
 not bump the scene or create snapshots. `task_list` filters
 pending/claimed/expired/completed.
+
+### Large-world authoring
+
+Reusable scene-embedded hierarchical prefabs: `prefab_create`, `prefab_update`,
+`prefab_instantiate` (grid/seeded scatter/along-path/explicit transforms),
+`prefab_set_overrides`, `prefab_remove_instance`. Updates propagate while retaining
+per-node instance overrides and IDs; all affected locks, CAS, atomic batches,
+rollback and project restart persistence apply. Child transforms are composed in
+authoring and flattened for the existing runtime, not a runtime animation graph.
+
+Blender collection instances import as prefabs. `*_LOD0/1/2` assets feed the
+existing player LOD levels; canonical SHA-256 GLBs and content-aware packaging
+avoid duplicate stored assets. No lighting/shadow/post-processing changes.
+
+Use `query_entities` instead of full scene dumps: AND tag/component/prefab,
+origin bbox/radius/region filters, bounded ID-ordered pages (default 100, max 500),
+revision-bound cursors. `get_scene_summary` returns bounded aggregate buckets.
+Legacy `query` keeps its live-simulation response. Full contracts, shared-schema
+extension and the 44 km² HTTP benchmark command:
+[Large-world authoring](docs/LARGE_WORLD_AUTHORING.md).
 
 ### Restart-safe project coordination
 

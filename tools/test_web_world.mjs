@@ -8,6 +8,28 @@ registerHooks({resolve(specifier,context,nextResolve) {
 const THREE = await import('three');
 const {StreamingWorld} = await import('../crates/engine-web/player/world.js');
 const {worldConfig} = await import('../crates/engine-web/player/streaming.js');
+const {batchKey} = await import('../crates/engine-web/player/streaming.js');
+
+function glb(scale) {
+  const document={asset:{version:'2.0'},buffers:[{byteLength:36}],bufferViews:[{buffer:0,byteLength:36}],accessors:[{bufferView:0,componentType:5126,count:3,type:'VEC3',min:[0,0,0],max:[scale,scale,0]}],meshes:[{primitives:[{attributes:{POSITION:0}}]}],nodes:[{mesh:0}],scenes:[{nodes:[0]}],scene:0};
+  const json=Buffer.from(JSON.stringify(document).padEnd(Math.ceil(JSON.stringify(document).length/4)*4,' '));
+  const bin=Buffer.alloc(36);[0,0,0,scale,0,0,0,scale,0].forEach((v,i)=>bin.writeFloatLE(v,i*4));
+  const header=Buffer.alloc(20);header.write('glTF');header.writeUInt32LE(2,4);header.writeUInt32LE(28+json.length+bin.length,8);header.writeUInt32LE(json.length,12);header.writeUInt32LE(0x4e4f534a,16);
+  const chunk=Buffer.alloc(8);chunk.writeUInt32LE(bin.length);chunk.writeUInt32LE(0x004e4942,4);
+  return 'data:model/gltf-binary;base64,'+Buffer.concat([header,json,chunk,bin]).toString('base64');
+}
+
+test('authored GLB LOD paths use the existing distance levels and keep distinct batch/cache identities', async () => {
+  globalThis.ProgressEvent ??= class ProgressEvent {constructor(type,details){this.type=type;Object.assign(this,details);}};
+  const {world}=fixture();let impostors=0;world.impostor=()=>{impostors++;return [];};
+  const base={kind:'gltf',path:glb(3)},authored={...base,props:{web_lods:{1:glb(2),2:glb(1)}}};
+  assert.notEqual(batchKey(base),batchKey(authored));
+  for (const [level,max] of [[0,3],[1,2],[2,1]]) {const parts=await world.template(authored,level);assert.equal(parts[0].geometry.attributes.position.getX(1),max);}
+  assert.equal(impostors,0);
+  await world.template(base,2);assert.equal(impostors,1);
+  await world.template({...base,props:{web_lods:{}}},2);assert.equal(impostors,2);
+  await assert.rejects(world.template({...base,props:{web_lods:{1:'data:model/gltf-binary;base64,YmFk'}}},1));
+});
 
 function fixture(addProp = false) {
   const scene = new THREE.Scene(), world = new StreamingWorld(scene,{},worldConfig([{tags:['player'],props:{ai_world:{}}}]));

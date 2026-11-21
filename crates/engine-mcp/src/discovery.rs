@@ -13,6 +13,7 @@ pub(crate) fn tools() -> Value {
                 | "get_sim_state"
                 | "simulate"
                 | "query"
+                | "query_entities" | "get_scene_summary"
                 | "blender_status"
                 | "blender_scene_info"
                 | "list_locks"
@@ -29,6 +30,7 @@ pub(crate) fn tools() -> Value {
         let additive = matches!(
             name,
             "spawn_primitive"
+                | "prefab_create" | "prefab_instantiate"
                 | "export_web"
                 | "task_create"
                 | "task_claim"

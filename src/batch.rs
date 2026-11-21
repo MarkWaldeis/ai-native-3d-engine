@@ -13,7 +13,7 @@ impl Engine {
                 .ok_or("batch command requires tool")?;
             if !matches!(
                 tool,
-                "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera"
+                "spawn_primitive" | "set_transform" | "set_color" | "remove_entity" | "set_camera" | "prefab_create" | "prefab_update" | "prefab_instantiate" | "prefab_set_overrides" | "prefab_remove_instance"
             ) {
                 return Err(format!(
                     "tool {tool} is not allowed in an atomic scene batch"
