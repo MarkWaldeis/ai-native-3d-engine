@@ -116,7 +116,7 @@ export class SpatialAudio {
     }
     return this.pending.get(sound.src);
   }
-  synth(kind) {
+  synth(kind, loop = true) {
     const c = this.context;
     if (kind === 'hum' || kind === 'pulse') {
       const oscillator = c.createOscillator(); oscillator.type = kind === 'pulse' ? 'triangle' : 'sine'; oscillator.frequency.value = kind === 'pulse' ? 110 : 60; return oscillator;
@@ -124,7 +124,7 @@ export class SpatialAudio {
     const buffer = c.createBuffer(1, c.sampleRate * 2, c.sampleRate), data = buffer.getChannelData(0);
     let smooth = 0;
     for (let i = 0; i < data.length; i++) { smooth = smooth * 0.97 + (Math.random() * 2 - 1) * 0.03; data[i] = kind === 'fire' ? (Math.random() < 0.002 ? Math.random() : smooth) : smooth * (kind === 'water' ? 2 : 1); }
-    const node = c.createBufferSource(); node.buffer = buffer; node.loop = true; return node;
+    const node = c.createBufferSource(); node.buffer = buffer; node.loop = loop; return node;
   }
   stop(id) {
     const v = this.voices.get(id); if (!v) return;
@@ -151,7 +151,7 @@ export class SpatialAudio {
         v.gain.connect(v.panner); v.panner.connect(this.dry);
         for (const reverb of this.reverbs.values()) v.panner.connect(reverb.input);
       } else v.gain.connect(this.master);
-      if (sound.synth) v.source = this.synth(sound.synth);
+      if (sound.synth) v.source = this.synth(sound.synth, sound.loop !== false);
       else if (resource.stream) {
         v.mediaEntry = this.mediaPool.pop() || { media: new Audio() };
         v.media = v.mediaEntry.media; v.media.loop = sound.loop !== false;
@@ -176,9 +176,12 @@ export class SpatialAudio {
         const play = () => { if (!v.cancelled) { seek(); v.media.play()?.catch(error => this.warn(sound.src, error)); } };
         if (music && this.musicStart > c.currentTime) v.timer = setTimeout(() => { if (c.state === 'running') play(); }, (this.musicStart - c.currentTime) * 1000); else if (c.state === 'running') play();
       } else {
-        const duration = v.buffer?.duration;
+        const oscillatorShot = sound.synth && !v.source.buffer && sound.loop === false;
+        const duration = v.source.buffer?.duration || (oscillatorShot ? Math.max(0.01, Number(sound.duration) || 2) : undefined);
         if (duration && sound.loop === false && elapsed >= duration) { entity.finished = true; this.stop(entity.id); return; }
-        v.source.start(music ? Math.max(c.currentTime, this.musicStart) : c.currentTime, duration ? elapsed % duration : 0);
+        const start = music ? Math.max(c.currentTime, this.musicStart) : c.currentTime;
+        v.source.start(start, duration ? elapsed % duration : 0);
+        if (oscillatorShot) v.source.stop(start + duration - elapsed);
       }
     } catch (error) { this.warn(sound.src || sound.synth, error); this.stop(entity.id); }
   }

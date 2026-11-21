@@ -17,7 +17,7 @@ class Node {
   connect(node) { this.connections.push(node); }
   disconnect() { this.connections = []; }
   start(...args) { this.started = args; }
-  stop() { this.stopped = true; }
+  stop(time) { this.stopped = true; this.stoppedAt = time; }
 }
 class Context {
   currentTime = 0; sampleRate = 100; state = 'suspended'; listener = new Node(); destination = new Node();
@@ -209,4 +209,23 @@ test('load failures log once and do not crash; no AudioContext is safe', () => m
   delete globalThis.AudioContext;
   const noAudio = new SpatialAudio(); assert.doesNotThrow(() => { noAudio.unlock(); noAudio.configure(scene([])); noAudio.apply({}); noAudio.update(listen()); noAudio.play('win'); noAudio.suspend(); noAudio.muted = true; });
   assert.equal(noAudio.stats().audioVoices, 0);
+}));
+
+test('nonlooping noise and oscillator synths finish once and release their voices', () => mock(async () => {
+  const audio = new SpatialAudio();
+  audio.configure(scene([entity(1, 0, { synth: 'water', loop: false }), entity(2, 0, { synth: 'hum', loop: false, duration: 0.5 }), entity(3, 0, { synth: 'pulse', loop: false }), entity(4, 0, { synth: 'fire' })]));
+  audio.unlock(); audio.update(listen());
+  assert.equal(audio.voices.get(1).source.loop, false); assert.equal(audio.voices.get(4).source.loop, true);
+  assert.equal(audio.voices.get(2).source.stoppedAt, 0.5); assert.equal(audio.voices.get(3).source.stoppedAt, 2);
+  for (const id of [1, 2, 3]) audio.voices.get(id).source.onended();
+  audio.update(listen()); assert.deepEqual([...audio.voices.keys()], [4]);
+  for (const id of [1, 2, 3]) assert.equal(audio.entities.get(id).finished, true);
+  audio.clear();
+}));
+
+test('virtual one-shot synths that already elapsed never start again', () => mock(async () => {
+  const audio = new SpatialAudio(); audio.configure(scene([entity(1, 20, { synth: 'hum', loop: false }), entity(2, 20, { synth: 'wind', loop: false })], { stream_radius: 5 }));
+  audio.unlock(); audio.update(listen()); assert.equal(audio.voices.size, 0);
+  audio.context.currentTime = 4; audio.update(listen(20)); audio.update(listen(20));
+  assert.equal(audio.voices.size, 0); assert.equal(audio.stats().audioVirtualVoices, 0);
 }));
