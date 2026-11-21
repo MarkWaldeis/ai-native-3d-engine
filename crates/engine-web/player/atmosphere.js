@@ -47,7 +47,7 @@ export class Atmosphere {
     const compile=material.onBeforeCompile,key=material.customProgramCacheKey;
     material.customProgramCacheKey=()=>(key===T.Material.prototype.customProgramCacheKey?compile.toString():key.call(material))+'-valley-haze-v1';
     material.onBeforeCompile=shader=>{
-      compile.call(material,shader);Object.assign(shader.uniforms,this.uniforms);
+      compile.call(material,shader);if(!shader.vertexShader.includes('#include <begin_vertex>'))return;Object.assign(shader.uniforms,this.uniforms);
       shader.vertexShader='varying vec3 vHazeWorld;\n'+shader.vertexShader;
       shader.vertexShader=shader.vertexShader.replace('#include <fog_vertex>',`#include <fog_vertex>
         vec4 hazePosition=vec4(transformed,1.0);
