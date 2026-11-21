@@ -16,7 +16,7 @@ export function worldConfig(entities) {
 
 export function batchKey(e) {
   if (e.kind === 'gltf') return JSON.stringify(['gltf',e.path,e.props?.web_lods]);
-  return JSON.stringify([e.kind,e.size,e.radius,e.height,e.width,e.door_width,e.door_height,e.color,e.segments,materialSettings(e.props?.ai_material)]);
+  return JSON.stringify([e.kind,e.size,e.radius,e.height,e.width,e.door_width,e.door_height,e.color,e.segments,materialSettings(e.props?.ai_material),e.kind==='box'&&!!e.tags?.includes('road')]);
 }
 
 export function entityRadius(e) {

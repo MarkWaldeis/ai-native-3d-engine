@@ -290,3 +290,8 @@ test('procedural sky stores linear HDR radiance and moves the solar highlight wi
   assert.ok(red(width / 2, height * 0.75) > 2, 'the +X 45° sun is HDR');
   assert.ok(red(0, height * 0.75) < 1, 'opposite side has no glare');
 });
+
+test('road boxes do not share a batch template with identical plain boxes', () => {
+  const box = {kind:'box', size:[4,0.1,20], color:[0.4,0.3,0.2]};
+  assert.notEqual(batchKey({...box, tags:['road']}), batchKey(box));
+});
