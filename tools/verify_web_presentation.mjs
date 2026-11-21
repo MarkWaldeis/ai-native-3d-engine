@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const {chromium,devices}=await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
+const shots=path.resolve(process.env.SHOTS_DIR || path.join(root,'docs'));
 const base=process.env.GAME_URL || 'http://127.0.0.1:8769';
 const browser=await chromium.launch({executablePath:process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const errors=[];
@@ -54,10 +55,10 @@ try {
     assert.ok(Math.hypot(position[0]+3,position[2])<.3,'ball must return to authored spawn');
     console.log('PASS coin_game: real touch off-platform respawn; collected score preserved');
    }
-   await page.screenshot({path:path.join(root,`docs/polish_${game}_${name}_guidance.png`)});
+   await page.screenshot({path:path.join(shots,`polish_${game}_${name}_guidance.png`)});
    await page.getByRole('button',{name:'Spiel pausieren',exact:true}).click();
    await page.getByRole('button',{name:'Neustart',exact:true}).waitFor();
-   if(name==='ipad')await page.screenshot({path:path.join(root,`docs/polish_${game}_pause.png`)});
+   if(name==='ipad')await page.screenshot({path:path.join(shots,`polish_${game}_pause.png`)});
    await page.getByRole('button',{name:'Neustart',exact:true}).click();
    await page.waitForFunction(()=>loads===1&&snapshot.state.score===0&&snapshot.tick>0);
    assert.equal(await page.locator('#modal').isHidden(),true);
@@ -67,7 +68,7 @@ try {
  }
  const normal=await open('sky_garden',{viewport:{width:900,height:700}},'null');await start(normal);
  assert.equal(await normal.locator('#modal').isHidden(),true);
- await normal.screenshot({path:path.join(root,'docs/polish_null_shader_logs.png')});
+ await normal.screenshot({path:path.join(shots,'polish_null_shader_logs.png')});
  console.log('PASS null program/shader info logs: first render and gameplay continue');
  await normal.evaluate(async()=>{
   const [{GameEffects},THREE]=await Promise.all([import('./effects.js'),import('three')]);
@@ -95,7 +96,7 @@ try {
  assert.match(await normal.locator('#modal-text').innerText(),/Grafikverbindung.*neu/);
  const tick=await normal.evaluate(()=>snapshot.tick);await normal.waitForTimeout(150);
  assert.equal(await normal.evaluate(()=>snapshot.tick),tick);
- await normal.screenshot({path:path.join(root,'docs/polish_context_error.png')});
+ await normal.screenshot({path:path.join(shots,'polish_context_error.png')});
  await normal.getByRole('button',{name:'Seite neu laden',exact:true}).click();
  await normal.getByRole('button',{name:'Spielen',exact:true}).waitFor();
  console.log('PASS actual WebGL context loss: German error, stopped ticks, reload recovers');await normal.close();
