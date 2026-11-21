@@ -76,6 +76,25 @@ test('moving the sun camera does not move shadows by fractions of a texel', () =
   }
 });
 
+test('primitive transmission uses physical shading only when enabled, and splits batches by optics', () => {
+  const box = ai_material => ({kind:'box', size:[1,1,1], color:[1,1,1,1], props:{ai_material}});
+  const glass = box('{"transmission":2,"ior":3,"thickness":90,"attenuation_color":"#00FF99","attenuation_distance":0}');
+  const material = primitiveMaterial(glass);
+  assert.equal(material.isMeshPhysicalMaterial, true);
+  assert.equal(material.transmission, 1);
+  assert.equal(material.ior, 2.333);
+  assert.equal(material.thickness, 50);
+  assert.equal(material.attenuationColor.getHexString(), '00ff99');
+  assert.equal(material.attenuationDistance, 0.01);
+  assert.equal(material.transparent, false, 'transmission uses the opaque-scene buffer, not alpha blending');
+  const clear = primitiveMaterial(box({transmission:0.8}));
+  assert.equal(clear.attenuationDistance, Infinity);
+  assert.equal(clear.thickness, 0.25);
+  assert.equal(primitiveMaterial(box({transmission:0, ior:2})).isMeshPhysicalMaterial, undefined);
+  assert.notEqual(batchKey(glass), batchKey(box({transmission:1, ior:2, thickness:1})));
+  material.dispose(); clear.dispose();
+});
+
 test('studio HDRI decodes HDR colors and lighting intensity does not alter the background', async () => {
   const file = await readFile(new URL('../examples/material_studio/studio.hdr', import.meta.url));
   const { data, width, height } = new RGBELoader().parse(file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength));

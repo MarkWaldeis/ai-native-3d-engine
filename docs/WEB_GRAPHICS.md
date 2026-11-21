@@ -99,6 +99,7 @@ Optional finishes use Three.js physical shading only when enabled:
 | Brushed metals | `anisotropy` (0–1), `anisotropy_rotation_deg` (UV-space angle) |
 | Cloth highlights | `sheen` (0–1), `sheen_color` (sRGB hex), `sheen_roughness` (0–1) |
 | Thin-film colors | `iridescence` (0–1), `iridescence_ior` (1–2.5), `iridescence_thickness_nm` (100–1200) |
+| Refractive glass | `transmission` (0–1), `ior` (1–2.333), `thickness` (0–50 m), `attenuation_color` (sRGB hex), `attenuation_distance` (0.01–1000 m) |
 
 Set the strength to zero or omit it to keep the corresponding shader work off.
 Authored GLB textures and material parameters are not overridden, and streamed
@@ -107,6 +108,12 @@ For mipmapped GLB textures, balanced and ultra sharpen shallow viewing angles
 with up to 4× and 8× anisotropic filtering respectively, within GPU limits.
 The filtering is fixed at the starting tier so automatic quality changes don't
 re-upload textures. Nearest-filtered, low and legacy assets keep their sampling.
+
+For clear glass, use a white entity color, low roughness and metalness 0.
+Glass defaults to IOR 1.5 and thickness 0.25 m; omit attenuation distance
+for no absorption. Transmission samples the opaque scene, adds an offscreen
+render pass when visible, and cannot refract other glass surfaces. To avoid
+an ordinary opaque shadow, set `ai_sun_shadow.cast` to `false` on the glass.
 
 To light nearby surfaces (rather than just glow), give an entity a point light
 with `props.ai_light` (object or JSON string) in an enhanced scene:

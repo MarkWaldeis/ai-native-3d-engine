@@ -28,7 +28,7 @@ export function tuneAssetTextures(scene, anisotropy) {
 export function primitiveMaterial(entity) {
   const { clearcoat, clearcoatRoughness, ...settings } = materialSettings(entity.props?.ai_material);
   const parameters = { ...settings, color: new THREE.Color(...(entity.color || [0.8, 0.8, 0.8])) };
-  return clearcoat || settings.anisotropy || settings.sheen || settings.iridescence
+  return clearcoat || settings.anisotropy || settings.sheen || settings.iridescence || settings.transmission
     ? new THREE.MeshPhysicalMaterial({ ...parameters, clearcoat, clearcoatRoughness })
     : new THREE.MeshStandardMaterial(parameters);
 }

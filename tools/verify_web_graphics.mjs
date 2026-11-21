@@ -324,6 +324,61 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(finishes.brushed > 80 && finishes.cloth > 80 && finishes.coating > 80 && finishes.glError === 0, JSON.stringify(finishes));
     console.log('PASS PBR finishes: visible brushed anisotropy, fabric sheen, and thin-film iridescence');
 
+    const glass = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {HDRPipeline} = await import('./hdr.js');
+      const {primitiveMaterial} = await import('./materials.js');
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      const scene = new THREE.Scene(), gl = renderer.getContext();
+      const camera = new THREE.PerspectiveCamera(42, 1, 0.1, 40);
+      camera.position.z = 3;
+      const panelGeometry = new THREE.PlaneGeometry(2, 4);
+      const panelMaterials = [new THREE.MeshBasicMaterial({color:0xffffff}),
+        new THREE.MeshBasicMaterial({color:0x83f8ff})];
+      for (const [i, material] of panelMaterials.entries()) {
+        const panel = new THREE.Mesh(panelGeometry, material);
+        panel.position.set((i ? 1 : -1) + 0.5, 0, -1);
+        scene.add(panel);
+      }
+      const geometry = new THREE.SphereGeometry(0.85, 40, 24), sphere = new THREE.Mesh(geometry);
+      sphere.material.dispose();
+      scene.add(sphere);
+      const pipeline = new HDRPipeline(renderer, {bloomStrength:0});
+      const sample = (tier, settings) => {
+        sphere.material = primitiveMaterial({color:[1,1,1], props:{ai_material:{
+          roughness:0.03, metalness:0, ...settings,
+        }}});
+        try {
+          pipeline.resize(tier, 96, 96, 1);
+          if (Boolean(pipeline.sceneTarget) !== (tier === 2)) throw new Error('Expected HDR on Ultra and direct rendering on Low');
+          pipeline.render(scene, camera);
+          const pixels = new Uint8Array(96 * 96 * 4);
+          gl.readPixels(0, 0, 96, 96, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          return pixels;
+        } finally { sphere.material.dispose(); }
+      };
+      const left = image => Array.from(image.slice((48 * 96 + 35) * 4, (48 * 96 + 35) * 4 + 3));
+      try {
+        const opaque = left(sample(2, {}));
+        const flat = sample(2, {transmission:1, thickness:0});
+        const thick = {transmission:1, thickness:1};
+        const refracted = sample(2, thick);
+        const absorb = {...thick, attenuation_color:'#80ff80', attenuation_distance:0.3};
+        const tinted = left(sample(2, absorb)), directTint = left(sample(0, absorb));
+        let bent = 0;
+        for (let i = 0; i < flat.length; i += 4) if (Math.abs(flat[i] - refracted[i]) > 20) bent++;
+        return {opaque, clear:left(refracted), tinted, directTint, bent, error:gl.getError()};
+      } finally {
+        pipeline.release(); geometry.dispose(); panelGeometry.dispose();
+        panelMaterials.forEach(material => material.dispose());
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(glass.clear[1] > glass.opaque[1] + 100 && glass.bent > 60, JSON.stringify(glass));
+    assert.ok(glass.tinted[1] > glass.tinted[0] + 30 && glass.directTint[1] > glass.directTint[0] + 30 && glass.error === 0, JSON.stringify(glass));
+    console.log('PASS primitive glass: background refraction and absorption on HDR and direct rendering');
+
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
     await page.setViewportSize({ width: 1100, height: 750 });

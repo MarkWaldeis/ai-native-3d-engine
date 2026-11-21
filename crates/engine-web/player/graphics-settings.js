@@ -78,6 +78,7 @@ export function materialSettings(authored) {
   const anisotropy = bounded(value?.anisotropy, 0, 0, 1);
   const sheen = bounded(value?.sheen, 0, 0, 1);
   const iridescence = bounded(value?.iridescence, 0, 0, 1);
+  const transmission = bounded(value?.transmission, 0, 0, 1);
   const film = bounded(value?.iridescence_thickness_nm, 400, 100, 1200);
   return {
     roughness: bounded(value?.roughness, 0.55, 0, 1),
@@ -97,6 +98,13 @@ export function materialSettings(authored) {
     ...(iridescence > 0 ? {
       iridescence, iridescenceIOR: bounded(value.iridescence_ior, 1.3, 1, 2.5),
       iridescenceThicknessRange: [film, film],
+    } : {}),
+    ...(transmission > 0 ? {
+      transmission, ior: bounded(value.ior, 1.5, 1, 2.333),
+      thickness: bounded(value.thickness, 0.25, 0, 50),
+      attenuationColor: hex(value.attenuation_color, '#ffffff').toLowerCase(),
+      ...(Number.isFinite(value.attenuation_distance)
+        ? {attenuationDistance: bounded(value.attenuation_distance, 1, 0.01, 1000)} : {}),
     } : {}),
   };
 }
