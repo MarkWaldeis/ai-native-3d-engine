@@ -51,6 +51,71 @@ fn shooter_scripts_compile_and_share_the_terrain_helpers() {
 }
 
 #[test]
+fn shooter_checkpoint_save_restores_mission_ammo_enemy_and_position() {
+    let mut base: Scene = serde_json::from_value(read("examples/open_world_shooter/scene.json")).unwrap();
+    let checkpoint = base.entities.iter().find(|e| e.name == "checkpoint-bridge").unwrap().clone();
+    let bridge = base.entities.iter().find(|e| e.name == "bridge-marker").unwrap().transform.position;
+    let enemy = base.entities.iter().find(|e| e.tags.iter().any(|t| t == "grp_alpha") && e.script.is_some()).unwrap().id;
+    let source = std::fs::read_to_string(root().join("examples/open_world_shooter/scripts/player.rhai")).unwrap();
+    let source = format!("{}\n{}", source.replace("fn on_tick(ctx,dt)", "fn player_tick(ctx,dt)"), format!(r#"
+fn on_tick(ctx,dt) {{
+    if ctx.input("checkpoint_test") > 0.5 {{
+        if ctx.input("checkpoint_test") < 1.5 {{ ctx.set_position([{bx},{by},{bz}]); }}
+        else {{ ctx.set_position([{x},{y},{z}]); }}
+        ctx.damage({enemy},1000.0);
+    }}
+    player_tick(ctx,dt);
+}}
+"#, bx=bridge[0], by=bridge[1]+0.9, bz=bridge[2], x=checkpoint.transform.position[0], y=checkpoint.transform.position[1]+1.0, z=checkpoint.transform.position[2]));
+    base.entities.iter_mut().find(|e| e.name == "player").unwrap().script = Some(Script::Inline { source });
+    let mut sim = Simulation::new(base.clone(), &root()).unwrap();
+    assert!(sim.state()["state"]["_autosave"].is_null());
+    sim.step(1, &[
+        Input { entity: None, tick: 0, action: "checkpoint_test".into(), value: 1.0 },
+        Input { entity: None, tick: 0, action: "fire".into(), value: 1.0 },
+    ]).unwrap();
+    sim.step(9, &[
+        Input { entity: None, tick: 1, action: "fire".into(), value: 0.0 },
+    ]).unwrap();
+    sim.step(1, &[Input { entity: None, tick: 10, action: "checkpoint_test".into(), value: 2.0 }]).unwrap();
+    sim.step(19, &[Input { entity: None, tick: 11, action: "checkpoint_test".into(), value: 0.0 }]).unwrap();
+    assert!(!sim.failed, "{}", sim.state());
+    assert_eq!(sim.state()["state"]["_autosave"], 1);
+    assert_eq!(sim.state()["state"]["ammo"], 29);
+    assert_eq!(sim.state()["state"]["kills"], 1);
+    assert_eq!(sim.state()["state"]["_stage"], 1);
+    let save = sim.save_game().unwrap();
+    let mut loaded = Simulation::load_game(base.clone(), &root(), save.clone()).unwrap();
+    for key in ["_stage", "objective", "ammo", "ammo_reserve", "kills", "_dead_alpha", "_autosave"] {
+        assert_eq!(loaded.state()["state"][key], sim.state()["state"][key], "{key}");
+    }
+    assert_eq!(loaded.save_game().unwrap()["combat"], save["combat"]);
+    let player_pos = |s: &Simulation| s.scene().entities.iter().find(|e| e.name == "player").unwrap().transform.position;
+    assert_eq!(player_pos(&loaded), player_pos(&sim));
+    loaded.step(310, &[]).unwrap();
+    assert!(!loaded.failed, "{}", loaded.state());
+    assert_eq!(loaded.state()["state"]["_autosave"], 1);
+    assert!(!loaded.scene().entities.iter().any(|e| e.id == enemy));
+    let restored = Simulation::load_game(base, &root(), loaded.save_game().unwrap()).unwrap();
+    assert!(!restored.scene().entities.iter().any(|e| e.id == enemy));
+    assert_eq!(restored.state()["state"]["kills"], 1);
+    println!("Rio Verde checkpoint: request=1, ammo=29, mission=1, enemy death/removal and position restored");
+}
+
+#[test]
+fn shooter_generated_checkpoints_have_no_validation_findings() {
+    let mut engine = Engine::new();
+    engine.assets_dir = root().join("assets");
+    engine.world.load_with_root(&root().join("examples/open_world_shooter/scene.json"), &root()).unwrap();
+    let checkpoint_ids: Vec<_> = engine.world.scene.entities.iter().filter(|e| e.tags.iter().any(|t| t == "checkpoint")).map(|e| e.id).collect();
+    assert_eq!(checkpoint_ids.len(), 4);
+    let result = engine_mcp::handle_line(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"validate_scene","arguments":{}}}).to_string(), &mut engine).unwrap();
+    let findings: Value = serde_json::from_str(result["result"]["content"][0]["text"].as_str().unwrap()).unwrap();
+    let actionable: Vec<_> = findings.as_array().unwrap().iter().filter(|f| f["entity"].as_u64().is_some_and(|id| checkpoint_ids.contains(&id))).collect();
+    assert!(actionable.is_empty(), "{actionable:?}");
+}
+
+#[test]
 fn shooter_player_fire_kills_an_enemy() {
     let state = validate(
         "examples/open_world_shooter/tests/combat.json",
