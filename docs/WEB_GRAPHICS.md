@@ -57,6 +57,8 @@ Ultra uses a 2048-pixel sun shadow map and half-resolution bloom; balanced uses
 Ultra also smooths high-contrast edges in the final HDR pass without an
 additional full-resolution target. Set `hdr_antialias: false` in `ai_graphics`
 to disable this filter; it is not used on lower tiers or in direct rendering.
+All enhanced tiers align the moving sun shadow map to its texel grid, reducing
+shadow shimmer as the camera follows the player.
 If HDR targets aren't supported, the player uses direct rendering and
 standard lighting without HDR bloom. ACES tone mapping outputs to sRGB.
 

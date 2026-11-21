@@ -84,7 +84,7 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(result.smoothed.intermediate > result.sharp.intermediate + 100, JSON.stringify(result));
     assert.equal(result.smoothed.center, result.sharp.center, 'edge filtering leaves the uniform interior unchanged');
     assert.deepEqual(result.balanced, result.sharp, 'the balanced tier does not run edge filtering');
-    console.log('PASS graphics: exported presets, linear HDR bloom threshold, resize and direct-render fallback');
+    console.log('PASS graphics: exported presets, HDR bloom, Ultra edge smoothing, resize and direct-render fallback');
 
     const studio = `${base}/material_studio`;
     const map = `${studio}/assets/environment.hdr`;
