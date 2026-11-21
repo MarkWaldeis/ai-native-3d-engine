@@ -282,6 +282,49 @@ export async function verifyGraphics(browser, base, errors, shots) {
     assert.ok(shadows.normal > shadows.wide + 30 && shadows.error === 0, JSON.stringify(shadows));
     console.log('PASS sun shadows: wider authored volume captures a caster outside the default volume');
 
+    const streamedShadow = await page.evaluate(async () => {
+      const THREE = await import('three');
+      const {worldConfig} = await import('./streaming.js');
+      const {StreamingWorld} = await import('./world.js');
+      const scene = new THREE.Scene(), size = 96;
+      const renderer = new THREE.WebGLRenderer({canvas:document.createElement('canvas')});
+      renderer.setSize(size,size,false);
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      const gl = renderer.getContext(), pixel = new Uint8Array(4);
+      const world = new StreamingWorld(scene,renderer,worldConfig([
+        {tags:['player'],props:{ai_world:{chunk_size:2,stream_radius:16}}},
+      ]));
+      const camera = new THREE.OrthographicCamera(-1.2,1.2,1.2,-1.2,0.1,20);
+      camera.position.set(0,8,0); camera.up.set(0,0,-1); camera.lookAt(0,0,0); camera.updateMatrixWorld();
+      const sun = new THREE.DirectionalLight(0xffffff,3);
+      sun.position.set(6,6,0); sun.castShadow = true;
+      scene.add(sun,sun.target,new THREE.AmbientLight(0xffffff,0.2));
+      const ground = new THREE.Mesh(new THREE.PlaneGeometry(4,4),new THREE.MeshStandardMaterial());
+      ground.rotation.x = -Math.PI/2; ground.receiveShadow = true; scene.add(ground);
+      const position = [2.6,2.6,0];
+      world.add({id:1,kind:'box',size:[1,1.3,1],transform:{position,scale:[1,1,1],rotation_deg:[0,0,0]}});
+      const sample = y => {
+        gl.readPixels(size/2,y,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);
+        return pixel[0];
+      };
+      try {
+        await Promise.all(world.update(camera)); world.update(camera);
+        const mesh = world.groups.get(world.grid.key(position)).children[0];
+        const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+        renderer.render(scene,camera);
+        const shaded = sample(size/2), clear = sample(4);
+        mesh.castShadow = false; renderer.render(scene,camera);
+        return {shaded, lit:sample(size/2), clear, litClear:sample(4), inView:frustum.intersectsObject(mesh), error:gl.getError()};
+      } finally {
+        sun.shadow.dispose(); ground.geometry.dispose(); ground.material.dispose();
+        renderer.dispose(); renderer.forceContextLoss();
+      }
+    });
+    assert.ok(!streamedShadow.inView && streamedShadow.lit > streamedShadow.shaded + 30
+      && streamedShadow.clear === streamedShadow.litClear && streamedShadow.error === 0, JSON.stringify(streamedShadow));
+    console.log('PASS streaming shadows: an offscreen chunk casts onto the visible ground');
+
     const finishes = await page.evaluate(async () => {
       const THREE = await import('three');
       const { primitiveMaterial } = await import('./materials.js');

@@ -90,7 +90,7 @@ test('LOD rebuild retains visible ground until its replacement is ready', async 
   const camera = new THREE.PerspectiveCamera(55,1.6,0.1,480);
   camera.position.set(20.4,6.5,-1.4); camera.lookAt(13.4,0.5,-10.4); camera.updateMatrixWorld();
   const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
-  assert.ok(frustum.intersectsBox(old.userData.bounds),'the ground is inside the frustum at the reported location');
+  assert.ok(frustum.intersectsObject(old.children[0]),'the ground is inside the frustum at the reported location');
   let ready;
   const template = world.template.bind(world), gate = new Promise(resolve => {ready=resolve;});
   world.template = async (...args) => {await gate; return template(...args);};
@@ -104,6 +104,22 @@ test('LOD rebuild retains visible ground until its replacement is ready', async 
   assert.equal(old.parent,null);
   assert.equal(world.groups.get(key).parent,scene);
   assert.equal(world.groups.get(key).children.length,2);
+});
+
+test('a loaded chunk outside the camera can still contribute to the shadow pass', async () => {
+  const scene = new THREE.Scene(), world = new StreamingWorld(scene,{},worldConfig([
+    {tags:['player'],props:{ai_world:{chunk_size:2,stream_radius:16}}},
+  ]));
+  const camera = new THREE.OrthographicCamera(-1,1,1,-1,0.1,20);
+  camera.position.z = 5; camera.updateMatrixWorld();
+  const caster = {id:1,kind:'box',size:[1,1,1],transform:{position:[3,0,0],scale:[1,1,1],rotation_deg:[0,0,0]}};
+  world.add(caster);
+  await Promise.all(world.update(camera)); world.update(camera);
+  const group = world.groups.get(world.grid.key(caster.transform.position));
+  const frustum = new THREE.Frustum().setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
+  assert.equal(frustum.intersectsObject(group.children[0]),false);
+  assert.equal(group.children[0].castShadow,true);
+  assert.equal(group.visible,true);
 });
 
 test('failed, superseded and reset rebuilds cannot replace a complete chunk', async () => {

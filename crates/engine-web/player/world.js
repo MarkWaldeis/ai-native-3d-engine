@@ -25,7 +25,7 @@ export class StreamingWorld {
     this.scene = scene; this.renderer = renderer; this.config = config;
     this.assets = assets;
     this.grid = new ChunkGrid(config); this.entities = new Map(); this.groups = new Map(); this.builds = new Map(); this.templates = new Map(); this.dirty = new Set();
-    this.frustum = new THREE.Frustum(); this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
+    this.matrix = new THREE.Matrix4(); this.dummy = new THREE.Object3D();
   }
   async template(e, level) {
     const key = `${batchKey(e)}:${level}`;
@@ -113,9 +113,9 @@ export class StreamingWorld {
       }
       if (this.builds.get(key) !== group) return;
       for (const object of objects) group.add(object);
-      group.userData.bounds = new THREE.Box3().setFromObject(group);
       old?.removeFromParent(); old?.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
       this.groups.set(key,group);
+      // Three.js culls meshes per pass; offscreen chunks can still cast shadows.
       if (this.grid.loaded.has(key)) this.scene.add(group);
     } finally {
       if (this.builds.get(key) === group) this.builds.delete(key);
@@ -134,7 +134,6 @@ export class StreamingWorld {
     const change = this.grid.update(camera.position.toArray());
     for (const key of change.unload) this.groups.get(key)?.removeFromParent();
     for (const key of change.load) { if (this.groups.has(key)) this.scene.add(this.groups.get(key)); else this.dirty.add(key); }
-    this.frustum.setFromProjectionMatrix(new THREE.Matrix4().multiplyMatrices(camera.projectionMatrix,camera.matrixWorldInverse));
     for (const key of this.grid.loaded) {
       for (const {id,position,radius} of this.grid.chunks.get(key)?.values() || []) {
         const item = this.entities.get(id); if (!item) continue;
@@ -182,15 +181,7 @@ export class StreamingWorld {
           }
         }
       }
-      const group = this.groups.get(key);
-      if (group) {
-        for (const {id} of this.grid.chunks.get(key)?.values() || []) {
-          const item = this.entities.get(id);
-          if (item?.object && group.userData.bounds) group.userData.bounds.expandByPoint(item.object.position);
-        }
-        group.visible = !group.userData.bounds || this.frustum.intersectsBox(group.userData.bounds);
-        group.traverse(o => { if (o.userData.billboard) { o.userData.items.forEach((item,i) => this.setMatrix(o,i,item,undefined,camera)); o.instanceMatrix.needsUpdate = true; } });
-      }
+      this.groups.get(key)?.traverse(o => { if (o.userData.billboard) { o.userData.items.forEach((item,i) => this.setMatrix(o,i,item,undefined,camera)); o.instanceMatrix.needsUpdate = true; } });
     }
     for (const key of this.dirty) if (this.grid.loaded.has(key)) { this.dirty.delete(key); const task = this.rebuild(key); tasks.push(task); task.catch(error => { console.error(error); }); }
     return tasks;
