@@ -145,6 +145,21 @@ fn terrain_floor(ctx,p) {
     else { analytic_height(p[0],p[2]) }
 }
 
+fn on_load(ctx) {
+    ctx.state_set("health",ctx.health());
+    missions(ctx,ctx.position(),false);
+}
+
+fn checkpoints(ctx,p) {
+    for id in ctx.find_by_tag("checkpoint") {
+        let key="checkpoint_"+id;
+        if ctx.flag(key) != true && near_xz(p,ctx.entity_position(id),12.0) {
+            ctx.flag_set(key,true);
+            ctx.state_set("_autosave",number(ctx,"_autosave")+1);
+        }
+    }
+}
+
 fn fire(ctx, eye, dir, tick) {
     ctx.state_set("ammo",ctx.state_get("ammo")-1);
     ctx.state_set("_shot",[eye[0],eye[2],tick]);
@@ -165,7 +180,7 @@ fn setting(cfg,key,fallback) {
     if type_of(value) == "f64" || type_of(value) == "i64" { value.to_float() } else { fallback }
 }
 
-fn missions(ctx,p) {
+fn missions(ctx,p,advance) {
     let stage=ctx.state_get("_stage");
     let previous=stage;
     let name="";
@@ -177,29 +192,29 @@ fn missions(ctx,p) {
     if id >= 0 { ctx.state_set("_wp",ctx.entity_position(id)); }
     if stage == 0 {
         objective(ctx,"Erreiche die Brücke über den Rio Verde");
-        if id < 0 || near_xz(p,ctx.entity_position(id),40.0) { stage=1; }
+        if advance && (id < 0 || near_xz(p,ctx.entity_position(id),40.0)) { stage=1; }
     } else if stage == 1 {
         let left=max(0,ctx.state_get("_tot_alpha")-ctx.state_get("_dead_alpha"));
         objective(ctx,"Säubere Außenposten Alpha ("+left+" übrig)");
         for enemy in ctx.find_by_tag("grp_alpha") {
             if ctx.health_of(enemy) > 0.0 { ctx.state_set("_wp",ctx.entity_position(enemy)); break; }
         }
-        if left == 0 { stage=2; }
+        if advance && left == 0 { stage=2; }
     } else if stage == 2 {
         objective(ctx,"Sichere die Akte in San Aurelio");
-        if id < 0 { stage=3; }
-        else if near_xz(p,ctx.entity_position(id),3.0) { ctx.remove(id); stage=3; }
+        if advance && id < 0 { stage=3; }
+        else if advance && near_xz(p,ctx.entity_position(id),3.0) { ctx.remove(id); stage=3; }
     } else if stage == 3 {
         if id >= 0 { ctx.state_set("_tower_hp",ctx.health_of(id)); }
         objective(ctx,"Zerstöre den Funkturm ("+max(0,ctx.state_get("_tower_hp"))+" LP)");
-        if id < 0 { stage=4; }
-        else if ctx.state_get("_tower_hp") <= 0 {
+        if advance && id < 0 { stage=4; }
+        else if advance && ctx.state_get("_tower_hp") <= 0 {
             blast(ctx,ctx.entity_position(id));
             ctx.remove(id); stage=4;
         }
     } else if stage == 4 {
         objective(ctx,"Eliminiere den Kommandanten der Zitadelle");
-        if id < 0 || ctx.state_get("_commander_dead") { stage=5; }
+        if advance && (id < 0 || ctx.state_get("_commander_dead")) { stage=5; }
     }
     if stage == 5 {
         ctx.state_set("won",true);
@@ -301,5 +316,5 @@ fn on_tick(ctx,dt) {
             }
         }
     }
-    if tick % 10 == 0 { missions(ctx,p); }
+    if tick % 10 == 0 { missions(ctx,p,true); checkpoints(ctx,p); }
 }

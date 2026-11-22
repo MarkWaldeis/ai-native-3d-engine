@@ -497,6 +497,13 @@ def build(scene, rng, density, with_terrain_entity):
                 rock_i += 1
     landing_jungle(E)
     blast_prop("lz-barrel", "barrel", LZ[0] + 10, LZ[1] - 3)
+    for label, x, z in [("bridge", river_x(-1700.0) + 90.0, -1700.0),
+                         ("alpha", -300.0, -2100.0),
+                         ("town", 900.0, -400.0),
+                         ("citadel", 2200.0, 2200.0)]:
+        E.add(f"checkpoint-{label}", "cylinder", [x, height(x, z) + 0.15, z],
+              radius=2.0, height=0.15, segments=16, color=[0.2, 0.8, 0.5, 0.6],
+              tags=["checkpoint", "trigger", "floating"], visible=False)
     return len(enemies), len(covers)
 
 

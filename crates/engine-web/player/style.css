@@ -1,3 +1,7 @@
+#save-status { position: fixed; top: 7rem; left: 50%; transform: translateX(-50%); z-index: 30; color: white; background: #102b23; border-radius: 1rem; padding: .5rem 1rem; pointer-events: none; }
+#save-status:empty { display: none; }
+.save-actions { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; }
+.modal:not([data-screen="pause"]) .save-actions { display: none; }
 :root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4f6f7;background:#a0bdd5;color-scheme:dark;--mint:#c3f683;--glass:rgba(14,29,41,.88)}
 .hud-widget{box-sizing:border-box;max-width:100%;overflow:hidden;overflow-wrap:anywhere;color:var(--hud-color,#f4f6f7);font-variant-numeric:tabular-nums;line-height:1.35;padding:10px 12px}
 .hud-style-card{background:var(--glass);border:1px solid #ffffff38;border-radius:12px;box-shadow:0 4px 16px #10203030}
@@ -83,7 +87,8 @@ h2{font-size:34px;letter-spacing:-1px;line-height:1.1;margin:14px 0 18px}.modal 
 #start{background:linear-gradient(125deg,#d2fba5,#9de7b6);transition:filter .15s,transform .15s}
 #start:active{transform:translateY(3px);box-shadow:0 2px 0 #526e3c}
 #mute[aria-pressed="true"]{color:#ffdf83}
-#restart{display:block;width:100%;margin-top:17px;padding:11px;border:1px solid #b9d9d266;border-radius:13px;background:#ffffff0c;font-size:13px;font-weight:650}
+.pause-menu-button{display:block;width:100%;min-height:44px;margin-top:17px;padding:11px;border:1px solid #b9d9d266;border-radius:13px;background:#ffffff0c;font-size:13px;font-weight:650}
+.pause-menu-button:disabled{background:#596268;color:#d2d6d8;border-color:#858d92;opacity:.65;cursor:not-allowed}
 .objective{position:absolute;top:163px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:7px 13px;border-radius:20px;background:#142e3de0;color:#e6f6d5;font-size:11px;pointer-events:none;white-space:nowrap}
 #objective-arrow{display:inline-block;color:var(--mint);font-size:20px;line-height:1}
 @media(max-width:600px){.objective{top:max(142px,calc(env(safe-area-inset-top) + 127px));font-size:10px}}

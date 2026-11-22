@@ -19,6 +19,7 @@
     <button id="pause" class="icon-button" aria-label="Spiel pausieren" disabled>Ⅱ</button>
   </header>
   <div class="mission" id="mission">Sammle alle Münzen. Erreiche das grüne Ziel.</div>
+  <div id="save-status" role="status" aria-live="polite"></div>
   <div id="objective" class="objective" hidden><span id="objective-arrow" aria-hidden="true">↑</span><span id="objective-text"></span></div>
   <div id="controls" aria-label="Spielsteuerung">
     <div class="joystick-area"><div id="joystick" role="application" aria-label="Joystick: Bewegen"><div class="joystick-ring"></div><div id="stick"></div><span>BEWEGEN</span></div></div>
@@ -42,11 +43,11 @@
       <h2 id="modal-title">Ein kleiner Weg.<br>Drei goldene Münzen.</h2>
       <p id="modal-text">Bewege die blaue Kugel mit dem Joystick oder den Pfeiltasten. Sammle die Münzen und erreiche das grüne Ziel.</p>
       <button id="start" disabled>Spiel wird geladen …</button>
-      <button id="restart" hidden>Neustart</button>
+      <button id="restart" class="pause-menu-button" hidden>Neustart</button>
       <div class="menu-actions">
         <button id="menu-settings" disabled>Steuerung</button>
-        <button id="menu-save" disabled>Speichern</button>
-        <button id="menu-load" disabled>Laden</button>
+        <button id="save-game" class="pause-menu-button" disabled>Speichern</button>
+        <button id="load-game" class="pause-menu-button" disabled title="Noch kein Spielstand vorhanden">Spielstand laden</button>
       </div>
       <p id="menu-status" role="status" aria-live="polite"></p>
       <span class="modal-note" id="modal-note">Kopfhörer auf. Durchatmen. Losspielen. · Ton ist abschaltbar.</span>

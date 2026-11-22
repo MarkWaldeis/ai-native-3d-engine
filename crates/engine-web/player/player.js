@@ -255,6 +255,7 @@ function applyRagdolls(states = []) {
 }
 
 function apply(result) {
+  checkpointAutosave(result.state, !ready);
   audio.apply(result);
   if (netEndpoint && result.my_entity != null) playerId = result.my_entity;
   hudLayout?.update(result);
@@ -456,11 +457,36 @@ async function restart(save = null) {
 }
 
 const saveKey = `ai-engine-save:v1:${location.pathname}`;
+let autosaveRequest, saveNoteTimer;
+function saveNote(text) {
+  clearTimeout(saveNoteTimer);
+  $('save-status').textContent = text;
+  $('menu-status').textContent = text;
+  saveNoteTimer = setTimeout(() => { $('save-status').textContent = ''; }, 3000);
+}
+function updateSaveMenu() {
+  let available = false;
+  try { available = localStorage.getItem(saveKey) !== null; } catch {}
+  $('load-game').disabled = !!netEndpoint || !available || !ready;
+  $('save-game').disabled = !!netEndpoint || !ready;
+  $('save-game').title = netEndpoint ? 'Im Multiplayer nicht verfügbar' : 'Spielstand speichern';
+  $('load-game').title = netEndpoint ? 'Im Multiplayer nicht verfügbar' : available ? 'Letzten Spielstand laden' : 'Noch kein Spielstand vorhanden';
+}
+function checkpointAutosave(state, initial = false) {
+  const request = state._autosave;
+  if (initial) { autosaveRequest = request; return; }
+  if (request === undefined || request === autosaveRequest) return;
+  autosaveRequest = request;
+  try { window.__aiSaveGame(); }
+  catch (error) { saveNote('Speichern fehlgeschlagen'); console.error('Spielstand:', error); }
+}
 window.__aiSaveGame = () => {
   if (netEndpoint) throw new Error('Lokale Spielstände sind im Multiplayer nicht verfügbar.');
   if (!ready) throw new Error('Spiel ist noch nicht bereit.');
   const save = game.save_game();
   localStorage.setItem(saveKey, save);
+  updateSaveMenu();
+  saveNote('Gespeichert');
   return save;
 };
 window.__aiLoadGame = async () => {
@@ -471,6 +497,15 @@ window.__aiLoadGame = async () => {
   startRunning();
   return true;
 };
+$('save-game').addEventListener('click', () => {
+  try { window.__aiSaveGame(); } catch (error) { saveNote('Speichern fehlgeschlagen'); }
+});
+$('load-game').addEventListener('click', async () => {
+  $('load-game').disabled = true;
+  try { saveNote(await window.__aiLoadGame() ? 'Spielstand geladen.' : 'Kein Spielstand vorhanden.'); }
+  catch (error) { saveNote('Laden fehlgeschlagen'); console.error('Spielstand:', error); }
+  finally { updateSaveMenu(); }
+});
 window.addEventListener('keydown', e => {
   if (e.code !== 'F5' && e.code !== 'F9') return;
   e.preventDefault();
@@ -501,6 +536,7 @@ bindActivation($('start'), async () => {
   } catch (error) { fail(error); }
 },()=>!modal.hidden);
 function pause() {
+  updateSaveMenu();
   fps?.stop();
   running = false; resetInput(); accumulator = 0; audio.suspend(); mode = 'pause'; modal.hidden = false;
   modal.dataset.screen = 'pause';
@@ -518,12 +554,6 @@ $('restart').addEventListener('click', async () => {
   finally { $('restart').disabled = false; }
 });
 $('menu-settings').addEventListener('click', () => inputSettings?.show());
-for (const action of ['save', 'load']) $(`menu-${action}`).addEventListener('click', async () => {
-  try {
-    const result = action === 'save' ? window.__aiSaveGame() : await window.__aiLoadGame();
-    $('menu-status').textContent = result ? action === 'save' ? 'Spielstand gespeichert.' : 'Spielstand geladen.' : 'Kein Spielstand vorhanden.';
-  } catch (error) { if (!ready) fail(error); else $('menu-status').textContent = `Spielstand: ${error.message}`; }
-});
 $('pause').addEventListener('click', () => {
   if (!ready || mode === 'restart' || inputSettings?.open) return;
   if (running) {
@@ -802,5 +832,5 @@ uiNavigation = new OverlayNavigation({ capture: () => !!inputSettings?.capturing
 requestAnimationFrame(frame);
 boot().then(() => {
   $('menu-settings').disabled = false;
-  for (const id of ['menu-save', 'menu-load']) $(id).disabled = !!netEndpoint;
+  updateSaveMenu();
 }).catch(fail);

@@ -6,18 +6,33 @@ import vm from 'node:vm';
 const player = readFileSync(new URL('../crates/engine-web/player/player.js', import.meta.url), 'utf8');
 const helpers = player.slice(player.indexOf('const saveKey ='), player.indexOf('function startRunning()'));
 
+test('pause save controls share restart styling and accessible touch targets', () => {
+  const html = readFileSync(new URL('../crates/engine-web/player/index.html', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../crates/engine-web/player/style.css', import.meta.url), 'utf8');
+  for (const id of ['restart', 'save-game', 'load-game']) {
+    assert.match(html, new RegExp(`id="${id}" class="pause-menu-button"`));
+  }
+  assert.match(css, /\.pause-menu-button\{[^}]*min-height:44px/);
+  assert.match(css, /\.pause-menu-button:disabled\{[^}]*background:#596268/);
+});
+
 function setup(pathname = '/game/') {
   const values = new Map();
   const loaded = [];
   const window = { addEventListener(type, fn) { this[type] = fn; } };
+  const elements = new Map();
+  const $ = id => {
+    if (!elements.has(id)) elements.set(id, { addEventListener(type, fn) { this[type] = fn; } });
+    return elements.get(id);
+  };
   const context = vm.createContext({
-    window, location: { pathname }, ready: true, netEndpoint: null, inputSettings: { open: false }, console,
+    window, location: { pathname }, ready: true, netEndpoint: null, inputSettings: { open: false }, console, $, setTimeout: () => 1, clearTimeout() {},
     game: { save_game: () => '{"version":1}' },
     localStorage: { setItem: (k, v) => values.set(k, v), getItem: k => values.get(k) ?? null },
     restart: async save => loaded.push(save), startRunning: () => loaded.push('running'),
   });
   vm.runInContext(helpers, context);
-  return { context, window, values, loaded };
+  return { context, window, values, loaded, $ };
 }
 
 test('save helpers persist per game and restore through runtime reload', async () => {
@@ -55,6 +70,36 @@ test('F5 and F9 suppress browser navigation and ignore held repeats', async () =
   key('KeyA'); assert.equal(prevented, 3);
 });
 
+test('checkpoint autosave saves once per request, not on initial load or restore', () => {
+  const { context, values, $ } = setup();
+  vm.runInContext('checkpointAutosave({}, true); checkpointAutosave({});', context);
+  assert.equal(values.size, 0);
+  vm.runInContext('checkpointAutosave({_autosave:1});', context);
+  assert.equal(values.size, 1);
+  assert.equal($('save-status').textContent, 'Gespeichert');
+  context.game.save_game = () => { throw Error('should not save'); };
+  vm.runInContext('checkpointAutosave({_autosave:1}); checkpointAutosave({_autosave:2}, true); checkpointAutosave({_autosave:2});', context);
+  assert.equal($('save-status').textContent, 'Gespeichert');
+  context.localStorage.setItem = () => { throw Error('quota'); };
+  vm.runInContext('checkpointAutosave({_autosave:3});', context);
+  assert.equal($('save-status').textContent, 'Speichern fehlgeschlagen');
+});
+
+test('pause menu save and load are clickable and missing saves are disabled', async () => {
+  const { context, $, loaded } = setup();
+  vm.runInContext('updateSaveMenu()', context);
+  assert.equal($('load-game').disabled, true);
+  assert.match($('load-game').title, /kein Spielstand/);
+  $('save-game').click();
+  assert.equal($('load-game').disabled, false);
+  await $('load-game').click();
+  assert.deepEqual(loaded, ['{"version":1}', 'running']);
+  context.restart = async () => { throw Error('bad save'); };
+  await $('load-game').click();
+  assert.equal($('save-status').textContent, 'Laden fehlgeschlagen');
+  assert.equal($('load-game').disabled, false);
+});
+
 test('authoritative multiplayer rejects local save/load without touching storage or restarting', async () => {
   const {context,window,values,loaded}=setup();
   context.netEndpoint='ws://localhost:7790';
@@ -62,6 +107,24 @@ test('authoritative multiplayer rejects local save/load without touching storage
   await assert.rejects(window.__aiLoadGame(),/Multiplayer/);
   assert.equal(values.size,0);
   assert.deepEqual(loaded,[]);
+});
+
+test('multiplayer pause menu disables both save controls with a German hint', () => {
+  const { context, window, $ } = setup();
+  for (const hasSave of [false, true]) {
+    context.netEndpoint = null;
+    if (hasSave) window.__aiSaveGame();
+    context.netEndpoint = 'ws://localhost:7790';
+    vm.runInContext('updateSaveMenu()', context);
+    for (const id of ['save-game', 'load-game']) {
+      assert.equal($(id).disabled, true);
+      assert.equal($(id).title, 'Im Multiplayer nicht verfügbar');
+    }
+  }
+  context.netEndpoint = null;
+  vm.runInContext('updateSaveMenu()', context);
+  assert.equal($('save-game').disabled, false);
+  assert.equal($('load-game').disabled, false);
 });
 
 test('save hotkeys do not dismiss an open settings dialog or navigate the browser', async () => {
